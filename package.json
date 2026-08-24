@@ -1,0 +1,74 @@
+{
+  "name": "stock-card",
+  "version": "1.0.0",
+  "description": "StockCard — desktop transparent crypto chart widget (Electron + Lightweight Charts + Binance)",
+  "main": "main/main.js",
+  "author": "ccvs04306102@gmail.com",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-datafeed.mjs",
+    "check": "node scripts/check-syntax.js",
+    "postinstall": "node scripts/sync-vendor.js",
+    "icon": "node scripts/gen-icon.js",
+    "dist": "npm run icon && electron-builder --win nsis portable",
+    "pack": "npm run icon && electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.stockcard.desktop",
+    "productName": "StockCard",
+    "copyright": "Copyright (c) 2026",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main/**/*",
+      "preload/**/*",
+      "renderer/**/*",
+      "build/icon.png",
+      "build/tray.png",
+      "build/tray@2x.png",
+      "package.json",
+      "!**/*.map"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "StockCard"
+    },
+    "portable": {
+      "artifactName": "StockCard-${version}-portable.exe"
+    }
+  },
+  "dependencies": {
+    "electron-store": "8.2.0",
+    "lightweight-charts": "^5.2.1"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.0.12"
+  }
+}

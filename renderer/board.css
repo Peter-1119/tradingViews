@@ -1,0 +1,108 @@
+/* Board mode: a single transparent window holding a CSS-grid of cards (spec 4.1). */
+
+.board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  padding: 6px;
+  gap: 6px;
+}
+
+/* The only drag region in Board mode — card title bars are used for reordering. */
+.board__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 999px;
+  background: rgba(11, 15, 23, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  -webkit-app-region: drag;
+}
+
+.board__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: rgba(203, 213, 225, 0.75);
+}
+
+.board__count {
+  font-size: 10px;
+  color: rgba(203, 213, 225, 0.45);
+}
+
+.board__tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.board__cols {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  padding-right: 6px;
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.board__cols-value {
+  min-width: 14px;
+  text-align: center;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(203, 213, 225, 0.6);
+}
+
+.board__grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(140px, 1fr);
+  gap: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-app-region: no-drag;
+}
+
+.board__grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.board__grid::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 3px;
+}
+
+.board__empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: var(--radius);
+  color: rgba(203, 213, 225, 0.55);
+  font-size: 11px;
+}
+
+/* In Board mode a card title bar is a reorder handle, not a window drag region. */
+.board .card__bar {
+  cursor: grab;
+}
+
+.board .card.is-dragging {
+  opacity: 0.55;
+  outline: 1px solid rgba(79, 143, 247, 0.7);
+  cursor: grabbing;
+}
+
+.board .card.is-drop-target {
+  outline: 1px dashed rgba(79, 143, 247, 0.7);
+}
