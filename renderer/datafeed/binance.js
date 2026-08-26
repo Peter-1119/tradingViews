@@ -24,6 +24,19 @@ const PROACTIVE_RECYCLE_MS = 23 * 60 * 60 * 1000; // stay ahead of the 24h cut
 const SYMBOLS_CACHE_KEY = 'stockcard.symbols.v1';
 const SYMBOLS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Coalescing window for trade-driven bar updates.
+ *
+ * Binance pushes `@kline_*` once a second, which is the real ceiling on how
+ * fresh the candle looks. `@aggTrade` has no such throttle -- it fires per
+ * trade, which on a liquid pair is dozens of messages a second, all of which
+ * would cross an IPC hop and repaint a widget the size of a postage stamp.
+ * So trades fold into the forming bar locally and only the newest state is
+ * forwarded, at most once per window. 100ms is smooth to the eye and caps the
+ * cost at 10 updates/sec per card no matter how hot the tape runs.
+ */
+const LIVE_TICK_MS = 100;
+
 /** Binance kline array -> our Bar. */
 function toBar(k) {
   return {
@@ -58,12 +71,21 @@ function tickerStream(symbol) {
   return `${symbol.toLowerCase()}@miniTicker`;
 }
 
+function aggTradeStream(symbol) {
+  return `${symbol.toLowerCase()}@aggTrade`;
+}
+
+/** Every stream one card needs. Ref-counting walks this list in both directions. */
+function streamsFor(symbol, interval) {
+  return [klineStream(symbol, interval), tickerStream(symbol), aggTradeStream(symbol)];
+}
+
 export class BinanceProvider extends DataProvider {
   constructor({ logger = console } = {}) {
     super();
     this.logger = logger;
 
-    /** subId -> {symbol, interval, handlers, lastBarTime} */
+    /** subId -> {symbol, interval, handlers, lastBarTime, liveBar, tickTimer, lastEmitAt} */
     this.subs = new Map();
     /** stream name -> refcount */
     this.streamRefs = new Map();
@@ -232,18 +254,25 @@ export class BinanceProvider extends DataProvider {
     const upper = symbol.toUpperCase();
     const previous = this.subs.get(subId);
 
+    if (previous) this.cancelPendingTick(previous);
+
     this.subs.set(subId, {
       symbol: upper,
       interval,
       handlers,
       lastBarTime: 0,
+      // The candle currently forming. Kline frames replace it wholesale; trades
+      // mutate it in place between them. Null until the first kline arrives.
+      liveBar: null,
+      tickTimer: null,
+      lastEmitAt: 0,
     });
 
     // Acquire the new streams *before* releasing the old ones. Releasing first
     // would let the refcount hit zero on a single-card app, closing the shared
     // socket and forcing a reconnect just to change symbol.
     const added = [];
-    for (const stream of [klineStream(upper, interval), tickerStream(upper)]) {
+    for (const stream of streamsFor(upper, interval)) {
       const next = (this.streamRefs.get(stream) || 0) + 1;
       this.streamRefs.set(stream, next);
       if (next === 1) added.push(stream);
@@ -251,10 +280,7 @@ export class BinanceProvider extends DataProvider {
 
     const removed = [];
     if (previous) {
-      for (const stream of [
-        klineStream(previous.symbol, previous.interval),
-        tickerStream(previous.symbol),
-      ]) {
+      for (const stream of streamsFor(previous.symbol, previous.interval)) {
         const next = (this.streamRefs.get(stream) || 1) - 1;
         if (next <= 0) {
           this.streamRefs.delete(stream);
@@ -281,9 +307,10 @@ export class BinanceProvider extends DataProvider {
     const sub = this.subs.get(subId);
     if (!sub) return;
     this.subs.delete(subId);
+    this.cancelPendingTick(sub);
 
     const removed = [];
-    for (const stream of [klineStream(sub.symbol, sub.interval), tickerStream(sub.symbol)]) {
+    for (const stream of streamsFor(sub.symbol, sub.interval)) {
       const next = (this.streamRefs.get(stream) || 1) - 1;
       if (next <= 0) {
         this.streamRefs.delete(stream);
@@ -427,6 +454,48 @@ export class BinanceProvider extends DataProvider {
     this.ws.send(JSON.stringify({ method, params, id: this.requestId++ }));
   }
 
+  /* ------------------------------------------------- live bar delivery */
+
+  cancelPendingTick(sub) {
+    if (sub.tickTimer === null) return;
+    clearTimeout(sub.tickTimer);
+    sub.tickTimer = null;
+  }
+
+  /** Hand the subscriber a snapshot -- never `liveBar` itself, which we keep mutating. */
+  flushBar(sub) {
+    if (!sub.liveBar) return;
+    sub.lastEmitAt = Date.now();
+    if (sub.handlers.onBar) sub.handlers.onBar({ ...sub.liveBar });
+  }
+
+  /**
+   * Forward `sub.liveBar`, at most once per LIVE_TICK_MS.
+   *
+   * `immediate` is for authoritative kline frames: they arrive at 1/s, they
+   * carry the exchange's own numbers, and delaying one to satisfy the window
+   * would only make the candle staler. Trade-driven updates take the slow lane
+   * -- if the window is still open, one trailing timer is armed and every trade
+   * until it fires just overwrites `liveBar`, so the tape can run as hot as it
+   * likes and the card still sees exactly one repaint per window.
+   */
+  deliverBar(sub, { immediate = false } = {}) {
+    if (!sub.liveBar) return;
+
+    const waited = Date.now() - sub.lastEmitAt;
+    if (immediate || waited >= LIVE_TICK_MS) {
+      this.cancelPendingTick(sub);
+      this.flushBar(sub);
+      return;
+    }
+    if (sub.tickTimer !== null) return; // a flush is already on its way
+
+    sub.tickTimer = setTimeout(() => {
+      sub.tickTimer = null;
+      this.flushBar(sub);
+    }, LIVE_TICK_MS - waited);
+  }
+
   /* ------------------------------------------------------------ dispatch */
 
   dispatch(data) {
@@ -437,7 +506,39 @@ export class BinanceProvider extends DataProvider {
       for (const sub of this.subs.values()) {
         if (sub.symbol !== symbol || sub.interval !== interval) continue;
         sub.lastBarTime = Math.max(sub.lastBarTime, bar.time);
-        if (sub.handlers.onBar) sub.handlers.onBar(bar);
+        sub.liveBar = bar;
+        this.deliverBar(sub, { immediate: true });
+      }
+      return;
+    }
+
+    if (data.e === 'aggTrade') {
+      const price = Number(data.p);
+      if (!Number.isFinite(price)) return;
+      const qty = Number(data.q);
+      const tradeMs = Number(data.T);
+
+      for (const sub of this.subs.values()) {
+        if (sub.symbol !== data.s) continue;
+
+        // Only extend a candle we have already been told about. Without a kline
+        // to anchor to -- or once this one has closed -- opening the next candle
+        // from a trade would mean guessing a bar boundary the exchange has not
+        // confirmed, and a bar invented one tick early is a bar the next kline
+        // has to fight. The gap is under a second; let the kline roll it.
+        const live = sub.liveBar;
+        if (!live || live.closed) continue;
+        if (Number.isFinite(tradeMs) && tradeMs >= live.time * 1000 + intervalToMs(sub.interval)) {
+          continue;
+        }
+
+        live.close = price;
+        if (price > live.high) live.high = price;
+        if (price < live.low) live.low = price;
+        // Drift here is bounded by one kline frame, which overwrites it outright.
+        if (Number.isFinite(qty)) live.volume += qty;
+
+        this.deliverBar(sub);
       }
       return;
     }
@@ -482,9 +583,17 @@ export class BinanceProvider extends DataProvider {
         if (!current || current !== sub) return;
 
         const fresh = bars.filter((b) => b.time >= sub.lastBarTime);
+        // A trailing flush armed before the outage would replay a bar older than
+        // the gap we are about to fill, so drop it rather than let it land late.
+        this.cancelPendingTick(sub);
         for (const bar of fresh) {
           sub.lastBarTime = Math.max(sub.lastBarTime, bar.time);
           if (sub.handlers.onBar) sub.handlers.onBar(bar);
+        }
+        const last = fresh[fresh.length - 1];
+        if (last && !last.closed) {
+          sub.liveBar = { ...last };
+          sub.lastEmitAt = Date.now();
         }
         this.log(`backfilled ${fresh.length} bars for ${sub.symbol} ${sub.interval}`);
       } catch (err) {
@@ -498,6 +607,7 @@ export class BinanceProvider extends DataProvider {
   destroy() {
     window.removeEventListener('online', this.handleOnline);
     window.removeEventListener('offline', this.handleOffline);
+    for (const sub of this.subs.values()) this.cancelPendingTick(sub);
     this.subs.clear();
     this.streamRefs.clear();
     this.disconnect(STATUS.IDLE);

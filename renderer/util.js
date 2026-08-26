@@ -122,6 +122,18 @@ export const STATUS_LABELS = {
   idle: '尚未連線',
 };
 
+/**
+ * The short form shown on the card itself when the feed is in trouble.
+ *
+ * `live` and `idle` are deliberately absent: a working feed should say nothing.
+ * Keep these to three characters -- the badge shares a 26px bar with the symbol
+ * and the price on a card that may only be 300px wide.
+ */
+export const STATUS_BADGES = {
+  reconnecting: '重連中',
+  offline: '離線',
+};
+
 export const INTERVAL_LABELS = {
   '1m': '1 分',
   '5m': '5 分',

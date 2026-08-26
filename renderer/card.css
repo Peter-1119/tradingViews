@@ -163,11 +163,51 @@ button {
   color: var(--down);
 }
 
+/*
+ * Connection trouble in words, next to the dot that colours it.
+ *
+ * Deliberately not in the hover-fade group above: the whole point is that a
+ * dead feed announces itself on a card nobody is pointing at. It is a flex
+ * child rather than an overlay so that when it does appear it pushes the
+ * symbol along instead of sitting on top of it.
+ */
+.card__link {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 5px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  /* Readable even at the lowest card opacity, over whatever is on the desktop. */
+  backdrop-filter: blur(2px);
+}
+
+.card__link[hidden] {
+  display: none;
+}
+
+.card__link[data-status='reconnecting'] {
+  color: #fde68a;
+  background: rgba(234, 179, 8, 0.24);
+  border: 1px solid rgba(234, 179, 8, 0.5);
+  animation: sc-pulse 1.1s ease-in-out infinite;
+}
+
+.card__link[data-status='offline'] {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.24);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+}
+
 /* Connection indicator: always visible, never a modal error (spec 4.3). */
 .card__dot {
   position: absolute;
   left: 9px;
-  top: 50%;
+  /* Centred on the 26px title bar, not on the card: `top: 50%` put it halfway
+     down a 220px card, i.e. floating over the middle of the chart, a long way
+     from the badge that explains it. */
+  top: 13px;
   transform: translateY(-50%);
   width: 6px;
   height: 6px;

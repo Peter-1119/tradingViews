@@ -14,11 +14,19 @@ import assert from 'node:assert/strict';
 
 /* ------------------------------------------------------------ fake clock */
 
-let now = 0;
+/** Tests start at a realistic epoch: the provider reasons about wall-clock gaps. */
+const START_MS = 1_700_000_000_000;
+
+let now = START_MS;
 let nextTimerId = 1;
 const timers = [];
 
 const realSetTimeout = globalThis.setTimeout;
+const realDateNow = Date.now;
+
+// The coalescing window compares Date.now() against the last flush, so the
+// fake clock has to drive both halves or `advance()` proves nothing.
+Date.now = () => now;
 
 globalThis.setTimeout = (fn, delay = 0, ...args) => {
   const timer = { id: nextTimerId++, at: now + delay, fn, args };
@@ -176,6 +184,13 @@ function klineEvent(symbol, interval, openTimeMs, close, closed) {
   };
 }
 
+function aggTradeEvent(symbol, price, qty, tradeMs) {
+  return {
+    stream: `${symbol.toLowerCase()}@aggTrade`,
+    data: { e: 'aggTrade', s: symbol, p: String(price), q: String(qty), T: tradeMs },
+  };
+}
+
 /* ------------------------------------------------------------------ run */
 
 const { BinanceProvider } = await import('../renderer/datafeed/binance.js');
@@ -186,7 +201,7 @@ async function test(name, fn) {
   timers.length = 0;
   fetchCalls = [];
   klineResponder = null;
-  now = 0;
+  now = START_MS;
   try {
     await fn();
     results.push({ name, ok: true });
@@ -209,7 +224,10 @@ await test('one connection serves many cards, streams are ref-counted', async ()
   await flush();
 
   assert.equal(sockets.length, 1, 'a second card must not open a second socket');
-  assert.deepEqual(sockets[0].streams.sort(), ['btcusdt@kline_1m', 'btcusdt@miniTicker'].sort());
+  assert.deepEqual(
+    sockets[0].streams.sort(),
+    ['btcusdt@kline_1m', 'btcusdt@miniTicker', 'btcusdt@aggTrade'].sort()
+  );
   sockets[0].open();
 
   provider.subscribe('card-c', 'ETHUSDT', '1m', {});
@@ -218,6 +236,7 @@ await test('one connection serves many cards, streams are ref-counted', async ()
   assert.deepEqual(sockets[0].sent.at(-1).params.sort(), [
     'ethusdt@kline_1m',
     'ethusdt@miniTicker',
+    'ethusdt@aggTrade',
   ].sort());
 
   // BTCUSDT still has one holder, so nothing may be unsubscribed yet.
@@ -230,6 +249,7 @@ await test('one connection serves many cards, streams are ref-counted', async ()
   assert.deepEqual(sockets[0].sent.at(-1).params.sort(), [
     'btcusdt@kline_1m',
     'btcusdt@miniTicker',
+    'btcusdt@aggTrade',
   ].sort());
 
   provider.unsubscribe('card-c');
@@ -251,6 +271,76 @@ await test('kline events become bars and carry the closed flag', async () => {
   assert.equal(bars[0].close, 101.5);
   assert.equal(bars[0].closed, false, 'in-progress candle');
   assert.equal(bars[1].closed, true, 'x:true marks the candle final');
+});
+
+await test('trades extend the forming candle, coalesced to one update per window', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  const bars = [];
+  provider.subscribe('card', 'BTCUSDT', '1m', { onBar: (b) => bars.push(b) });
+  sockets[0].open();
+
+  const openMs = 1_700_000_000_000;
+  sockets[0].emit(klineEvent('BTCUSDT', '1m', openMs, 101.5, false));
+  assert.equal(bars.length, 1, 'the authoritative kline must not wait for the window');
+
+  // A burst on a hot tape: dozens of trades inside one 100ms window.
+  for (let i = 0; i < 40; i++) {
+    sockets[0].emit(aggTradeEvent('BTCUSDT', 105, 1, openMs + i));
+  }
+  sockets[0].emit(aggTradeEvent('BTCUSDT', 115, 1, openMs + 41));
+  assert.equal(bars.length, 1, 'trades inside the window must not each reach the card');
+
+  advance(100);
+  assert.equal(bars.length, 2, 'a whole burst collapses into exactly one repaint');
+
+  const live = bars[1];
+  assert.equal(live.close, 115, 'the newest trade wins; the rest are skipped');
+  assert.equal(live.high, 115, 'a trade above the kline high extends the candle');
+  assert.equal(live.low, 90, 'the kline low stands when no trade goes under it');
+  assert.equal(live.time, bars[0].time, 'trades extend the candle, they never open one');
+  assert.equal(live.volume, 42 + 41, 'trade size accumulates onto the kline volume');
+});
+
+await test('a trade past the candle boundary waits for the kline to roll it', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  const bars = [];
+  provider.subscribe('card', 'BTCUSDT', '1m', { onBar: (b) => bars.push(b) });
+  sockets[0].open();
+
+  const openMs = 1_700_000_000_000;
+  sockets[0].emit(klineEvent('BTCUSDT', '1m', openMs, 101.5, false));
+
+  // One minute on: this trade belongs to the *next* candle, which no kline has
+  // announced yet. Folding it in here would corrupt the one still on screen.
+  sockets[0].emit(aggTradeEvent('BTCUSDT', 200, 1, openMs + MINUTE));
+  advance(100);
+  assert.equal(bars.length, 1, 'a next-candle trade must not touch the current one');
+
+  // Same once the candle is final.
+  sockets[0].emit(klineEvent('BTCUSDT', '1m', openMs, 102.5, true));
+  assert.equal(bars.length, 2);
+  sockets[0].emit(aggTradeEvent('BTCUSDT', 300, 1, openMs + 100));
+  advance(100);
+  assert.equal(bars.length, 2, 'a closed candle is final, whatever trades follow');
+});
+
+await test('no trade is lost: the last one in a window still lands', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  const bars = [];
+  provider.subscribe('card', 'BTCUSDT', '1m', { onBar: (b) => bars.push(b) });
+  sockets[0].open();
+
+  const openMs = 1_700_000_000_000;
+  sockets[0].emit(klineEvent('BTCUSDT', '1m', openMs, 101.5, false));
+
+  sockets[0].emit(aggTradeEvent('BTCUSDT', 108, 1, openMs + 1));
+  advance(100);
+  sockets[0].emit(aggTradeEvent('BTCUSDT', 109, 1, openMs + 2));
+  advance(100);
+
+  assert.equal(bars.length, 3, 'trades in separate windows each get their own update');
+  assert.equal(bars.at(-1).close, 109);
+  assert.notEqual(bars[1], bars[2], 'each update must be its own object, not a shared mutable bar');
 });
 
 await test('miniTicker yields the 24h change percentage', async () => {
@@ -299,7 +389,14 @@ await test('reconnecting re-subscribes every stream', async () => {
   const reconnected = sockets.at(-1);
   assert.deepEqual(
     reconnected.streams.sort(),
-    ['btcusdt@kline_1m', 'btcusdt@miniTicker', 'ethusdt@kline_5m', 'ethusdt@miniTicker'].sort(),
+    [
+      'btcusdt@kline_1m',
+      'btcusdt@miniTicker',
+      'btcusdt@aggTrade',
+      'ethusdt@kline_5m',
+      'ethusdt@miniTicker',
+      'ethusdt@aggTrade',
+    ].sort(),
     'the new socket must carry the full stream set'
   );
 });
@@ -351,6 +448,7 @@ await test('changing symbol replaces the subscription instead of stacking one', 
   assert.deepEqual([...provider.streamRefs.keys()].sort(), [
     'ethusdt@kline_1m',
     'ethusdt@miniTicker',
+    'ethusdt@aggTrade',
   ].sort());
   assert.equal(sockets.length, 1, 'switching symbols must not reconnect');
 });
@@ -378,6 +476,7 @@ await test('symbol search ranks exact and USDT pairs first, and caches the list'
 /* ---------------------------------------------------------------- report */
 
 globalThis.setTimeout = realSetTimeout;
+Date.now = realDateNow;
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

@@ -14,6 +14,7 @@ import {
   formatPrice,
   formatPercent,
   prettySymbol,
+  STATUS_BADGES,
   STATUS_LABELS,
   INTERVAL_LABELS,
 } from './util.js';
@@ -106,11 +107,16 @@ export class CardView {
       this.closeBtn
     );
 
+    // Sits *in* the bar rather than over it, and outside the hover-fade group:
+    // a dropped feed is the one thing the card must be able to say unprompted.
+    this.link = el('span.card__link', { hidden: true });
+
     // The bar keeps its box at all times so the Float drag region never moves;
     // only its contents fade in on hover (spec 4.3, "hover 才浮現").
     this.bar = el(
       'div.card__bar',
       { class: this.windowControls ? 'is-draggable' : '' },
+      this.link,
       el('div.card__id', {}, this.symbolEl, this.intervalEl),
       el('div.card__quote', {}, this.priceEl, this.changeEl),
       this.tools
@@ -321,6 +327,15 @@ export class CardView {
     this.status = status;
     this.dot.dataset.status = status;
     this.dot.title = STATUS_LABELS[status] || status;
+
+    // The dot is 6px and its tooltip needs a hover that click-through mode will
+    // never deliver, so trouble gets said in words as well.
+    const badge = STATUS_BADGES[status];
+    this.link.hidden = !badge;
+    this.link.textContent = badge || '';
+    this.link.title = badge ? STATUS_LABELS[status] || status : '';
+    if (badge) this.link.dataset.status = status;
+    else delete this.link.dataset.status;
   }
 
   setClickThrough(enabled) {

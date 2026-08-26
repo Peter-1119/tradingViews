@@ -90,9 +90,11 @@ Chromium 不允許從 `file://` 載入 ES module(來源是 opaque origin,CORS �
 一律走 Binance 公開現貨端點:
 
 - 歷史 K 線 `GET /api/v3/klines`(500 根)
-- 即時 `wss://stream.binance.com:9443/stream` combined stream,`@kline_<interval>` + `@miniTicker`
+- 即時 `wss://stream.binance.com:9443/stream` combined stream,`@kline_<interval>` + `@miniTicker` + `@aggTrade`
 - 交易對清單 `GET /api/v3/exchangeInfo`,快取 24 小時
 - 24h 漲跌:啟動打一次 `/ticker/24hr`,之後由 miniTicker 更新
+
+**更新頻率**:Binance 的 `@kline_*` 固定每秒推一次,這是 K 棒官方數值的上限。為了讓價格跳得更即時,另外訂了逐筆的 `@aggTrade`,在兩次 kline 之間把成交價併進「正在形成的那根」的 close / high / low / volume。逐筆訊息在 hub 端以 **100ms** 為窗口合併(`LIVE_TICK_MS`),同一窗口內只有最後一筆會送出去,所以不論行情多熱,每張卡最多每秒 10 次重繪。kline 一到就立刻覆蓋回官方數值,誤差最多存活一秒。跨棒的那一刻不自己開新 K 棒,等 kline 來 roll。
 
 **連線韌性**:斷線後 1s → 2s → 4s → … → 30s 指數退避重連;重連成功會重新訂閱全部 stream,並用 REST 補齊斷線期間缺的 K 線再接回即時流;另外會在 23 小時主動換一條連線,避開 Binance 24 小時強制斷線。卡片左上角小圓點顯示狀態(綠=即時、黃=重連中、紅=離線),不會跳任何錯誤視窗。
 
