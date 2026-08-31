@@ -24,11 +24,22 @@ const state = {
   board: null,
   allHidden: false,
   clickThrough: false,
+  // Set by shutdown(). Teardown fires the same events as a user closing one
+  // card, and those handlers must not start work the process will not survive.
+  quitting: false,
   isDev: process.argv.includes('--dev'),
   openDevTools: process.argv.includes('--devtools'),
 };
 
 const boundsTimers = new Map();
+
+/**
+ * How often to shove the pinned cards back to the front of the topmost band.
+ * Long enough to be invisible in a profiler, short enough that a card buried by
+ * a full-screen app is back within a few seconds rather than lost for good.
+ */
+const ON_TOP_REASSERT_MS = 3000;
+let onTopTimer = null;
 
 /* ------------------------------------------------------------- helpers */
 
@@ -53,6 +64,19 @@ function flushPersistTimers() {
   boundsTimers.clear();
 }
 
+/**
+ * A window is only safe to send to while *both* halves are alive.
+ *
+ * `win.isDestroyed()` is not enough: on quit Electron tears the webContents
+ * down first and the BrowserWindow only emits `closed` afterwards, so there is
+ * a window where the wrapper still looks healthy and `webContents.send()`
+ * throws "Object has been destroyed". Card teardown emits IPC in exactly that
+ * gap, which is what crashed the main process on exit.
+ */
+function canSend(win) {
+  return !!win && !win.isDestroyed() && !!win.webContents && !win.webContents.isDestroyed();
+}
+
 /** Every window that hosts card UI (i.e. everything except the hidden hub). */
 function contentWindows() {
   const list = [...state.cards.values()];
@@ -62,19 +86,17 @@ function contentWindows() {
 
 function broadcast(channel, payload) {
   for (const win of contentWindows()) {
-    win.webContents.send(channel, payload);
+    if (canSend(win)) win.webContents.send(channel, payload);
   }
 }
 
 function sendToHub(channel, payload) {
-  if (state.hub && !state.hub.isDestroyed()) {
-    state.hub.webContents.send(channel, payload);
-  }
+  if (canSend(state.hub)) state.hub.webContents.send(channel, payload);
 }
 
 function sendToWebContents(id, channel, payload) {
   for (const win of [...contentWindows(), state.hub]) {
-    if (win && !win.isDestroyed() && win.webContents.id === id) {
+    if (canSend(win) && win.webContents.id === id) {
       win.webContents.send(channel, payload);
       return true;
     }
@@ -335,7 +357,44 @@ function updateCard(cardId, patch) {
 function showAll() {
   state.allHidden = false;
   for (const win of contentWindows()) win.showInactive();
+  // Ctrl+Alt+S doubles as the manual repair for a buried card, so do not wait
+  // for the watchdog's next pass to put it back on top.
+  reassertAlwaysOnTop();
   broadcast('app:visibility', { hidden: false });
+}
+
+/**
+ * Push every pinned card back to the front of the topmost band.
+ *
+ * Windows has exactly one topmost band -- there is no z-order above
+ * HWND_TOPMOST the way macOS has window levels -- so any other app that goes
+ * topmost or full-screen lands *above* our cards and simply stays there. Photo
+ * viewers and video players do this routinely, which is why it shows up while
+ * looking at images. Nothing in Electron notices: the flag was never cleared,
+ * `isAlwaysOnTop()` still answers true, the card is just buried. And because
+ * cards are `skipTaskbar`, there is no taskbar button to dig one back out with,
+ * so "covered" reads as "gone". Re-asserting the position is the only repair.
+ */
+function reassertAlwaysOnTop() {
+  if (state.quitting || state.allHidden) return;
+  for (const win of contentWindows()) {
+    if (!win.isAlwaysOnTop() || !win.isVisible()) continue;
+    // setAlwaysOnTop repairs the flag in the rarer case Windows really did drop
+    // it; moveTop repairs the ordering *within* the band, which is the common
+    // one. Neither subsumes the other.
+    win.setAlwaysOnTop(true, 'floating');
+    win.moveTop();
+  }
+}
+
+function startAlwaysOnTopWatch() {
+  if (onTopTimer) return;
+  onTopTimer = setInterval(reassertAlwaysOnTop, ON_TOP_REASSERT_MS);
+}
+
+function stopAlwaysOnTopWatch() {
+  clearInterval(onTopTimer);
+  onTopTimer = null;
 }
 
 function hideAll() {
@@ -417,9 +476,13 @@ function bootstrap() {
       for (const card of cards) createCardWindow(card);
     }
   }
+
+  startAlwaysOnTopWatch();
 }
 
 function shutdown() {
+  state.quitting = true;
+  stopAlwaysOnTopWatch();
   flushPersistTimers();
   // Persist final geometry so the next launch restores exactly what was on screen.
   for (const [id, win] of state.cards) {
@@ -452,6 +515,7 @@ module.exports = {
   toggleShowAll,
   isHidden,
   setAlwaysOnTopAll,
+  reassertAlwaysOnTop,
   setClickThrough,
   toggleClickThrough,
   isClickThrough,

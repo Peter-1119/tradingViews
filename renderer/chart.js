@@ -10,6 +10,7 @@
 
 import {
   createChart,
+  CrosshairMode,
   CandlestickSeries,
   LineSeries,
   AreaSeries,
@@ -17,6 +18,10 @@ import {
 } from './vendor/lightweight-charts.mjs';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
+
+/** Volume sub-pane sizing. Below ~30px the histogram is not readable at all. */
+const VOLUME_PANE_RATIO = 0.24;
+const MIN_VOLUME_PANE_PX = 30;
 
 const PALETTE = {
   greenUp: { up: '#26c281', down: '#ed5465' },
@@ -100,6 +105,8 @@ export class CardChart {
         lockVisibleTimeRangeOnResize: true,
       },
       crosshair: {
+        // Explicit, because Ctrl toggles it -- see setCrosshairFree().
+        mode: CrosshairMode.Magnet,
         vertLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
         horzLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
       },
@@ -109,6 +116,37 @@ export class CardChart {
         priceFormatter: (price) => this.formatPrice(price),
       },
     });
+
+    this.crosshairMode = CrosshairMode.Magnet;
+    this.paneRetryTimer = null;
+
+    /*
+     * Hold Ctrl to read an arbitrary price level.
+     *
+     * Magnet mode snaps the horizontal line to the hovered bar's close, which
+     * is what you want for reading the series and useless for eyeballing a
+     * level *between* bars -- a support line, a target, the distance to a round
+     * number. Ctrl drops the magnet for as long as it is held.
+     *
+     * This rides the crosshair's own mouse events rather than keydown/keyup on
+     * purpose: cards are shown with `showInactive()` and never take focus, so a
+     * key listener would hear nothing at all. The price of that is that the
+     * switch lands on the next mouse movement rather than the instant Ctrl goes
+     * down.
+     *
+     * The early return matters. This fires for redraws too -- a new bar, or our
+     * own applyOptions below -- and those carry no `sourceEvent` and therefore
+     * no modifier state. Reading one as "Ctrl released" flips the mode back a
+     * frame after every switch, which at 100ms bar updates means Ctrl appears
+     * to do nothing at all. Mouse leaving the chart is handled separately.
+     */
+    this.chart.subscribeCrosshairMove((param) => {
+      if (!param.sourceEvent) return;
+      this.setCrosshairFree(param.sourceEvent.ctrlKey);
+    });
+
+    this.onPointerLeave = () => this.setCrosshairFree(false);
+    container.addEventListener('mouseleave', this.onPointerLeave);
 
     this.priceSeries = null;
     this.volumeSeries = null;
@@ -222,17 +260,50 @@ export class CardChart {
     this.layoutPanes();
   }
 
-  /** Pane heights are pixel values, so they need recomputing whenever we resize. */
-  layoutPanes() {
+  /**
+   * Pane heights are pixel values, so they need recomputing whenever we resize.
+   *
+   * `setHeight()` is not a plain setter. Internally it derives the new split
+   * from the panes' *current* pixel heights:
+   *
+   *     const totalHeight = panes.reduce((s, p) => s + p.height(), 0);
+   *     const pixelStretchFactor = totalStretch / totalHeight;
+   *
+   * So calling it on a pane the chart has not laid out yet does the arithmetic
+   * against a height of 0 and silently does nothing -- no throw, no effect. The
+   * volume pane is then stuck at zero height, and since the only other caller
+   * of this is the ResizeObserver, it stays stuck until the card is resized.
+   * That is exactly the "toggle it on, nothing looks right until I drag the
+   * corner" failure, so verify the result and take one more run at it.
+   */
+  layoutPanes({ retry = true } = {}) {
     const panes = this.chart.panes();
     if (panes.length < 2) return;
     const total = this.container.clientHeight || 200;
-    const volumeHeight = Math.max(30, Math.round(total * 0.24));
+    const volumeHeight = Math.max(MIN_VOLUME_PANE_PX, Math.round(total * VOLUME_PANE_RATIO));
+
     try {
       panes[1].setHeight(volumeHeight);
-    } catch {
-      /* pane can vanish mid-resize during teardown */
+    } catch (err) {
+      // A pane really can vanish mid-resize during teardown. Anything else is
+      // worth seeing -- the old bare `catch {}` here meant a broken layout left
+      // no trace at all.
+      if (this.chart) console.warn('[chart] volume pane layout failed', err);
+      return;
     }
+
+    if (!retry) return;
+    clearTimeout(this.paneRetryTimer);
+    this.paneRetryTimer = setTimeout(() => {
+      this.paneRetryTimer = null;
+      if (!this.chart) return;
+      const current = this.chart.panes();
+      // Zero height means the first attempt landed before the chart had laid
+      // the pane out. Deliberately setTimeout and not requestAnimationFrame:
+      // a hidden or occluded card window gets its frames throttled, which is
+      // when this retry matters most.
+      if (current.length >= 2 && current[1].getHeight() === 0) this.layoutPanes({ retry: false });
+    }, 50);
   }
 
   /* --------------------------------------------------------------- data */
@@ -337,6 +408,15 @@ export class CardChart {
     }
   }
 
+  /** @param {boolean} free  true = follow the pointer, false = snap to close. */
+  setCrosshairFree(free) {
+    const next = free ? CrosshairMode.Normal : CrosshairMode.Magnet;
+    // Called on every crosshair move, so bail before touching the chart.
+    if (next === this.crosshairMode) return;
+    this.crosshairMode = next;
+    this.chart.applyOptions({ crosshair: { mode: next } });
+  }
+
   setVolumeVisible(visible) {
     const next = visible === true;
     if (next === this.showVolume) return;
@@ -381,6 +461,8 @@ export class CardChart {
 
   destroy() {
     this.resizeObserver.disconnect();
+    clearTimeout(this.paneRetryTimer);
+    this.container.removeEventListener('mouseleave', this.onPointerLeave);
     try {
       this.chart.remove();
     } catch {

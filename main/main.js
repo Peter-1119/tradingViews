@@ -301,8 +301,11 @@ app.on('browser-window-created', (_event, win) => {
   }
 
   // Release the hub's subscriptions for a renderer that has gone away, so a
-  // closed card stops costing us a Binance stream.
+  // closed card stops costing us a Binance stream. On quit there is nothing to
+  // reclaim -- the hub is being torn down in the same breath -- and asking it
+  // to would only race its teardown.
   win.webContents.once('destroyed', () => {
+    if (windows.state.quitting) return;
     sendHub('hub:release-owner', { ownerId: wcId });
   });
 

@@ -53,7 +53,18 @@ button {
   flex-direction: column;
   height: 100%;
   width: 100%;
-  overflow: hidden;
+  /*
+   * `clip`, not `hidden`. `hidden` still makes this a scroll container -- it
+   * only removes the scrollbar -- so when focus lands on a control near the
+   * bottom of the settings panel (whose body is ~620px of content), the browser
+   * scrolls *this* box to reveal it and drags the title bar and the chart out
+   * of view. With no scrollbar there is no way back, so the card reads as
+   * having vanished: no ✕, no chart, just an empty translucent rectangle.
+   * `clip` is not a scroll container, so nothing can shift it. The panel body
+   * keeps its own `overflow-y: auto` and still scrolls the focused control into
+   * view, which is where that scrolling belonged in the first place.
+   */
+  overflow: clip;
   border-radius: var(--radius);
   /* Text and chart stay fully opaque; only this background follows the slider. */
   background: rgba(11, 15, 23, var(--card-alpha));
