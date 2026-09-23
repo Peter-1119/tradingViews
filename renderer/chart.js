@@ -656,6 +656,67 @@ export class CardChart {
     return round(nearest);
   }
 
+  /* ------------------------------------------------------------- measuring */
+
+  /**
+   * A chart point in *logical* coordinates rather than pixels.
+   *
+   * `logical` is a fractional bar index, so the point survives panning and
+   * zooming, and unlike a raw timestamp it is still defined out in the
+   * `rightOffset` gap past the last bar, where `timeToCoordinate` gives up.
+   */
+  pointAt(x, y, { magnet = false } = {}) {
+    const logical = this.chart.timeScale().coordinateToLogical(x);
+    const price = this.priceAt(x, y, { magnet });
+    if (logical === null || price === null) return null;
+    return { logical, price };
+  }
+
+  /** @returns {() => void} unsubscribe. Fires on pan and zoom. */
+  onVisibleRangeChange(callback) {
+    const scale = this.chart.timeScale();
+    scale.subscribeVisibleLogicalRangeChange(callback);
+    return () => {
+      try {
+        scale.unsubscribeVisibleLogicalRangeChange(callback);
+      } catch {
+        /* chart already gone */
+      }
+    };
+  }
+
+  pointToPixel(point) {
+    if (!point || !this.priceSeries) return null;
+    const x = this.chart.timeScale().logicalToCoordinate(point.logical);
+    const y = this.priceSeries.priceToCoordinate(point.price);
+    if (x === null || y === null) return null;
+    return { x, y };
+  }
+
+  /**
+   * Seconds per bar, averaged across the cache rather than read from the
+   * interval string -- the chart is not told which interval it is showing, and
+   * an average is exact for a feed with no gaps, which crypto is.
+   */
+  secondsPerBar() {
+    if (this.bars.length < 2) return 0;
+    const first = this.bars[0];
+    const last = this.bars[this.bars.length - 1];
+    return (last.time - first.time) / (this.bars.length - 1);
+  }
+
+  measureStats(a, b) {
+    const priceDelta = b.price - a.price;
+    const bars = Math.round(Math.abs(b.logical - a.logical));
+    return {
+      priceDelta,
+      percent: a.price ? (priceDelta / a.price) * 100 : 0,
+      bars,
+      seconds: bars * this.secondsPerBar(),
+      rising: priceDelta >= 0,
+    };
+  }
+
   /** The cached bar under an x coordinate, via the time scale's logical index. */
   barAt(x) {
     const logical = this.chart.timeScale().coordinateToLogical(x);

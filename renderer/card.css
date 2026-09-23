@@ -175,6 +175,69 @@ button {
 }
 
 /*
+ * Shift-drag measure box. A DOM overlay rather than a chart primitive: it is
+ * two rectangles and a label, the card's CSS already knows how to style it, and
+ * it keeps the chart's render pipeline untouched. Positioned from logical
+ * anchors on every pan/zoom, so it stays glued to its candles.
+ */
+.card__measure {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border: 1px solid;
+  border-radius: 2px;
+  /* A zero-height drag is still a valid time measurement, so never collapse. */
+  min-height: 1px;
+  min-width: 1px;
+}
+
+.card__measure[hidden] {
+  display: none;
+}
+
+.card__measure.is-up {
+  background: rgba(38, 194, 129, 0.16);
+  border-color: rgba(38, 194, 129, 0.75);
+}
+
+.card__measure.is-down {
+  background: rgba(237, 84, 101, 0.16);
+  border-color: rgba(237, 84, 101, 0.75);
+}
+
+.card__measure-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+  text-align: center;
+  color: #0b0f17;
+  font-weight: 600;
+  /* Card is only ~340px wide; never let the readout push past its edges. */
+  max-width: 96vw;
+}
+
+/* Dragging downwards puts the label under the box, following the pointer. */
+.card__measure.is-below .card__measure-label {
+  bottom: auto;
+  top: calc(100% + 4px);
+}
+
+.card__measure.is-up .card__measure-label {
+  background: var(--up);
+}
+
+.card__measure.is-down .card__measure-label {
+  background: var(--down);
+}
+
+/*
  * Connection trouble in words, next to the dot that colours it.
  *
  * Deliberately not in the hover-fade group above: the whole point is that a

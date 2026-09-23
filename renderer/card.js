@@ -115,7 +115,10 @@ async function main() {
   });
 
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') view.panel.close();
+    if (event.key === 'Escape') {
+      view.dismissMeasure();
+      view.panel.close();
+    }
   });
 
   // Keep the chart's pane heights correct as the window resizes.

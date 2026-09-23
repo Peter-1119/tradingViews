@@ -13,6 +13,8 @@ import {
   el,
   formatPrice,
   formatPercent,
+  formatDuration,
+  formatAtPrecision,
   prettySymbol,
   STATUS_BADGES,
   STATUS_LABELS,
@@ -126,6 +128,13 @@ export class CardView {
 
     this.chartEl = el('div.card__chart');
 
+    // Measure readout. Lives in the chart box (which is position:relative) and
+    // is hidden until a Shift-drag starts.
+    this.measureBox = el('div.card__measure', { hidden: true });
+    this.measureLabel = el('div.card__measure-label');
+    this.measureBox.append(this.measureLabel);
+    this.chartEl.append(this.measureBox);
+
     this.overlayText = el('div.card__overlay-text', { text: '載入中…' });
     this.retryBtn = el('button.sc-btn', {
       type: 'button',
@@ -230,6 +239,7 @@ export class CardView {
     };
 
     this.onLevelDblClick = async (event) => {
+      if (event.shiftKey) return; // Shift belongs to the measure tool
       const { x, y } = local(event);
       const hit = this.chart.levelAt(y);
       if (hit) {
@@ -242,6 +252,7 @@ export class CardView {
 
     this.onLevelDown = (event) => {
       if (event.button !== 0) return;
+      if (event.shiftKey) return; // ditto -- measuring beats grabbing a level
       const { y } = local(event);
       const hit = this.chart.levelAt(y);
       if (!hit) return;
@@ -255,8 +266,13 @@ export class CardView {
 
     this.onLevelMove = (event) => {
       const { x, y } = local(event);
+      if (this.measuring) return;
       if (!this.draggingLevel) {
-        el.style.cursor = this.chart.levelAt(y) ? 'ns-resize' : '';
+        el.style.cursor = event.shiftKey
+          ? 'crosshair'
+          : this.chart.levelAt(y)
+            ? 'ns-resize'
+            : '';
         return;
       }
       const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
@@ -282,6 +298,133 @@ export class CardView {
     el.addEventListener('mousemove', this.onLevelMove);
     // On window, not the element: a fast drag can release outside the chart.
     window.addEventListener('mouseup', this.onLevelUp);
+
+    this.bindMeasureInput(local);
+  }
+
+  /* -------------------------------------------------------------- measure */
+
+  /**
+   * Shift-drag to measure, the way TradingView does it.
+   *
+   * Deliberately a gesture and not a toolbar button: TradingView puts its own
+   * quick measure on Shift-drag too, and on a card this size a gesture costs no
+   * pixels. Ctrl still magnets, so Shift+Ctrl measures wick to wick.
+   *
+   * Anchors are logical (fractional bar index) rather than pixels, so the box
+   * tracks the candles through panning and zooming instead of floating in
+   * place, and still resolves out in the rightOffset gap past the last bar.
+   */
+  bindMeasureInput(local) {
+    const el = this.chartEl;
+
+    this.onMeasureDown = (event) => {
+      if (event.button !== 0 || !event.shiftKey) return;
+      const { x, y } = local(event);
+      const from = this.chart.pointAt(x, y, { magnet: event.ctrlKey });
+      if (!from) return;
+      this.measuring = { from, to: from };
+      this.chart.setInteractionEnabled(false);
+      this.renderMeasure();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    this.onMeasureMove = (event) => {
+      if (!this.measuring) return;
+      const { x, y } = local(event);
+      const to = this.chart.pointAt(x, y, { magnet: event.ctrlKey });
+      if (!to) return;
+      this.measuring.to = to;
+      this.renderMeasure();
+    };
+
+    this.onMeasureUp = () => {
+      if (!this.measuring) return;
+      // The readout stays after release so it can actually be read; any plain
+      // click or Escape clears it.
+      this.chart.setInteractionEnabled(true);
+      this.measuring.held = true;
+    };
+
+    this.onMeasureDismiss = (event) => {
+      if (!this.measuring || !this.measuring.held) return;
+      if (event && event.shiftKey) return;
+      this.measuring = null;
+      this.measureBox.hidden = true;
+    };
+
+    // Panning or zooming after a measure must keep the box on its candles.
+    this.offRangeChange = this.chart.onVisibleRangeChange(() => this.renderMeasure());
+
+    el.addEventListener('mousedown', this.onMeasureDown, true);
+    window.addEventListener('mousemove', this.onMeasureMove);
+    window.addEventListener('mouseup', this.onMeasureUp);
+    window.addEventListener('mousedown', this.onMeasureDismiss);
+  }
+
+  dismissMeasure() {
+    if (!this.measuring) return;
+    this.measuring = null;
+    this.measureBox.hidden = true;
+    this.chart.setInteractionEnabled(true);
+  }
+
+  renderMeasure() {
+    const m = this.measuring;
+    if (!m) return;
+    const a = this.chart.pointToPixel(m.from);
+    const b = this.chart.pointToPixel(m.to);
+    if (!a || !b) {
+      this.measureBox.hidden = true;
+      return;
+    }
+
+    const left = Math.min(a.x, b.x);
+    const top = Math.min(a.y, b.y);
+    const box = this.measureBox;
+    box.hidden = false;
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+    box.style.width = `${Math.abs(b.x - a.x)}px`;
+    box.style.height = `${Math.abs(b.y - a.y)}px`;
+
+    const stats = this.chart.measureStats(m.from, m.to);
+    // Respect the up/down colour convention rather than hardcoding green=up.
+    const upIsGreen = this.prefs.upDownColor !== 'redUp';
+    box.classList.toggle('is-up', stats.rising === upIsGreen);
+    box.classList.toggle('is-down', stats.rising !== upIsGreen);
+    // The label hangs off whichever end the pointer is at.
+    box.classList.toggle('is-below', b.y > a.y);
+
+    // Plain ASCII sign, to match the one formatPercent emits.
+    const sign = stats.priceDelta >= 0 ? '+' : '-';
+    const delta = formatAtPrecision(Math.abs(stats.priceDelta), this.chart.precision);
+    this.measureLabel.textContent =
+      `${sign}${delta} (${formatPercent(stats.percent)})
+` +
+      `${stats.bars} bars · ${formatDuration(stats.seconds)}`;
+
+    this.clampMeasureLabel(left, Math.abs(b.x - a.x));
+  }
+
+  /**
+   * Keep the readout inside the chart.
+   *
+   * The label is centred on the box, which pushes it off the card whenever the
+   * box sits near an edge -- and on a ~340px card that is most of the time.
+   * Nudge it back by however much it overhangs.
+   */
+  clampMeasureLabel(boxLeft, boxWidth) {
+    const label = this.measureLabel;
+    label.style.transform = 'translateX(-50%)';
+    const chartWidth = this.chartEl.clientWidth;
+    const labelWidth = label.offsetWidth;
+    const centre = boxLeft + boxWidth / 2;
+    const overflowLeft = Math.max(0, labelWidth / 2 - centre);
+    const overflowRight = Math.max(0, centre + labelWidth / 2 - chartWidth);
+    const nudge = overflowLeft - overflowRight;
+    if (nudge) label.style.transform = `translateX(calc(-50% + ${Math.round(nudge)}px))`;
   }
 
   destroy() {
@@ -295,6 +438,13 @@ export class CardView {
       this.chartEl.removeEventListener('mousemove', this.onLevelMove);
       window.removeEventListener('mouseup', this.onLevelUp);
     }
+    if (this.onMeasureDown) {
+      this.chartEl.removeEventListener('mousedown', this.onMeasureDown, true);
+      window.removeEventListener('mousemove', this.onMeasureMove);
+      window.removeEventListener('mouseup', this.onMeasureUp);
+      window.removeEventListener('mousedown', this.onMeasureDismiss);
+    }
+    if (this.offRangeChange) this.offRangeChange();
     this.provider.unsubscribe(this.card.id);
     if (this.chart) this.chart.destroy();
     this.root.remove();

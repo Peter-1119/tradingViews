@@ -134,6 +134,34 @@ export const STATUS_BADGES = {
   offline: '離線',
 };
 
+/**
+ * Format at an explicitly given precision.
+ *
+ * `formatPrice` picks its decimals from the magnitude of the value it is
+ * handed, which is right for a price and wrong for a *difference* between two:
+ * a 550 move on an 86,000 instrument would print 3 decimals when the
+ * instrument only quotes 2.
+ */
+export function formatAtPrecision(value, digits) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+/** Compact span for the measure readout: 45m, 3h 20m, 2d 4h. */
+export function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600) % 24;
+  const d = Math.floor(total / 86400);
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return m ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}
+
 export const INTERVAL_LABELS = {
   '1m': '1 分',
   '5m': '5 分',
