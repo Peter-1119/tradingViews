@@ -11,6 +11,7 @@ import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { Toolbar } from './ui/toolbar.js';
 import { FibOverlay } from './ui/fib-overlay.js';
+import { buildProfile, sessionBounds } from './volume-profile.js';
 import {
   el,
   formatPrice,
@@ -141,6 +142,10 @@ export class CardView {
     this.fibOverlay = new FibOverlay();
     this.chartEl.append(this.fibOverlay.root);
 
+    this.profile = null;
+    this.profileEl = el('div.card__vp', { hidden: true });
+    this.chartEl.append(this.profileEl);
+
     this.activeTool = 'cursor';
     this.toolbar = new Toolbar({
       active: this.activeTool,
@@ -221,6 +226,8 @@ export class CardView {
       this.renderFibs();
     });
     this.loadFibs();
+    this.toolbar.setToggled('vp', this.card.showVolumeProfile);
+    if (this.card.showVolumeProfile) this.setProfileEnabled(true);
     this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.chart.setLevels(levels);
@@ -238,6 +245,14 @@ export class CardView {
    * cursor icon to escape a mode is a poor use of the only 22px of chrome.
    */
   setActiveTool(id) {
+    if (id === 'vp') {
+      // A display toggle, not a drawing mode -- it must not disarm whatever
+      // tool the user currently has in hand.
+      const next = !this.card.showVolumeProfile;
+      this.toolbar.setToggled('vp', next);
+      window.stockcard.updateCard(this.card.id, { showVolumeProfile: next });
+      return;
+    }
     const next = id === this.activeTool ? 'cursor' : id;
     this.activeTool = next;
     this.toolbar.setActive(next);
@@ -348,6 +363,89 @@ export class CardView {
     window.addEventListener('mouseup', this.onLevelUp);
 
     this.bindMeasureInput(local);
+  }
+
+  /* --------------------------------------------------------- volume profile */
+
+  /**
+   * Session profile, refreshed on a slow timer.
+   *
+   * The session is still forming, so the profile moves -- but it moves slowly,
+   * and a whole session is two API requests against a 6000-weight-per-minute
+   * budget. Two minutes is frequent enough to stay honest and nowhere near
+   * anything that could be called polling.
+   */
+  setProfileEnabled(enabled) {
+    clearInterval(this.profileTimer);
+    this.profileTimer = null;
+    if (!enabled) {
+      this.profile = null;
+      this.profileEl.hidden = true;
+      this.profileEl.replaceChildren();
+      return;
+    }
+    this.loadProfile();
+    this.profileTimer = setInterval(() => this.loadProfile(), 120000);
+  }
+
+  async loadProfile() {
+    const symbol = this.card.symbol;
+    const { start, end } = sessionBounds();
+    try {
+      const bars = await this.provider.getRange(symbol, '1m', start, end);
+      if (this.destroyed || symbol !== this.card.symbol || !this.card.showVolumeProfile) return;
+      this.profile = buildProfile(bars, 26);
+      this.renderProfile();
+    } catch (err) {
+      console.error('[card] volume profile failed', err);
+    }
+  }
+
+  renderProfile() {
+    const p = this.profile;
+    if (!p || !this.card.showVolumeProfile || !this.chart) {
+      this.profileEl.hidden = true;
+      return;
+    }
+    // Stop at the plot edge: the overlay covers the whole chart element, and
+    // `right: 0` would otherwise put the bars under the price labels.
+    const gutter = this.chart.priceScaleWidth();
+    const width = this.chartEl.clientWidth - gutter;
+    if (width <= 0) return;
+    // Cap the histogram so it frames the candles rather than burying them.
+    const maxBar = Math.round(width * 0.34);
+    this.profileEl.style.right = `${gutter}px`;
+
+    const children = [];
+    for (const row of p.rows) {
+      const top = this.chart.priceToY(row.priceHigh);
+      const bottom = this.chart.priceToY(row.priceLow);
+      if (top === null || bottom === null) continue;
+      const height = Math.max(1, bottom - top - 1);
+      children.push(
+        el('div.card__vp-row', {
+          class: row.inValueArea ? 'is-va' : '',
+          style: `top:${top}px;height:${height}px;width:${Math.max(1, Math.round(row.ratio * maxBar))}px`,
+        })
+      );
+    }
+
+    const pocY = this.chart.priceToY(p.poc);
+    if (pocY !== null) {
+      children.push(
+        el(
+          'div.card__vp-poc',
+          { style: `top:${pocY}px` },
+          // Sits just clear of the widest bar, so it never lands on the axis.
+          el('span.card__vp-tag', {
+            style: `right:${maxBar + 6}px`,
+            text: `POC ${this.chart.formatPrice(p.poc)}`,
+          })
+        )
+      );
+    }
+    this.profileEl.replaceChildren(...children);
+    this.profileEl.hidden = false;
   }
 
   /* ------------------------------------------------------------------ fibs */
@@ -535,6 +633,7 @@ export class CardView {
     this.offRangeChange = this.chart.onVisibleRangeChange(() => {
       this.renderMeasure();
       this.renderFibs();
+      this.renderProfile();
     });
 
     el.addEventListener('mousedown', this.onMeasureDown, true);
@@ -632,6 +731,7 @@ export class CardView {
       window.removeEventListener('mouseup', this.onFibUp);
     }
     clearTimeout(this.fibProjectTimer);
+    clearInterval(this.profileTimer);
     if (this.offFibs) this.offFibs();
     if (this.offRangeChange) this.offRangeChange();
     this.provider.unsubscribe(this.card.id);
@@ -680,7 +780,10 @@ export class CardView {
       // throttled and this still has to be right when it comes back.
       this.dismissMeasure();
       clearTimeout(this.fibProjectTimer);
-      this.fibProjectTimer = setTimeout(() => this.renderFibs(), 0);
+      this.fibProjectTimer = setTimeout(() => {
+        this.renderFibs();
+        this.renderProfile();
+      }, 0);
       this.subscribe();
 
       this.provider
@@ -819,6 +922,10 @@ export class CardView {
     if (this.chart) {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
+      if (next.showVolumeProfile !== prev.showVolumeProfile) {
+        this.toolbar.setToggled('vp', next.showVolumeProfile);
+        this.setProfileEnabled(next.showVolumeProfile);
+      }
     }
 
     this.renderIdentity();
@@ -836,6 +943,7 @@ export class CardView {
         this.fibs = [];
         this.fibOverlay.clear();
         this.loadFibs();
+        if (this.card.showVolumeProfile) this.loadProfile();
       }
       this.loadData();
     }

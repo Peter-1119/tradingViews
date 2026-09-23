@@ -178,6 +178,41 @@ export class BinanceProvider extends DataProvider {
     return bars;
   }
 
+  /**
+   * Every bar in a time range, paginating past the 1000-per-request cap.
+   *
+   * Volume profile needs a whole session of 1m bars -- 1440 of them for a UTC
+   * day -- which is two requests. That is the same method TradingView uses:
+   * its own docs say the profile is built by loading the lower-timeframe bars
+   * for the session, not from tick data.
+   */
+  async getRange(symbol, interval, startMs, endMs) {
+    const upper = symbol.toUpperCase();
+    const step = intervalToMs(interval);
+    const out = [];
+    let cursor = Math.floor(Number(startMs));
+    const end = Math.floor(Number(endMs));
+    if (!Number.isFinite(cursor) || !Number.isFinite(end) || cursor >= end) return out;
+
+    // A whole day of 1m bars is two passes; the guard is here so a bad range
+    // cannot spin on the API.
+    for (let pass = 0; pass < 12 && cursor < end; pass++) {
+      const raw = await this.fetchJson(
+        `/klines?symbol=${encodeURIComponent(upper)}&interval=${encodeURIComponent(interval)}` +
+          `&startTime=${cursor}&endTime=${end}&limit=1000`
+      );
+      if (!raw.length) break;
+      for (const row of raw) out.push(toBar(row));
+      if (raw.length < 1000) break;
+      cursor = raw[raw.length - 1][0] + step;
+    }
+
+    // Binance returns the in-progress candle when the range reaches now.
+    const last = out[out.length - 1];
+    if (last && last.time * 1000 + step > Date.now()) last.closed = false;
+    return out;
+  }
+
   async getTicker(symbol) {
     const upper = symbol.toUpperCase();
     const raw = await this.fetchJson(`/ticker/24hr?symbol=${encodeURIComponent(upper)}`);

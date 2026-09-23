@@ -42,6 +42,10 @@ export class RemoteProvider extends DataProvider {
     return this.bridge.call('getHistory', [symbol, interval, limit]);
   }
 
+  getRange(symbol, interval, startMs, endMs) {
+    return this.bridge.call('getRange', [symbol, interval, startMs, endMs]);
+  }
+
   getTicker(symbol) {
     return this.bridge.call('getTicker', [symbol]);
   }

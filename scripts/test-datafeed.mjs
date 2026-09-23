@@ -473,6 +473,70 @@ await test('symbol search ranks exact and USDT pairs first, and caches the list'
   assert.equal(fetchCalls.length, callsAfterFirst, 'the symbol list must be served from cache');
 });
 
+/* ------------------------------------------------------ volume profile */
+
+const { buildProfile, sessionBounds } = await import('../renderer/volume-profile.js');
+
+console.log('');
+console.log('volume profile');
+
+await test('volume is redistributed across rows, never created or lost', async () => {
+  const bars = Array.from({ length: 300 }, (_, i) => {
+    const base = 100 + Math.sin(i / 20) * 8;
+    return { time: 1700000000 + i * 60, open: base, high: base + 1.5, low: base - 1.5,
+             close: base + 0.2, volume: 3 + (i % 11) };
+  });
+  const p = buildProfile(bars, 24);
+  const fromRows = p.rows.reduce((sum, r) => sum + r.volume, 0);
+  const fromBars = bars.reduce((sum, b) => sum + b.volume, 0);
+  assert.ok(Math.abs(fromRows - fromBars) < 1e-9, `rows ${fromRows} vs bars ${fromBars}`);
+  assert.equal(p.rows.length, 24);
+});
+
+await test('the POC is the heaviest row, and sits inside the value area', async () => {
+  // A deliberate pile of volume in one narrow band.
+  const bars = [];
+  for (let i = 0; i < 120; i++) {
+    const heavy = i % 3 === 0;
+    const base = heavy ? 100 : 108;
+    bars.push({ time: 1700000000 + i * 60, open: base, high: base + 0.4, low: base - 0.4,
+                close: base, volume: heavy ? 50 : 1 });
+  }
+  const p = buildProfile(bars, 20);
+  const peak = p.rows.reduce((a, b) => (b.volume > a.volume ? b : a));
+  assert.ok(p.poc >= peak.priceLow && p.poc <= peak.priceHigh, 'POC must fall in the heaviest row');
+  assert.ok(p.poc >= p.val && p.poc <= p.vah, 'POC must lie within the value area');
+});
+
+await test('the value area covers ~70% of volume and is contiguous', async () => {
+  const bars = Array.from({ length: 400 }, (_, i) => {
+    const base = 50 + Math.sin(i / 9) * 5;
+    return { time: 1700000000 + i * 60, open: base, high: base + 0.8, low: base - 0.8,
+             close: base, volume: 1 + (i % 7) };
+  });
+  const p = buildProfile(bars, 30);
+  const inside = p.rows.filter((r) => r.inValueArea);
+  const share = inside.reduce((s, r) => s + r.volume, 0) / p.total;
+  assert.ok(share >= 0.7, `value area holds ${(share * 100).toFixed(1)}%, must reach 70%`);
+  // It grows outward from the POC, so the flagged rows must be one unbroken run.
+  const indices = inside.map((r) => r.index);
+  assert.equal(indices[indices.length - 1] - indices[0], indices.length - 1, 'value area must be contiguous');
+});
+
+await test('a session is one UTC day, matching the exchange day boundary', async () => {
+  const { start, end } = sessionBounds(Date.UTC(2026, 8, 23, 17, 42, 11));
+  assert.equal(new Date(start).toISOString(), '2026-09-23T00:00:00.000Z');
+  assert.equal(end - start, 86400000);
+});
+
+await test('degenerate input yields no profile rather than a broken one', async () => {
+  assert.equal(buildProfile([], 10), null);
+  assert.equal(buildProfile(null, 10), null);
+  // Every bar at one price: no range to bucket.
+  const flat = [{ time: 1, open: 5, high: 5, low: 5, close: 5, volume: 9 }];
+  assert.equal(buildProfile(flat, 10), null);
+});
+
 /* ---------------------------------------------------------------- report */
 
 globalThis.setTimeout = realSetTimeout;

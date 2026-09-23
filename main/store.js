@@ -128,6 +128,7 @@ function sanitizeCard(raw, index = 0) {
     cardOpacity: clampNumber(card.cardOpacity, 0.1, 1, 0.75),
     windowOpacity: clampNumber(card.windowOpacity, 0.2, 1, 1),
     showVolume: card.showVolume === true,
+    showVolumeProfile: card.showVolumeProfile === true,
     alwaysOnTop: card.alwaysOnTop !== false,
     bounds: normalizeBounds(card.bounds || defaultCardBounds(index)),
   };

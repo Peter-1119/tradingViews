@@ -44,6 +44,15 @@ export class DataProvider {
   }
 
   /**
+   * Every bar between two epoch-ms bounds, paginated.
+   * @returns {Promise<Bar[]>}
+   */
+  // eslint-disable-next-line no-unused-vars
+  async getRange(symbol, interval, startMs, endMs) {
+    throw new Error('getRange() not implemented');
+  }
+
+  /**
    * Start streaming. Implementations must coalesce identical streams so N
    * subscribers to the same symbol+interval cost one upstream connection.
    * @param {string} subId    caller-owned identity, also used to unsubscribe

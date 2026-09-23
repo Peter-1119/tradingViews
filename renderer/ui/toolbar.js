@@ -24,6 +24,7 @@ const ICONS = {
   level: '<path d="M1.5 7h11"/><circle cx="4.5" cy="7" r="1.6"/>',
   measure: '<path d="M2 12V4h8"/><path d="M2 12l9-9"/><path d="M6.5 7.5l1.6 1.6"/>',
   fib: '<path d="M1.5 2.5h11"/><path d="M1.5 5.5h11"/><path d="M1.5 8.5h11"/><path d="M1.5 11.5h11"/>',
+  vp: '<path d="M12.5 2.5h-5"/><path d="M12.5 5h-9"/><path d="M12.5 7.5h-11"/><path d="M12.5 10h-7"/><path d="M12.5 12.5h-4"/>',
 };
 
 export const TOOLS = [
@@ -31,6 +32,14 @@ export const TOOLS = [
   { id: 'level', label: '水平線', hint: '水平支撐壓力線:點一下放線' },
   { id: 'measure', label: '量測', hint: '量測區間:直接拖曳' },
   { id: 'fib', label: '斐波那契', hint: '斐波那契回撤:拖曳畫出波段' },
+  {
+    id: 'vp',
+    label: '成交量分布',
+    hint: '本日成交量分布(UTC 日界)。顯示 POC 與價值區',
+    // Not a drawing mode -- a per-card display toggle that happens to live on
+    // the same rail, so it stays armed-looking while it is on.
+    toggle: true,
+  },
 ];
 
 function icon(name) {
@@ -67,9 +76,20 @@ export class Toolbar {
     this.root.dataset.tool = active;
   }
 
+  /**
+   * Toggle-style entries light up independently of the armed drawing tool, so
+   * a display layer can be on while the cursor is still the active tool.
+   */
+  setToggled(id, on) {
+    const button = this.buttons.get(id);
+    if (button) button.classList.toggle('is-on', !!on);
+  }
+
   setActive(id) {
     this.active = id;
     for (const [key, button] of this.buttons) {
+      const tool = TOOLS.find((t) => t.id === key);
+      if (tool && tool.toggle) continue;
       button.classList.toggle('is-active', key === id);
     }
     // Lets the card style itself while a tool is armed (cursor, and keeping the

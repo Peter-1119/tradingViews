@@ -325,7 +325,7 @@ ipcMain.on('window:set-ignore-mouse', (event, { ignore } = {}) => {
 /* ------------------------------------------------------- IPC: datafeed */
 
 ipcMain.handle('datafeed:call', async (_event, { method, args } = {}) => {
-  const ALLOWED = ['getHistory', 'searchSymbols', 'getTicker', 'getStatus'];
+  const ALLOWED = ['getHistory', 'getRange', 'searchSymbols', 'getTicker', 'getStatus'];
   if (!ALLOWED.includes(method)) throw new Error(`unknown datafeed method: ${method}`);
   return hubRequest(method, args || []);
 });

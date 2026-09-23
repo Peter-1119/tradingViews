@@ -788,6 +788,21 @@ export class CardChart {
     return xLo + (xHi - xLo) * frac;
   }
 
+  /**
+   * Width of the right price scale in px.
+   *
+   * Overlays are positioned against the whole chart element, which includes the
+   * axis gutter -- so anything anchored to `right: 0` ends up underneath the
+   * price labels. Inset by this instead.
+   */
+  priceScaleWidth() {
+    try {
+      return this.chart.priceScale('right').width() || 0;
+    } catch {
+      return 0;
+    }
+  }
+
   /** @returns {number|null} y pixel for a price, or null if off the scale. */
   priceToY(price) {
     if (!this.priceSeries) return null;
