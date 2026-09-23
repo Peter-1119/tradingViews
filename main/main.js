@@ -392,6 +392,17 @@ app.on('browser-window-created', (_event, win) => {
 });
 
 app.whenReady().then(() => {
+  /*
+   * A second instance has already handed off to the first via `second-instance`
+   * and is on its way out. `app.quit()` does not stop this handler from
+   * running, so without this guard the doomed process still registers the
+   * global shortcuts, opens the Chromium cache and builds a tray -- all of
+   * which the live instance already owns. The user sees a wall of
+   * "failed to bind: taken" and "Unable to move the cache (0x5)" and no chart,
+   * which reads like a GPU fault and is really just two instances colliding.
+   */
+  if (!gotLock) return;
+
   protocolSetup.registerHandler();
 
   windows.bootstrap();
