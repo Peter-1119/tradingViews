@@ -43,6 +43,18 @@ const LEVEL_COLOR_ACTIVE = '#bcd2ef';
 const LEVEL_GRAB_PX = 6;
 
 /**
+ * How near an OHLC value has to be before a *drawing* anchor snaps to it.
+ *
+ * The crosshair magnets the way TradingView's Strong magnet does -- nearest
+ * OHLC regardless of distance -- which is right when you are reading a value
+ * off the scale. It is wrong when placing an anchor: aim at a price and the
+ * point leaps to whatever the bar under the pointer happens to offer, tens of
+ * pixels away. TradingView calls the bounded version Weak magnet, and it is
+ * the correct default for drawing.
+ */
+const ANCHOR_SNAP_PX = 14;
+
+/**
  * Both directions spelled out in full, and that is the whole point.
  *
  * `applyOptions({ handleScale: false })` does not set a flag -- it expands to
@@ -629,7 +641,7 @@ export class CardChart {
    * asked -- the same rule the Ctrl crosshair uses, so placing a level lands
    * exactly where the crosshair says it will.
    */
-  priceAt(x, y, { magnet = false } = {}) {
+  priceAt(x, y, { magnet = false, maxSnapPx } = {}) {
     if (!this.priceSeries) return null;
     const raw = this.priceSeries.coordinateToPrice(y);
     if (raw === null) return null;
@@ -652,6 +664,13 @@ export class CardChart {
         nearest = price;
       }
     }
+    // Measured in pixels, not price: a fixed price threshold would mean
+    // something different on BTC than on a sub-cent token, and different again
+    // at every zoom level.
+    if (Number.isFinite(maxSnapPx)) {
+      const targetY = this.priceSeries.priceToCoordinate(nearest);
+      if (targetY === null || Math.abs(targetY - y) > maxSnapPx) return round(raw);
+    }
     // A magnet target is already an exact quoted price; rounding keeps it so.
     return round(nearest);
   }
@@ -665,9 +684,9 @@ export class CardChart {
    * zooming, and unlike a raw timestamp it is still defined out in the
    * `rightOffset` gap past the last bar, where `timeToCoordinate` gives up.
    */
-  pointAt(x, y, { magnet = false } = {}) {
+  pointAt(x, y, { magnet = false, maxSnapPx } = {}) {
     const logical = this.chart.timeScale().coordinateToLogical(x);
-    const price = this.priceAt(x, y, { magnet });
+    const price = this.priceAt(x, y, { magnet, maxSnapPx });
     if (logical === null || price === null) return null;
     return { logical, price };
   }
@@ -685,9 +704,109 @@ export class CardChart {
     };
   }
 
+  /**
+   * Time -> fractional bar index.
+   *
+   * The anchor of anything persisted has to be a timestamp, because a logical
+   * index only means anything relative to the bars currently loaded -- load a
+   * different history depth and index 40 is a different candle. But the chart
+   * draws in logical space, and `timeToCoordinate` refuses any time that is not
+   * exactly on a bar, which is every time once you switch timeframe. So do the
+   * interpolation here: binary search the cache, then place the point
+   * proportionally between the two bars it falls between. Past either end,
+   * extrapolate at the average bar spacing so an anchor off-screen still
+   * resolves instead of vanishing.
+   */
+  logicalFromTime(time) {
+    const bars = this.bars;
+    if (!bars.length) return null;
+    const t = Number(time);
+    const step = this.secondsPerBar() || 1;
+    if (t <= bars[0].time) return (t - bars[0].time) / step;
+    if (t >= bars[bars.length - 1].time) {
+      return bars.length - 1 + (t - bars[bars.length - 1].time) / step;
+    }
+    let lo = 0;
+    let hi = bars.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (bars[mid].time <= t) lo = mid;
+      else hi = mid;
+    }
+    const span = bars[hi].time - bars[lo].time;
+    return lo + (span ? (t - bars[lo].time) / span : 0);
+  }
+
+  /** Fractional bar index -> time, for turning a pointer position into an anchor. */
+  timeFromLogical(logical) {
+    const bars = this.bars;
+    if (!bars.length) return null;
+    const step = this.secondsPerBar() || 1;
+    if (logical <= 0) return Math.round(bars[0].time + logical * step);
+    if (logical >= bars.length - 1) {
+      return Math.round(bars[bars.length - 1].time + (logical - (bars.length - 1)) * step);
+    }
+    const lo = Math.floor(logical);
+    const frac = logical - lo;
+    return Math.round(bars[lo].time + frac * (bars[lo + 1].time - bars[lo].time));
+  }
+
+  /** Anchor in persistable coordinates: a timestamp and a price. */
+  anchorAt(x, y, { magnet = false } = {}) {
+    // Drawing anchors always use the bounded (weak) magnet.
+    const point = this.pointAt(x, y, { magnet, maxSnapPx: ANCHOR_SNAP_PX });
+    if (!point) return null;
+    const time = this.timeFromLogical(point.logical);
+    if (time === null) return null;
+    return { time, price: point.price };
+  }
+
+  /**
+   * Fractional bar index -> x pixel.
+   *
+   * `timeScale.logicalToCoordinate` looks like it takes a Logical, but its
+   * implementation begins:
+   *
+   *     if (this._internal_isEmpty() || !isInteger(index)) return 0;
+   *
+   * Any non-integer index silently answers 0 -- not null, so there is nothing
+   * to detect -- and every anchor that is not exactly on a bar piles up against
+   * the left edge. Which is most of them the moment you change timeframe. So
+   * ask for the two whole bars either side and interpolate between their
+   * coordinates, which is linear anyway since bar spacing is uniform.
+   */
+  logicalToX(logical) {
+    if (!this.bars.length || !Number.isFinite(logical)) return null;
+    const scale = this.chart.timeScale();
+    const lo = Math.floor(logical);
+    const frac = logical - lo;
+    const xLo = scale.logicalToCoordinate(lo);
+    if (xLo === null) return null;
+    if (!frac) return xLo;
+    const xHi = scale.logicalToCoordinate(lo + 1);
+    if (xHi === null) return null;
+    return xLo + (xHi - xLo) * frac;
+  }
+
+  /** @returns {number|null} y pixel for a price, or null if off the scale. */
+  priceToY(price) {
+    if (!this.priceSeries) return null;
+    return this.priceSeries.priceToCoordinate(price);
+  }
+
+  anchorToPixel(anchor) {
+    if (!anchor || !this.priceSeries) return null;
+    const logical = this.logicalFromTime(anchor.time);
+    if (logical === null) return null;
+    const x = this.logicalToX(logical);
+    const y = this.priceSeries.priceToCoordinate(anchor.price);
+    if (x === null || y === null) return null;
+    return { x, y };
+  }
+
   pointToPixel(point) {
     if (!point || !this.priceSeries) return null;
-    const x = this.chart.timeScale().logicalToCoordinate(point.logical);
+    const x = this.logicalToX(point.logical);
     const y = this.priceSeries.priceToCoordinate(point.price);
     if (x === null || y === null) return null;
     return { x, y };

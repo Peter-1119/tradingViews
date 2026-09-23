@@ -44,6 +44,12 @@ const api = {
   removeLevel: (symbol, id) => ipcRenderer.invoke('levels:remove', { symbol, id }),
   onLevelsChanged: (cb) => on('levels:changed', cb),
 
+  listFibs: (symbol) => ipcRenderer.invoke('fibs:list', symbol),
+  addFib: (symbol, a, b) => ipcRenderer.invoke('fibs:add', { symbol, a, b }),
+  updateFib: (symbol, id, patch) => ipcRenderer.invoke('fibs:update', { symbol, id, patch }),
+  removeFib: (symbol, id) => ipcRenderer.invoke('fibs:remove', { symbol, id }),
+  onFibsChanged: (cb) => on('fibs:changed', cb),
+
   /* --------------------------------------------------------- window */
   getBounds: () => ipcRenderer.invoke('window:get-bounds'),
   setSize: (width, height) => ipcRenderer.invoke('window:set-size', { width, height }),

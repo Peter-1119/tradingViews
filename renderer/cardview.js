@@ -10,6 +10,7 @@
 import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { Toolbar } from './ui/toolbar.js';
+import { FibOverlay } from './ui/fib-overlay.js';
 import {
   el,
   formatPrice,
@@ -136,6 +137,10 @@ export class CardView {
     this.measureBox.append(this.measureLabel);
     this.chartEl.append(this.measureBox);
 
+    this.fibs = [];
+    this.fibOverlay = new FibOverlay();
+    this.chartEl.append(this.fibOverlay.root);
+
     this.activeTool = 'cursor';
     this.toolbar = new Toolbar({
       active: this.activeTool,
@@ -209,6 +214,13 @@ export class CardView {
     this.setStatus(this.provider.getStatus());
 
     this.bindLevelInput();
+    this.bindFibInput();
+    this.offFibs = window.stockcard.onFibsChanged(({ symbol, fibs }) => {
+      if (this.destroyed || symbol !== this.card.symbol) return;
+      this.fibs = fibs;
+      this.renderFibs();
+    });
+    this.loadFibs();
     this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.chart.setLevels(levels);
@@ -338,6 +350,132 @@ export class CardView {
     this.bindMeasureInput(local);
   }
 
+  /* ------------------------------------------------------------------ fibs */
+
+  async loadFibs() {
+    const symbol = this.card.symbol;
+    const fibs = await window.stockcard.listFibs(symbol);
+    if (this.destroyed || symbol !== this.card.symbol) return;
+    this.fibs = fibs;
+    this.renderFibs();
+  }
+
+  renderFibs() {
+    if (!this.chart) return;
+    this.fibOverlay.render(
+      this.drawingFib ? [...this.fibs, this.drawingFib] : this.fibs,
+      (fib) => {
+        const a = this.chart.anchorToPixel(fib.a);
+        const b = this.chart.anchorToPixel(fib.b);
+        if (!a || !b) return null;
+        return { a, b, priceToY: (price) => this.chart.priceToY(price) };
+      },
+      (price) => this.chart.formatPrice(price),
+      this.activeFibId
+    );
+  }
+
+  /**
+   * Fibonacci: arm the tool, then drag out the swing. Ctrl magnets both ends,
+   * which is the point -- a retracement is only worth anything if it is pinned
+   * to the actual swing high and low rather than near them.
+   *
+   * Dragging either handle afterwards re-anchors that end; double-clicking a
+   * handle deletes the whole retracement.
+   */
+  bindFibInput() {
+    const el = this.chartEl;
+    const local = (event) => {
+      const rect = el.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+
+    this.onFibDown = (event) => {
+      if (event.button !== 0 || event.shiftKey) return;
+      const { x, y } = local(event);
+
+      // Grabbing an existing handle takes priority over starting a new one, so
+      // an armed tool can still adjust what is already on the chart.
+      const grabbed = this.fibHandleAt(event.target);
+      if (grabbed) {
+        this.draggingFib = grabbed;
+        this.activeFibId = grabbed.id;
+        this.chart.setInteractionEnabled(false);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      if (this.activeTool !== 'fib') return;
+      const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+      if (!anchor) return;
+      this.drawingFib = { id: '__draft__', a: anchor, b: { ...anchor } };
+      this.chart.setInteractionEnabled(false);
+      this.renderFibs();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    this.onFibMove = (event) => {
+      if (!this.drawingFib && !this.draggingFib) return;
+      const { x, y } = local(event);
+      const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+      if (!anchor) return;
+      if (this.drawingFib) {
+        this.drawingFib.b = anchor;
+      } else {
+        const fib = this.fibs.find((f) => f.id === this.draggingFib.id);
+        if (fib) fib[this.draggingFib.end] = anchor;
+      }
+      this.renderFibs();
+    };
+
+    this.onFibUp = async () => {
+      if (this.drawingFib) {
+        const draft = this.drawingFib;
+        this.drawingFib = null;
+        this.chart.setInteractionEnabled(true);
+        // A click with no drag is not a retracement; drop it silently.
+        if (draft.a.price !== draft.b.price) {
+          await window.stockcard.addFib(this.card.symbol, draft.a, draft.b);
+        } else {
+          this.renderFibs();
+        }
+        return;
+      }
+      if (this.draggingFib) {
+        const { id, end } = this.draggingFib;
+        this.draggingFib = null;
+        this.activeFibId = null;
+        this.chart.setInteractionEnabled(true);
+        const fib = this.fibs.find((f) => f.id === id);
+        if (fib) await window.stockcard.updateFib(this.card.symbol, id, { [end]: fib[end] });
+      }
+    };
+
+    this.onFibDblClick = async (event) => {
+      const grabbed = this.fibHandleAt(event.target);
+      if (!grabbed) return;
+      event.stopPropagation();
+      await window.stockcard.removeFib(this.card.symbol, grabbed.id);
+    };
+
+    el.addEventListener('mousedown', this.onFibDown, true);
+    el.addEventListener('dblclick', this.onFibDblClick, true);
+    window.addEventListener('mousemove', this.onFibMove);
+    window.addEventListener('mouseup', this.onFibUp);
+  }
+
+  /** Map a DOM target back to the retracement handle it belongs to. */
+  fibHandleAt(target) {
+    if (!target || !target.classList || !target.classList.contains('card__fib-handle')) return null;
+    for (const [id, entry] of this.fibOverlay.rendered) {
+      const index = entry.handles.indexOf(target);
+      if (index >= 0) return { id, end: index === 0 ? 'a' : 'b' };
+    }
+    return null;
+  }
+
   /* -------------------------------------------------------------- measure */
 
   /**
@@ -394,7 +532,10 @@ export class CardView {
     };
 
     // Panning or zooming after a measure must keep the box on its candles.
-    this.offRangeChange = this.chart.onVisibleRangeChange(() => this.renderMeasure());
+    this.offRangeChange = this.chart.onVisibleRangeChange(() => {
+      this.renderMeasure();
+      this.renderFibs();
+    });
 
     el.addEventListener('mousedown', this.onMeasureDown, true);
     window.addEventListener('mousemove', this.onMeasureMove);
@@ -484,6 +625,14 @@ export class CardView {
       window.removeEventListener('mouseup', this.onMeasureUp);
       window.removeEventListener('mousedown', this.onMeasureDismiss);
     }
+    if (this.onFibDown) {
+      this.chartEl.removeEventListener('mousedown', this.onFibDown, true);
+      this.chartEl.removeEventListener('dblclick', this.onFibDblClick, true);
+      window.removeEventListener('mousemove', this.onFibMove);
+      window.removeEventListener('mouseup', this.onFibUp);
+    }
+    clearTimeout(this.fibProjectTimer);
+    if (this.offFibs) this.offFibs();
     if (this.offRangeChange) this.offRangeChange();
     this.provider.unsubscribe(this.card.id);
     if (this.chart) this.chart.destroy();
@@ -522,6 +671,16 @@ export class CardView {
       this.lastBar = bars[bars.length - 1];
       this.setOverlay(null);
       this.renderQuote();
+      // Anchors are timestamps, so they stay valid across an interval change,
+      // but they resolve to different pixels against the new bars. Re-project
+      // on the next tick rather than now: immediately after setData the time
+      // scale has not laid out, so logicalToCoordinate answers 0 for every
+      // anchor and the whole retracement stacks on the left edge. setTimeout
+      // and not requestAnimationFrame, because a hidden card's frames are
+      // throttled and this still has to be right when it comes back.
+      this.dismissMeasure();
+      clearTimeout(this.fibProjectTimer);
+      this.fibProjectTimer = setTimeout(() => this.renderFibs(), 0);
       this.subscribe();
 
       this.provider
@@ -674,6 +833,9 @@ export class CardView {
       if (next.symbol !== prev.symbol) {
         this.chart.setLevels([]);
         this.loadLevels();
+        this.fibs = [];
+        this.fibOverlay.clear();
+        this.loadFibs();
       }
       this.loadData();
     }

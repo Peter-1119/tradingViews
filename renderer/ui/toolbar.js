@@ -23,12 +23,14 @@ const ICONS = {
   cursor: '<path d="M3 2l8 5-3.2 1.1L6.6 11.5z"/>',
   level: '<path d="M1.5 7h11"/><circle cx="4.5" cy="7" r="1.6"/>',
   measure: '<path d="M2 12V4h8"/><path d="M2 12l9-9"/><path d="M6.5 7.5l1.6 1.6"/>',
+  fib: '<path d="M1.5 2.5h11"/><path d="M1.5 5.5h11"/><path d="M1.5 8.5h11"/><path d="M1.5 11.5h11"/>',
 };
 
 export const TOOLS = [
   { id: 'cursor', label: '游標', hint: '游標(雙擊加水平線、Shift 拖曳量測)' },
   { id: 'level', label: '水平線', hint: '水平支撐壓力線:點一下放線' },
   { id: 'measure', label: '量測', hint: '量測區間:直接拖曳' },
+  { id: 'fib', label: '斐波那契', hint: '斐波那契回撤:拖曳畫出波段' },
 ];
 
 function icon(name) {

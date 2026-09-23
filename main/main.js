@@ -231,6 +231,32 @@ ipcMain.handle('levels:remove', (_event, { symbol, id } = {}) => {
   return broadcastLevels(symbol);
 });
 
+function broadcastFibs(symbol) {
+  const fibs = store.getFibs(symbol);
+  windows.broadcast('fibs:changed', { symbol: String(symbol).toUpperCase(), fibs });
+  return fibs;
+}
+
+ipcMain.handle('fibs:list', (_event, symbol) => store.getFibs(symbol));
+
+ipcMain.handle('fibs:add', (_event, { symbol, a, b } = {}) => {
+  const fib = store.addFib(symbol, a, b);
+  if (!fib) return null;
+  broadcastFibs(symbol);
+  return fib;
+});
+
+ipcMain.handle('fibs:update', (_event, { symbol, id, patch } = {}) => {
+  const fib = store.updateFib(symbol, id, patch || {});
+  broadcastFibs(symbol);
+  return fib;
+});
+
+ipcMain.handle('fibs:remove', (_event, { symbol, id } = {}) => {
+  store.removeFib(symbol, id);
+  return broadcastFibs(symbol);
+});
+
 /* -------------------------------------------------------- IPC: windows */
 
 function senderWindow(event) {

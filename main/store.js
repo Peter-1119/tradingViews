@@ -45,6 +45,12 @@ const DEFAULTS = {
    * card showing BTCUSDT shows the same levels without any syncing logic.
    */
   levels: {},
+  /**
+   * Fibonacci retracements, also keyed by symbol. Anchors are {time, price}
+   * rather than bar indices, so they survive a timeframe switch and a change in
+   * how much history is loaded.
+   */
+  fibs: {},
 };
 
 /** Enough for any real chart; a guard against a stuck drag writing thousands. */
@@ -321,6 +327,67 @@ function removeLevel(symbol, id) {
   );
 }
 
+/* ------------------------------------------------------------------ fibs */
+
+function sanitizeAnchor(raw) {
+  const time = Number(raw && raw.time);
+  const price = Number(raw && raw.price);
+  if (!Number.isFinite(time) || !Number.isFinite(price) || price <= 0) return null;
+  return { time: Math.round(time), price };
+}
+
+function sanitizeFib(raw) {
+  const a = sanitizeAnchor(raw && raw.a);
+  const b = sanitizeAnchor(raw && raw.b);
+  if (!a || !b) return null;
+  // A zero-height retracement has no levels to draw.
+  if (a.price === b.price) return null;
+  const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
+  return { id, a, b };
+}
+
+function getFibs(symbol) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = store.get('fibs') || {};
+  const list = Array.isArray(all[key]) ? all[key] : [];
+  return list.map(sanitizeFib).filter(Boolean);
+}
+
+function setFibs(symbol, list) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = { ...(store.get('fibs') || {}) };
+  const clean = (Array.isArray(list) ? list : [])
+    .map(sanitizeFib)
+    .filter(Boolean)
+    .slice(0, MAX_LEVELS_PER_SYMBOL);
+  if (clean.length) all[key] = clean;
+  else delete all[key];
+  store.set('fibs', all);
+  return clean;
+}
+
+function addFib(symbol, a, b) {
+  const fib = sanitizeFib({ a, b });
+  if (!fib) return null;
+  setFibs(symbol, [...getFibs(symbol), fib]);
+  return fib;
+}
+
+function updateFib(symbol, id, patch) {
+  const next = getFibs(symbol).map((f) => (f.id === id ? { ...f, ...patch } : f));
+  setFibs(symbol, next);
+  return getFibs(symbol).find((f) => f.id === id) || null;
+}
+
+function removeFib(symbol, id) {
+  return setFibs(
+    symbol,
+    getFibs(symbol).filter((f) => f.id !== id)
+  );
+}
+
 module.exports = {
   INTERVALS,
   CHART_TYPES,
@@ -354,4 +421,9 @@ module.exports = {
   addLevel,
   updateLevel,
   removeLevel,
+  getFibs,
+  setFibs,
+  addFib,
+  updateFib,
+  removeFib,
 };

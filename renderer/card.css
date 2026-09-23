@@ -175,6 +175,67 @@ button {
 }
 
 /*
+ * Fibonacci retracements. Levels run the full chart width because on a card
+ * this size the question is where price sits against them *now*, which a line
+ * that stops at the anchor cannot answer. The anchors remain as handles so the
+ * swing is still readable, and so either end can be re-dragged.
+ */
+.card__fibs {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.card__fib-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed rgba(186, 164, 216, 0.55);
+}
+
+.card__fib-row[hidden] {
+  display: none;
+}
+
+.card__fib.is-active .card__fib-row {
+  border-top-color: rgba(214, 196, 240, 0.9);
+}
+
+.card__fib-tag {
+  position: absolute;
+  /* Clear of the tool rail, which sits at left:4px and draws above this. At
+     left:2px the top few labels were being covered by the icons. */
+  left: 32px;
+  top: 1px;
+  font-size: 9px;
+  line-height: 1.1;
+  color: rgba(214, 196, 240, 0.85);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(6, 9, 15, 0.9);
+}
+
+.card__fib-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: #0b0f17;
+  border: 1.5px solid rgba(214, 196, 240, 0.95);
+  cursor: grab;
+  /* The only part of the overlay that takes input. */
+  pointer-events: auto;
+}
+
+.card__fib-handle:hover {
+  background: rgba(214, 196, 240, 0.35);
+}
+
+/*
  * Tool rail. Overlays the chart rather than occupying layout width, so it costs
  * nothing when idle. Reveal is tied to the same `.card:hover` rule the title
  * bar uses -- one way to summon this card's chrome, not two.
