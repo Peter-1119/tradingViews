@@ -42,8 +42,44 @@ const LEVEL_COLOR_ACTIVE = '#bcd2ef';
 /** How close the pointer must be, in px, to grab a level. */
 const LEVEL_GRAB_PX = 6;
 
-/** Time axis drags the chart; the price axis stays put so levels read true. */
-const HANDLE_SCALE = { axisPressedMouseMove: { time: true, price: false } };
+/**
+ * Both directions spelled out in full, and that is the whole point.
+ *
+ * `applyOptions({ handleScale: false })` does not set a flag -- it expands to
+ * every sub-option false. Restoring with a partial object then merges, so
+ * anything the partial omits stays off. Freezing the chart for a level drag and
+ * restoring `{ axisPressedMouseMove }` alone left mouseWheel, pinch and
+ * axisDoubleClickReset dead for the life of the card: one drag and the wheel
+ * stopped zooming. Restore exactly what was there.
+ *
+ * The one deliberate deviation from the library defaults is
+ * `axisPressedMouseMove.price`: dragging the price axis is off so that a level
+ * reads true against the scale it was placed on.
+ */
+const HANDLE_SCALE_ON = {
+  mouseWheel: true,
+  pinch: true,
+  axisPressedMouseMove: { time: true, price: false },
+  axisDoubleClickReset: { time: true, price: true },
+};
+const HANDLE_SCALE_OFF = {
+  mouseWheel: false,
+  pinch: false,
+  axisPressedMouseMove: false,
+  axisDoubleClickReset: false,
+};
+const HANDLE_SCROLL_ON = {
+  mouseWheel: true,
+  pressedMouseMove: true,
+  horzTouchDrag: true,
+  vertTouchDrag: true,
+};
+const HANDLE_SCROLL_OFF = {
+  mouseWheel: false,
+  pressedMouseMove: false,
+  horzTouchDrag: false,
+  vertTouchDrag: false,
+};
 
 /**
  * Render times in a chosen zone.
@@ -180,7 +216,7 @@ export class CardChart {
         vertLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
         horzLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
       },
-      handleScale: HANDLE_SCALE,
+      handleScale: HANDLE_SCALE_ON,
       localization: {
         locale: navigator.language || 'en-US',
         priceFormatter: (price) => this.formatPrice(price),
@@ -545,8 +581,8 @@ export class CardChart {
    */
   setInteractionEnabled(enabled) {
     this.chart.applyOptions({
-      handleScroll: enabled,
-      handleScale: enabled ? HANDLE_SCALE : false,
+      handleScroll: enabled ? HANDLE_SCROLL_ON : HANDLE_SCROLL_OFF,
+      handleScale: enabled ? HANDLE_SCALE_ON : HANDLE_SCALE_OFF,
     });
   }
 
