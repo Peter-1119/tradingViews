@@ -105,8 +105,8 @@ export class CardChart {
         lockVisibleTimeRangeOnResize: true,
       },
       crosshair: {
-        // Explicit, because Ctrl toggles it -- see setCrosshairFree().
-        mode: CrosshairMode.Magnet,
+        // Free by default, Ctrl magnets -- see setCrosshairMagnet().
+        mode: CrosshairMode.Normal,
         vertLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
         horzLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
       },
@@ -117,16 +117,20 @@ export class CardChart {
       },
     });
 
-    this.crosshairMode = CrosshairMode.Magnet;
+    this.crosshairMode = CrosshairMode.Normal;
     this.paneRetryTimer = null;
 
     /*
-     * Hold Ctrl to read an arbitrary price level.
+     * Crosshair follows the pointer; hold Ctrl to magnet onto a price point.
      *
-     * Magnet mode snaps the horizontal line to the hovered bar's close, which
-     * is what you want for reading the series and useless for eyeballing a
-     * level *between* bars -- a support line, a target, the distance to a round
-     * number. Ctrl drops the magnet for as long as it is held.
+     * This mirrors TradingView, deliberately, so the muscle memory carries over.
+     * There the crosshair always reads the price under the cursor, and Ctrl is
+     * what engages Magnet mode -- which snaps to "the nearest open, high, low or
+     * close", not to the close alone. Hence MagnetOHLC rather than Magnet: the
+     * library picks whichever of the four candidates is nearest the pointer, so
+     * hovering above a candle grabs its high and hovering below grabs its low,
+     * which is the behaviour that makes magnet worth having when you are lining
+     * a level up against a wick.
      *
      * This rides the crosshair's own mouse events rather than keydown/keyup on
      * purpose: cards are shown with `showInactive()` and never take focus, so a
@@ -142,10 +146,10 @@ export class CardChart {
      */
     this.chart.subscribeCrosshairMove((param) => {
       if (!param.sourceEvent) return;
-      this.setCrosshairFree(param.sourceEvent.ctrlKey);
+      this.setCrosshairMagnet(param.sourceEvent.ctrlKey);
     });
 
-    this.onPointerLeave = () => this.setCrosshairFree(false);
+    this.onPointerLeave = () => this.setCrosshairMagnet(false);
     container.addEventListener('mouseleave', this.onPointerLeave);
 
     this.priceSeries = null;
@@ -408,9 +412,9 @@ export class CardChart {
     }
   }
 
-  /** @param {boolean} free  true = follow the pointer, false = snap to close. */
-  setCrosshairFree(free) {
-    const next = free ? CrosshairMode.Normal : CrosshairMode.Magnet;
+  /** @param {boolean} magnet  true = snap to the nearest OHLC, false = follow the pointer. */
+  setCrosshairMagnet(magnet) {
+    const next = magnet ? CrosshairMode.MagnetOHLC : CrosshairMode.Normal;
     // Called on every crosshair move, so bail before touching the chart.
     if (next === this.crosshairMode) return;
     this.crosshairMode = next;
