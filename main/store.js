@@ -327,7 +327,10 @@ function addLevel(symbol, price) {
   const level = sanitizeLevel({ price });
   if (!level) return null;
   setLevels(symbol, [...getLevels(symbol), level]);
-  return level;
+  // setLevels drops an exact-price duplicate, so the new record may not have
+  // survived. Report what is actually stored, or null -- a caller keeping an
+  // undo history must not be handed the id of a line that does not exist.
+  return getLevels(symbol).find((l) => l.id === level.id) || null;
 }
 
 function updateLevel(symbol, id, price) {

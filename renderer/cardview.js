@@ -26,6 +26,16 @@ import {
 } from './util.js';
 
 const HISTORY_LIMIT = 500;
+
+/** How far back Ctrl+Z reaches. Plenty for "I just grabbed the wrong line". */
+const UNDO_DEPTH = 50;
+
+/**
+ * The card the user last pressed a mouse button on. Board mode puts several
+ * CardViews in one window, and they all hear the same keydown -- only the one
+ * the user was actually working in should undo.
+ */
+let lastActive = null;
 /** How many more bars to pull per backfill, and how near the edge triggers one. */
 const HISTORY_PAGE = 500;
 const HISTORY_PREFETCH_BARS = 20;
@@ -233,6 +243,7 @@ export class CardView {
     this.offStatus = this.provider.onStatusChange((status) => this.setStatus(status));
     this.setStatus(this.provider.getStatus());
 
+    this.bindUndo();
     this.bindLevelInput();
     this.bindFibInput();
     this.offFibs = window.stockcard.onFibsChanged(({ symbol, fibs }) => {
@@ -314,11 +325,15 @@ export class CardView {
       const { x, y } = local(event);
       const hit = this.chart.levelAt(y);
       if (hit) {
+        const removed = this.chart.levels.get(hit);
         await window.stockcard.removeLevel(this.card.symbol, hit);
+        if (removed) this.pushUndo({ kind: 'level-remove', id: hit, price: removed.level.price });
         return;
       }
       const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
-      if (price !== null) await window.stockcard.addLevel(this.card.symbol, price);
+      if (price === null) return;
+      const added = await window.stockcard.addLevel(this.card.symbol, price);
+      if (added) this.pushUndo({ kind: 'level-add', id: added.id });
     };
 
     this.onLevelClick = async (event) => {
@@ -329,7 +344,9 @@ export class CardView {
       // a line the user just placed.
       if (this.chart.levelAt(y)) return;
       const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
-      if (price !== null) await window.stockcard.addLevel(this.card.symbol, price);
+      if (price === null) return;
+      const added = await window.stockcard.addLevel(this.card.symbol, price);
+      if (added) this.pushUndo({ kind: 'level-add', id: added.id });
     };
 
     this.onLevelDown = (event) => {
@@ -342,7 +359,8 @@ export class CardView {
       // out-manoeuvre its handlers with stopPropagation.
       this.chart.setInteractionEnabled(false);
       this.chart.setActiveLevel(hit);
-      this.draggingLevel = { id: hit, price: null };
+      const entry = this.chart.levels.get(hit);
+      this.draggingLevel = { id: hit, price: null, from: entry ? entry.level.price : null };
       event.preventDefault();
     };
 
@@ -370,8 +388,11 @@ export class CardView {
       this.chart.setInteractionEnabled(true);
       this.chart.setActiveLevel(null);
       // Only one write, on release -- not one per pixel of the drag.
-      if (drag.price !== null) {
+      if (drag.price !== null && drag.price !== drag.from) {
         await window.stockcard.updateLevel(this.card.symbol, drag.id, drag.price);
+        // This is the one the feature exists for: a pan that started a few
+        // pixels too close to a line and dragged it along instead.
+        if (drag.from !== null) this.pushUndo({ kind: 'level-move', id: drag.id, from: drag.from });
       }
     };
 
@@ -607,6 +628,92 @@ export class CardView {
     }
   }
 
+  /* ------------------------------------------------------------------ undo */
+
+  pushUndo(op) {
+    this.undoStack.push({ ...op, symbol: this.card.symbol });
+    if (this.undoStack.length > UNDO_DEPTH) this.undoStack.shift();
+  }
+
+  /**
+   * Undoing a delete re-creates the drawing, and the store hands it a new id.
+   * Any older entry still naming the old id -- say, the move that preceded the
+   * delete -- has to follow it, or undoing further back would target a line
+   * that no longer exists and silently do nothing.
+   */
+  remapUndo(oldId, newId) {
+    for (const op of this.undoStack) if (op.id === oldId) op.id = newId;
+  }
+
+  async undo() {
+    const op = this.undoStack.pop();
+    if (!op) return;
+    // Entries are recorded against the symbol on screen at the time. The stack
+    // is cleared on a symbol switch, so this is a backstop, not a path.
+    if (op.symbol !== this.card.symbol) return;
+    const s = op.symbol;
+    try {
+      switch (op.kind) {
+        case 'level-add':
+          await window.stockcard.removeLevel(s, op.id);
+          break;
+        case 'level-remove': {
+          const back = await window.stockcard.addLevel(s, op.price);
+          if (back) this.remapUndo(op.id, back.id);
+          break;
+        }
+        case 'level-move':
+          await window.stockcard.updateLevel(s, op.id, op.from);
+          break;
+        case 'fib-add':
+          await window.stockcard.removeFib(s, op.id);
+          break;
+        case 'fib-remove': {
+          const back = await window.stockcard.addFib(s, op.a, op.b);
+          if (back) this.remapUndo(op.id, back.id);
+          break;
+        }
+        case 'fib-move':
+          await window.stockcard.updateFib(s, op.id, { [op.end]: op.from });
+          break;
+        default:
+          break;
+      }
+    } catch (err) {
+      console.error('[card] undo failed', err);
+    }
+  }
+
+  /**
+   * Ctrl+Z, scoped to this card's window. A global shortcut would steal Ctrl+Z
+   * from every other application on the machine.
+   *
+   * Cards are shown without taking focus, but pressing a mouse button on one
+   * activates its window -- and the mistake this undoes is always a drag, so
+   * by the time the user reaches for Ctrl+Z the card has the keyboard.
+   * `event.code` rather than `event.key`: with a Chinese IME active, `key`
+   * can come through as "Process" instead of "z".
+   */
+  bindUndo() {
+    this.undoStack = [];
+    lastActive = this;
+    this.onActivate = () => {
+      lastActive = this;
+    };
+    this.root.addEventListener('pointerdown', this.onActivate, true);
+    this.onUndoKey = (event) => {
+      if (lastActive !== this) return;
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
+      if (event.code !== 'KeyZ') return;
+      // Inside a text field, Ctrl+Z belongs to the text.
+      const t = event.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      event.preventDefault();
+      this.undo();
+    };
+    window.addEventListener('keydown', this.onUndoKey);
+  }
+
   /* ------------------------------------------------------------------ fibs */
 
   async loadFibs() {
@@ -655,7 +762,9 @@ export class CardView {
       // an armed tool can still adjust what is already on the chart.
       const grabbed = this.fibHandleAt(event.target);
       if (grabbed) {
-        this.draggingFib = grabbed;
+        const fib = this.fibs.find((f) => f.id === grabbed.id);
+        // Copy, not reference: the drag mutates this anchor in place.
+        this.draggingFib = { ...grabbed, from: fib ? { ...fib[grabbed.end] } : null };
         this.activeFibId = grabbed.id;
         this.chart.setInteractionEnabled(false);
         event.preventDefault();
@@ -694,19 +803,26 @@ export class CardView {
         this.chart.setInteractionEnabled(true);
         // A click with no drag is not a retracement; drop it silently.
         if (draft.a.price !== draft.b.price) {
-          await window.stockcard.addFib(this.card.symbol, draft.a, draft.b);
+          const added = await window.stockcard.addFib(this.card.symbol, draft.a, draft.b);
+          if (added) this.pushUndo({ kind: 'fib-add', id: added.id });
         } else {
           this.renderFibs();
         }
         return;
       }
       if (this.draggingFib) {
-        const { id, end } = this.draggingFib;
+        const { id, end, from } = this.draggingFib;
         this.draggingFib = null;
         this.activeFibId = null;
         this.chart.setInteractionEnabled(true);
         const fib = this.fibs.find((f) => f.id === id);
-        if (fib) await window.stockcard.updateFib(this.card.symbol, id, { [end]: fib[end] });
+        if (!fib) return;
+        // The first click of a double-click lands here too, without moving
+        // anything; that is not an edit and must not cost an undo step.
+        const moved = from && (fib[end].time !== from.time || fib[end].price !== from.price);
+        if (!moved) return;
+        await window.stockcard.updateFib(this.card.symbol, id, { [end]: fib[end] });
+        this.pushUndo({ kind: 'fib-move', id, end, from });
       }
     };
 
@@ -714,7 +830,9 @@ export class CardView {
       const grabbed = this.fibHandleAt(event.target);
       if (!grabbed) return;
       event.stopPropagation();
+      const fib = this.fibs.find((f) => f.id === grabbed.id);
       await window.stockcard.removeFib(this.card.symbol, grabbed.id);
+      if (fib) this.pushUndo({ kind: 'fib-remove', id: fib.id, a: { ...fib.a }, b: { ...fib.b } });
     };
 
     el.addEventListener('mousedown', this.onFibDown, true);
@@ -901,6 +1019,9 @@ export class CardView {
     clearTimeout(this.periodScrollTimer);
     this.toolbar.destroy();
     if (this.offFibs) this.offFibs();
+    if (this.onUndoKey) window.removeEventListener('keydown', this.onUndoKey);
+    if (this.onActivate) this.root.removeEventListener('pointerdown', this.onActivate, true);
+    if (lastActive === this) lastActive = null;
     if (this.offRangeChange) this.offRangeChange();
     this.provider.unsubscribe(this.card.id);
     this.provider.unsubscribe(`${this.card.id}:htf`);
@@ -1119,6 +1240,9 @@ export class CardView {
         this.fibOverlay.clear();
         this.loadFibs();
         this.periodCache.clear();
+        // Undo entries belong to the symbol they were recorded on; replaying
+        // them after a switch would edit drawings that are not on screen.
+        this.undoStack = [];
         this.applyVolumeProfile(this.card.volumeProfile || 'off');
         if (this.card.showHtf) this.setHtfEnabled(true);
       }
