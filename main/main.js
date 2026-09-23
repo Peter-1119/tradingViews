@@ -117,6 +117,7 @@ ipcMain.handle('prefs:get', () => store.getGlobalPrefs());
 
 ipcMain.handle('prefs:set', (_event, patch = {}) => {
   if ('upDownColor' in patch) store.set('upDownColor', patch.upDownColor);
+  if ('timezone' in patch) store.set('timezone', patch.timezone);
   if ('launchAtStartup' in patch) tray.setLaunchAtStartup(patch.launchAtStartup);
   if ('boardColumns' in patch) store.setBoard({ columns: patch.boardColumns });
   const prefs = store.getGlobalPrefs();

@@ -11,6 +11,13 @@ import { SymbolSearch } from './symbol-search.js';
 import { ShortcutInput } from './shortcut-input.js';
 
 const UP_DOWN_LABELS = { greenUp: '綠漲紅跌', redUp: '紅漲綠跌' };
+/**
+ * 'auto' follows the machine, which is the friendly default. 'UTC' is there
+ * because that is the exchange's own clock -- Binance daily candles open at
+ * 00:00 UTC -- so it is the one zone where the bar boundaries line up.
+ */
+const TIMEZONE_VALUES = ['auto', 'Asia/Taipei', 'UTC'];
+const TIMEZONE_LABELS = { auto: '本機', 'Asia/Taipei': '台北', UTC: 'UTC' };
 
 function segmented(values, labels, current, onSelect) {
   const buttons = new Map();
@@ -151,6 +158,10 @@ export class SettingsPanel {
       onPrefs({ upDownColor: value })
     );
 
+    this.timezoneSeg = segmented(TIMEZONE_VALUES, TIMEZONE_LABELS, prefs.timezone, (value) =>
+      onPrefs({ timezone: value })
+    );
+
     this.startupToggle = toggle({
       label: '開機自動啟動',
       checked: prefs.launchAtStartup,
@@ -190,6 +201,7 @@ export class SettingsPanel {
         el('div.sc-row.sc-row--stack', {}, this.volumeToggle.root, showWindowOpacity ? this.onTopToggle.root : null),
         el('div.sc-divider', { text: '全域設定' }),
         row('漲跌顏色', this.upDownSeg.root),
+        row('時間顯示', this.timezoneSeg.root),
         row('顯示/隱藏全部卡片', this.showAccel.root),
         row('切換滑鼠穿透', this.clickThroughAccel.root),
         el('div.sc-row.sc-row--stack', {}, this.startupToggle.root)
@@ -200,6 +212,7 @@ export class SettingsPanel {
   /** Re-sync the global controls after a change made from another card or the tray. */
   updatePrefs(prefs) {
     this.upDownSeg.setValue(prefs.upDownColor);
+    this.timezoneSeg.setValue(prefs.timezone);
     this.startupToggle.setValue(prefs.launchAtStartup);
     this.showAccel.setValue(prefs.shortcuts.toggleShow);
     this.clickThroughAccel.setValue(prefs.shortcuts.toggleClickThrough);

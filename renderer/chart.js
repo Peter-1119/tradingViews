@@ -45,6 +45,60 @@ const LEVEL_GRAB_PX = 6;
 /** Time axis drags the chart; the price axis stays put so levels read true. */
 const HANDLE_SCALE = { axisPressedMouseMove: { time: true, price: false } };
 
+/**
+ * Render times in a chosen zone.
+ *
+ * Binance timestamps are UTC epoch seconds and lightweight-charts formats them
+ * as UTC, so the axis sits 8 hours behind Taipei out of the box. We fix that by
+ * *formatting* rather than by shifting the timestamps: the bar times are also
+ * the keys the datafeed dedupes and backfills against (`lastBarTime`), and the
+ * identity lightweight-charts uses to update the forming candle, so moving them
+ * would break the data layer to cosmetic ends.
+ *
+ * The caveat this cannot fix: a `1d` candle really is a UTC day on Binance, so
+ * in UTC+8 it is labelled 08:00. That is the exchange's boundary, not a
+ * formatting bug -- intraday is clean because the offset is a whole hour.
+ */
+function timeFormatters(timezone) {
+  const zone = timezone && timezone !== 'auto' ? { timeZone: timezone } : {};
+  const locale = navigator.language || 'en-US';
+  const make = (opts) => new Intl.DateTimeFormat(locale, { ...opts, ...zone });
+
+  const hm = make({ hour: '2-digit', minute: '2-digit', hour12: false });
+  const hms = make({ hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const day = make({ month: 'short', day: 'numeric' });
+  const month = make({ year: '2-digit', month: 'short' });
+  const year = make({ year: 'numeric' });
+  const full = make({
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  return {
+    /** Axis ticks: the library tells us which granularity it wants. */
+    tickMark: (time, tickMarkType) => {
+      const date = new Date(Number(time) * 1000);
+      switch (tickMarkType) {
+        case 0: // Year
+          return year.format(date);
+        case 1: // Month
+          return month.format(date);
+        case 2: // DayOfMonth
+          return day.format(date);
+        case 4: // TimeWithSeconds
+          return hms.format(date);
+        default: // Time
+          return hm.format(date);
+      }
+    },
+    /** Crosshair label: always the full stamp, there is only one of them. */
+    crosshair: (time) => full.format(new Date(Number(time) * 1000)),
+  };
+}
+
 /** Crypto spans BTC at 5 digits and memecoins at 8 decimals; pick per price. */
 function precisionFor(price) {
   const p = Math.abs(Number(price) || 0);
@@ -73,6 +127,8 @@ export class CardChart {
     this.chartType = CHART_TYPES.includes(options.chartType) ? options.chartType : 'candlestick';
     this.upDownColor = options.upDownColor === 'redUp' ? 'redUp' : 'greenUp';
     this.showVolume = options.showVolume === true;
+    this.timezone = options.timezone || 'auto';
+    this.formatters = timeFormatters(this.timezone);
 
     /** @type {Bar[]} the single source of truth for every series shape */
     this.bars = [];
@@ -116,6 +172,7 @@ export class CardChart {
         minBarSpacing: 1,
         fixLeftEdge: false,
         lockVisibleTimeRangeOnResize: true,
+        tickMarkFormatter: (time, tickMarkType) => this.formatters.tickMark(time, tickMarkType),
       },
       crosshair: {
         // Free by default, Ctrl magnets -- see setCrosshairMagnet().
@@ -127,6 +184,7 @@ export class CardChart {
       localization: {
         locale: navigator.language || 'en-US',
         priceFormatter: (price) => this.formatPrice(price),
+        timeFormatter: (time) => this.formatters.crosshair(time),
       },
     });
 
@@ -567,6 +625,17 @@ export class CardChart {
     const logical = this.chart.timeScale().coordinateToLogical(x);
     if (logical === null) return null;
     return this.bars[Math.max(0, Math.min(this.bars.length - 1, Math.round(logical)))] || null;
+  }
+
+  setTimezone(timezone) {
+    const next = timezone || 'auto';
+    if (next === this.timezone) return;
+    this.timezone = next;
+    this.formatters = timeFormatters(next);
+    // The formatters are read through `this`, so the chart only needs nudging
+    // to repaint its axis with them.
+    this.chart.applyOptions({ timeScale: {} });
+    this.chart.timeScale().applyOptions({});
   }
 
   /** @param {boolean} magnet  true = snap to the nearest OHLC, false = follow the pointer. */

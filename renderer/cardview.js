@@ -185,6 +185,7 @@ export class CardView {
       chartType: this.card.chartType,
       showVolume: this.card.showVolume,
       upDownColor: this.prefs.upDownColor,
+      timezone: this.prefs.timezone,
     });
 
     this.offStatus = this.provider.onStatusChange((status) => this.setStatus(status));
@@ -447,7 +448,10 @@ export class CardView {
 
   setPrefs(prefs) {
     this.prefs = prefs;
-    if (this.chart) this.chart.setUpDownColor(prefs.upDownColor);
+    if (this.chart) {
+      this.chart.setUpDownColor(prefs.upDownColor);
+      this.chart.setTimezone(prefs.timezone);
+    }
     this.panel.updatePrefs(prefs);
     this.renderQuote();
   }

@@ -30,6 +30,12 @@ const DEFAULTS = {
     toggleClickThrough: 'Ctrl+Alt+C',
   },
   upDownColor: 'greenUp',
+  /**
+   * IANA zone name, or 'auto' to follow the machine. Binance timestamps are
+   * UTC epoch seconds and lightweight-charts renders them as UTC unless told
+   * otherwise, which is why the axis read 8 hours behind Taipei by default.
+   */
+  timezone: 'auto',
   launchAtStartup: false,
   clickThrough: false,
   /**
@@ -226,12 +232,25 @@ function set(key, value) {
 function getGlobalPrefs() {
   return {
     upDownColor: store.get('upDownColor') === 'redUp' ? 'redUp' : 'greenUp',
+    timezone: getTimezone(),
     mode: getMode(),
     clickThrough: store.get('clickThrough') === true,
     launchAtStartup: store.get('launchAtStartup') === true,
     shortcuts: getShortcuts(),
     boardColumns: getBoard().columns,
   };
+}
+
+/** A zone the runtime actually knows; anything else falls back to the machine. */
+function getTimezone() {
+  const value = store.get('timezone');
+  if (value === 'auto' || !value) return 'auto';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return value;
+  } catch {
+    return 'auto';
+  }
 }
 
 /* ---------------------------------------------------------------- levels */
@@ -326,6 +345,7 @@ module.exports = {
   getShortcuts,
   setShortcuts,
   getGlobalPrefs,
+  getTimezone,
   normalizeBounds,
   defaultCardBounds,
   sanitizeCard,
