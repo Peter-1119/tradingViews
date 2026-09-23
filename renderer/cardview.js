@@ -9,6 +9,7 @@
 
 import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
+import { Toolbar } from './ui/toolbar.js';
 import {
   el,
   formatPrice,
@@ -135,6 +136,13 @@ export class CardView {
     this.measureBox.append(this.measureLabel);
     this.chartEl.append(this.measureBox);
 
+    this.activeTool = 'cursor';
+    this.toolbar = new Toolbar({
+      active: this.activeTool,
+      onSelect: (id) => this.setActiveTool(id),
+    });
+    this.chartEl.append(this.toolbar.root);
+
     this.overlayText = el('div.card__overlay-text', { text: '載入中…' });
     this.retryBtn = el('button.sc-btn', {
       type: 'button',
@@ -210,6 +218,22 @@ export class CardView {
     await this.loadData();
   }
 
+  /* ----------------------------------------------------------------- tools */
+
+  /**
+   * Arm a drawing tool. Selecting the same one again disarms it, so the rail
+   * is a toggle rather than a trap -- on a card this small, hunting for the
+   * cursor icon to escape a mode is a poor use of the only 22px of chrome.
+   */
+  setActiveTool(id) {
+    const next = id === this.activeTool ? 'cursor' : id;
+    this.activeTool = next;
+    this.toolbar.setActive(next);
+    this.dismissMeasure();
+    // The chart's own cursor would otherwise stay a crosshair over a tool.
+    this.chartEl.style.cursor = next === 'cursor' ? '' : 'crosshair';
+  }
+
   /* --------------------------------------------------------------- levels */
 
   async loadLevels() {
@@ -246,6 +270,17 @@ export class CardView {
         await window.stockcard.removeLevel(this.card.symbol, hit);
         return;
       }
+      const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
+      if (price !== null) await window.stockcard.addLevel(this.card.symbol, price);
+    };
+
+    this.onLevelClick = async (event) => {
+      if (this.activeTool !== 'level' || event.shiftKey) return;
+      const { x, y } = local(event);
+      // Clicking an existing level selects nothing and deletes nothing here --
+      // that stays on double-click, so a mis-click while armed cannot destroy
+      // a line the user just placed.
+      if (this.chart.levelAt(y)) return;
       const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
       if (price !== null) await window.stockcard.addLevel(this.card.symbol, price);
     };
@@ -294,6 +329,7 @@ export class CardView {
     };
 
     el.addEventListener('dblclick', this.onLevelDblClick);
+    el.addEventListener('click', this.onLevelClick);
     el.addEventListener('mousedown', this.onLevelDown, true);
     el.addEventListener('mousemove', this.onLevelMove);
     // On window, not the element: a fast drag can release outside the chart.
@@ -319,7 +355,10 @@ export class CardView {
     const el = this.chartEl;
 
     this.onMeasureDown = (event) => {
-      if (event.button !== 0 || !event.shiftKey) return;
+      // Shift is the shortcut and works in any mode; the armed tool needs no
+      // modifier at all.
+      if (event.button !== 0) return;
+      if (!event.shiftKey && this.activeTool !== 'measure') return;
       const { x, y } = local(event);
       const from = this.chart.pointAt(x, y, { magnet: event.ctrlKey });
       if (!from) return;
@@ -331,7 +370,7 @@ export class CardView {
     };
 
     this.onMeasureMove = (event) => {
-      if (!this.measuring) return;
+      if (!this.measuring || this.measuring.held) return;
       const { x, y } = local(event);
       const to = this.chart.pointAt(x, y, { magnet: event.ctrlKey });
       if (!to) return;
@@ -434,6 +473,7 @@ export class CardView {
     if (this.offLevels) this.offLevels();
     if (this.onLevelDblClick) {
       this.chartEl.removeEventListener('dblclick', this.onLevelDblClick);
+      this.chartEl.removeEventListener('click', this.onLevelClick);
       this.chartEl.removeEventListener('mousedown', this.onLevelDown, true);
       this.chartEl.removeEventListener('mousemove', this.onLevelMove);
       window.removeEventListener('mouseup', this.onLevelUp);

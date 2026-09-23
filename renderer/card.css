@@ -175,6 +175,75 @@ button {
 }
 
 /*
+ * Tool rail. Overlays the chart rather than occupying layout width, so it costs
+ * nothing when idle. Reveal is tied to the same `.card:hover` rule the title
+ * bar uses -- one way to summon this card's chrome, not two.
+ */
+.card__rail {
+  position: absolute;
+  left: 4px;
+  top: 32px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(11, 15, 23, 0.62);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  backdrop-filter: blur(6px);
+  /* Idle: invisible and untouchable, so it never steals a chart drag. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.card:hover .card__rail,
+.card__rail:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/*
+ * An armed tool stays legible after the rail fades, otherwise it is possible to
+ * leave the card in measure mode and have nothing on screen say so.
+ */
+.card__rail:not([data-tool='cursor']) {
+  opacity: 1;
+}
+
+.card__rail:not([data-tool='cursor']):not(:hover) .card__rail-btn:not(.is-active) {
+  opacity: 0;
+}
+
+.card__rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.card__rail-btn:hover {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--ink);
+}
+
+.card__rail-btn.is-active {
+  background: rgba(79, 143, 247, 0.28);
+  color: #cfe0fb;
+}
+
+/*
  * Shift-drag measure box. A DOM overlay rather than a chart primitive: it is
  * two rectangles and a label, the card's CSS already knows how to style it, and
  * it keeps the chart's render pipeline untouched. Positioned from logical
