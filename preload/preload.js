@@ -37,6 +37,13 @@ const api = {
   removeCard: (cardId) => ipcRenderer.invoke('card:remove', cardId),
   reorderCards: (ids) => ipcRenderer.invoke('cards:reorder', ids),
 
+  /* ---------------------------------------------------- price levels */
+  listLevels: (symbol) => ipcRenderer.invoke('levels:list', symbol),
+  addLevel: (symbol, price) => ipcRenderer.invoke('levels:add', { symbol, price }),
+  updateLevel: (symbol, id, price) => ipcRenderer.invoke('levels:update', { symbol, id, price }),
+  removeLevel: (symbol, id) => ipcRenderer.invoke('levels:remove', { symbol, id }),
+  onLevelsChanged: (cb) => on('levels:changed', cb),
+
   /* --------------------------------------------------------- window */
   getBounds: () => ipcRenderer.invoke('window:get-bounds'),
   setSize: (width, height) => ipcRenderer.invoke('window:set-size', { width, height }),

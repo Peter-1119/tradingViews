@@ -32,6 +32,19 @@ const TEXT = 'rgba(226, 232, 240, 0.72)';
 const GRID = 'rgba(148, 163, 184, 0.08)';
 const CROSSHAIR = 'rgba(148, 163, 184, 0.45)';
 
+/**
+ * Support/resistance levels. Deliberately not green or red -- a level is not
+ * bullish or bearish, and borrowing the candle colours would make it read as a
+ * signal. Muted slate-blue stays legible over both.
+ */
+const LEVEL_COLOR = '#7f9dc4';
+const LEVEL_COLOR_ACTIVE = '#bcd2ef';
+/** How close the pointer must be, in px, to grab a level. */
+const LEVEL_GRAB_PX = 6;
+
+/** Time axis drags the chart; the price axis stays put so levels read true. */
+const HANDLE_SCALE = { axisPressedMouseMove: { time: true, price: false } };
+
 /** Crypto spans BTC at 5 digits and memecoins at 8 decimals; pick per price. */
 function precisionFor(price) {
   const p = Math.abs(Number(price) || 0);
@@ -110,7 +123,7 @@ export class CardChart {
         vertLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
         horzLine: { color: CROSSHAIR, width: 1, style: 3, labelBackgroundColor: '#1e2633' },
       },
-      handleScale: { axisPressedMouseMove: { time: true, price: false } },
+      handleScale: HANDLE_SCALE,
       localization: {
         locale: navigator.language || 'en-US',
         priceFormatter: (price) => this.formatPrice(price),
@@ -119,6 +132,10 @@ export class CardChart {
 
     this.crosshairMode = CrosshairMode.Normal;
     this.paneRetryTimer = null;
+
+    /** levelId -> { level, priceLine } */
+    this.levels = new Map();
+    this.activeLevelId = null;
 
     /*
      * Crosshair follows the pointer; hold Ctrl to magnet onto a price point.
@@ -397,10 +414,15 @@ export class CardChart {
     this.chartType = next;
 
     const visibleRange = this.chart.timeScale().getVisibleLogicalRange();
+    // Price lines are owned by the series, so they die with it. Keep the level
+    // records and re-attach them to the replacement.
+    const levels = [...this.levels.values()].map((entry) => entry.level);
 
     this.chart.removeSeries(this.priceSeries);
+    this.levels.clear();
     this.createPriceSeries();
     this.render();
+    this.setLevels(levels);
 
     // Preserve the viewport so the switch does not feel like a reload.
     if (visibleRange) {
@@ -410,6 +432,141 @@ export class CardChart {
         this.chart.timeScale().scrollToRealTime();
       }
     }
+  }
+
+  /* -------------------------------------------------------------- levels */
+
+  levelOptions(id) {
+    const active = id === this.activeLevelId;
+    return {
+      price: 0,
+      color: active ? LEVEL_COLOR_ACTIVE : LEVEL_COLOR,
+      lineWidth: 1,
+      lineStyle: 2, // LineStyle.Dashed -- distinguishes a drawn level from the series
+      axisLabelVisible: true,
+      axisLabelColor: active ? LEVEL_COLOR_ACTIVE : LEVEL_COLOR,
+      axisLabelTextColor: '#0b0f17',
+      title: '',
+    };
+  }
+
+  /** Reconcile the rendered price lines against a list from the store. */
+  setLevels(list) {
+    if (!this.priceSeries) return;
+    const next = new Map();
+    for (const level of Array.isArray(list) ? list : []) {
+      const existing = this.levels.get(level.id);
+      if (existing) {
+        existing.level = level;
+        existing.priceLine.applyOptions({ ...this.levelOptions(level.id), price: level.price });
+        next.set(level.id, existing);
+        this.levels.delete(level.id);
+      } else {
+        const priceLine = this.priceSeries.createPriceLine({
+          ...this.levelOptions(level.id),
+          price: level.price,
+        });
+        next.set(level.id, { level, priceLine });
+      }
+    }
+    // Whatever is left in the old map was removed upstream.
+    for (const { priceLine } of this.levels.values()) {
+      try {
+        this.priceSeries.removePriceLine(priceLine);
+      } catch {
+        /* series already torn down */
+      }
+    }
+    this.levels = next;
+  }
+
+  /**
+   * Freeze pan/zoom while a level is being dragged. Cleaner than fighting the
+   * library's own mouse handlers with stopPropagation, and it also stops a
+   * slightly-off grab from scrolling the chart instead of moving the line.
+   */
+  setInteractionEnabled(enabled) {
+    this.chart.applyOptions({
+      handleScroll: enabled,
+      handleScale: enabled ? HANDLE_SCALE : false,
+    });
+  }
+
+  /** Live preview while dragging, without touching the store on every pixel. */
+  previewLevel(id, price) {
+    const entry = this.levels.get(id);
+    if (entry) entry.priceLine.applyOptions({ price });
+  }
+
+  setActiveLevel(id) {
+    if (this.activeLevelId === id) return;
+    const previous = this.activeLevelId;
+    this.activeLevelId = id;
+    for (const key of [previous, id]) {
+      const entry = key && this.levels.get(key);
+      if (entry) {
+        entry.priceLine.applyOptions({
+          ...this.levelOptions(key),
+          price: entry.priceLine.options().price,
+        });
+      }
+    }
+  }
+
+  /** @returns {string|null} id of the level within grab distance of `y`. */
+  levelAt(y) {
+    if (!this.priceSeries) return null;
+    let best = null;
+    let bestDist = LEVEL_GRAB_PX;
+    for (const [id, entry] of this.levels) {
+      const lineY = this.priceSeries.priceToCoordinate(entry.priceLine.options().price);
+      if (lineY === null) continue;
+      const dist = Math.abs(lineY - y);
+      if (dist <= bestDist) {
+        best = id;
+        bestDist = dist;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * The price under a pointer position, magnetised to the nearest OHLC when
+   * asked -- the same rule the Ctrl crosshair uses, so placing a level lands
+   * exactly where the crosshair says it will.
+   */
+  priceAt(x, y, { magnet = false } = {}) {
+    if (!this.priceSeries) return null;
+    const raw = this.priceSeries.coordinateToPrice(y);
+    if (raw === null) return null;
+    // A pixel maps to an absurdly precise float; a level is only ever as
+    // precise as the instrument quotes, and the stored value should read like
+    // the axis label rather than 86279.07748827102.
+    const round = (price) => Number(Number(price).toFixed(this.precision));
+    if (!magnet) return round(raw);
+
+    const bar = this.barAt(x);
+    if (!bar) return round(raw);
+    const candidates =
+      this.chartType === 'candlestick' ? [bar.open, bar.high, bar.low, bar.close] : [bar.close];
+    let nearest = raw;
+    let bestDist = Infinity;
+    for (const price of candidates) {
+      const dist = Math.abs(price - raw);
+      if (dist < bestDist) {
+        bestDist = dist;
+        nearest = price;
+      }
+    }
+    // A magnet target is already an exact quoted price; rounding keeps it so.
+    return round(nearest);
+  }
+
+  /** The cached bar under an x coordinate, via the time scale's logical index. */
+  barAt(x) {
+    const logical = this.chart.timeScale().coordinateToLogical(x);
+    if (logical === null) return null;
+    return this.bars[Math.max(0, Math.min(this.bars.length - 1, Math.round(logical)))] || null;
   }
 
   /** @param {boolean} magnet  true = snap to the nearest OHLC, false = follow the pointer. */
@@ -464,6 +621,7 @@ export class CardChart {
   }
 
   destroy() {
+    this.levels.clear();
     this.resizeObserver.disconnect();
     clearTimeout(this.paneRetryTimer);
     this.container.removeEventListener('mouseleave', this.onPointerLeave);

@@ -196,6 +196,40 @@ ipcMain.handle('cards:reorder', (_event, ids = []) => {
   return cards;
 });
 
+/* ------------------------------------------------------ price levels */
+
+/**
+ * Levels belong to a symbol, not to the card that drew them, so every write
+ * has to reach every other card showing that symbol -- including the Board
+ * window. Broadcasting the whole list rather than a delta keeps the renderers
+ * stateless about ordering and de-duplication.
+ */
+function broadcastLevels(symbol) {
+  const levels = store.getLevels(symbol);
+  windows.broadcast('levels:changed', { symbol: String(symbol).toUpperCase(), levels });
+  return levels;
+}
+
+ipcMain.handle('levels:list', (_event, symbol) => store.getLevels(symbol));
+
+ipcMain.handle('levels:add', (_event, { symbol, price } = {}) => {
+  const level = store.addLevel(symbol, price);
+  if (!level) return null;
+  broadcastLevels(symbol);
+  return level;
+});
+
+ipcMain.handle('levels:update', (_event, { symbol, id, price } = {}) => {
+  const level = store.updateLevel(symbol, id, price);
+  broadcastLevels(symbol);
+  return level;
+});
+
+ipcMain.handle('levels:remove', (_event, { symbol, id } = {}) => {
+  store.removeLevel(symbol, id);
+  return broadcastLevels(symbol);
+});
+
 /* -------------------------------------------------------- IPC: windows */
 
 function senderWindow(event) {

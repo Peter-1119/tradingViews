@@ -190,13 +190,110 @@ export class CardView {
     this.offStatus = this.provider.onStatusChange((status) => this.setStatus(status));
     this.setStatus(this.provider.getStatus());
 
+    this.bindLevelInput();
+    this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
+      if (this.destroyed || symbol !== this.card.symbol) return;
+      this.chart.setLevels(levels);
+    });
+    this.loadLevels();
+
     await this.loadData();
+  }
+
+  /* --------------------------------------------------------------- levels */
+
+  async loadLevels() {
+    const symbol = this.card.symbol;
+    const levels = await window.stockcard.listLevels(symbol);
+    // A symbol switch could have landed while this was in flight.
+    if (this.destroyed || symbol !== this.card.symbol) return;
+    this.chart.setLevels(levels);
+  }
+
+  /**
+   * Support/resistance levels, with no toolbar -- there is no room for one on a
+   * card this size, so the whole interaction is three gestures on the chart:
+   *
+   *   double-click empty space  -> add a level there
+   *   double-click a level      -> delete it
+   *   drag a level              -> move it
+   *
+   * Hold Ctrl for any of them to magnet onto the nearest OHLC, exactly as the
+   * crosshair does, so a level lands on the wick you are aiming at.
+   */
+  bindLevelInput() {
+    const el = this.chartEl;
+    const local = (event) => {
+      const rect = el.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+
+    this.onLevelDblClick = async (event) => {
+      const { x, y } = local(event);
+      const hit = this.chart.levelAt(y);
+      if (hit) {
+        await window.stockcard.removeLevel(this.card.symbol, hit);
+        return;
+      }
+      const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
+      if (price !== null) await window.stockcard.addLevel(this.card.symbol, price);
+    };
+
+    this.onLevelDown = (event) => {
+      if (event.button !== 0) return;
+      const { y } = local(event);
+      const hit = this.chart.levelAt(y);
+      if (!hit) return;
+      // Freeze the chart's own pan/zoom for the duration, rather than trying to
+      // out-manoeuvre its handlers with stopPropagation.
+      this.chart.setInteractionEnabled(false);
+      this.chart.setActiveLevel(hit);
+      this.draggingLevel = { id: hit, price: null };
+      event.preventDefault();
+    };
+
+    this.onLevelMove = (event) => {
+      const { x, y } = local(event);
+      if (!this.draggingLevel) {
+        el.style.cursor = this.chart.levelAt(y) ? 'ns-resize' : '';
+        return;
+      }
+      const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
+      if (price === null) return;
+      this.draggingLevel.price = price;
+      this.chart.previewLevel(this.draggingLevel.id, price);
+    };
+
+    this.onLevelUp = async () => {
+      const drag = this.draggingLevel;
+      if (!drag) return;
+      this.draggingLevel = null;
+      this.chart.setInteractionEnabled(true);
+      this.chart.setActiveLevel(null);
+      // Only one write, on release -- not one per pixel of the drag.
+      if (drag.price !== null) {
+        await window.stockcard.updateLevel(this.card.symbol, drag.id, drag.price);
+      }
+    };
+
+    el.addEventListener('dblclick', this.onLevelDblClick);
+    el.addEventListener('mousedown', this.onLevelDown, true);
+    el.addEventListener('mousemove', this.onLevelMove);
+    // On window, not the element: a fast drag can release outside the chart.
+    window.addEventListener('mouseup', this.onLevelUp);
   }
 
   destroy() {
     this.destroyed = true;
     this.loadSeq += 1; // invalidate any in-flight load
     if (this.offStatus) this.offStatus();
+    if (this.offLevels) this.offLevels();
+    if (this.onLevelDblClick) {
+      this.chartEl.removeEventListener('dblclick', this.onLevelDblClick);
+      this.chartEl.removeEventListener('mousedown', this.onLevelDown, true);
+      this.chartEl.removeEventListener('mousemove', this.onLevelMove);
+      window.removeEventListener('mouseup', this.onLevelUp);
+    }
     this.provider.unsubscribe(this.card.id);
     if (this.chart) this.chart.destroy();
     this.root.remove();
@@ -378,6 +475,12 @@ export class CardView {
       this.ticker = null;
       this.lastBar = null;
       this.renderQuote();
+      // Levels belong to the symbol, so a symbol switch swaps the whole set.
+      // The interval half of `symbolChanged` is a harmless no-op reload.
+      if (next.symbol !== prev.symbol) {
+        this.chart.setLevels([]);
+        this.loadLevels();
+      }
       this.loadData();
     }
   }

@@ -32,7 +32,17 @@ const DEFAULTS = {
   upDownColor: 'greenUp',
   launchAtStartup: false,
   clickThrough: false,
+  /**
+   * Horizontal support/resistance levels, keyed by symbol -- deliberately not
+   * by card and not by interval. A price level has no time anchor, so the same
+   * line is meaningful on every timeframe, and keying by symbol means every
+   * card showing BTCUSDT shows the same levels without any syncing logic.
+   */
+  levels: {},
 };
+
+/** Enough for any real chart; a guard against a stuck drag writing thousands. */
+const MAX_LEVELS_PER_SYMBOL = 60;
 
 const store = new Store({ name: 'stock-card-config', defaults: DEFAULTS });
 
@@ -224,6 +234,74 @@ function getGlobalPrefs() {
   };
 }
 
+/* ---------------------------------------------------------------- levels */
+
+function sanitizeLevel(raw) {
+  const price = Number(raw && raw.price);
+  // A level at or below zero is not a price, it is a corrupt record.
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
+  return { id, price };
+}
+
+function levelKey(symbol) {
+  return String(symbol || '').toUpperCase();
+}
+
+function getLevels(symbol) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = store.get('levels') || {};
+  const list = Array.isArray(all[key]) ? all[key] : [];
+  return list.map(sanitizeLevel).filter(Boolean);
+}
+
+function setLevels(symbol, list) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = { ...(store.get('levels') || {}) };
+  const seen = new Set();
+  const clean = (Array.isArray(list) ? list : [])
+    .map(sanitizeLevel)
+    .filter(Boolean)
+    // Two levels at the identical price are never meaningful, and the magnet
+    // makes them easy to produce: snapping twice near the same wick yields the
+    // exact same OHLC value, so the second line lands invisibly on the first.
+    .filter((level) => {
+      if (seen.has(level.price)) return false;
+      seen.add(level.price);
+      return true;
+    })
+    .slice(0, MAX_LEVELS_PER_SYMBOL)
+    .sort((a, b) => b.price - a.price);
+  // Drop the key entirely when empty, so deleting the last level does not leave
+  // a growing graveyard of symbols in the config file.
+  if (clean.length) all[key] = clean;
+  else delete all[key];
+  store.set('levels', all);
+  return clean;
+}
+
+function addLevel(symbol, price) {
+  const level = sanitizeLevel({ price });
+  if (!level) return null;
+  setLevels(symbol, [...getLevels(symbol), level]);
+  return level;
+}
+
+function updateLevel(symbol, id, price) {
+  const next = getLevels(symbol).map((l) => (l.id === id ? { ...l, price } : l));
+  setLevels(symbol, next);
+  return getLevels(symbol).find((l) => l.id === id) || null;
+}
+
+function removeLevel(symbol, id) {
+  return setLevels(
+    symbol,
+    getLevels(symbol).filter((l) => l.id !== id)
+  );
+}
+
 module.exports = {
   INTERVALS,
   CHART_TYPES,
@@ -251,4 +329,9 @@ module.exports = {
   normalizeBounds,
   defaultCardBounds,
   sanitizeCard,
+  getLevels,
+  setLevels,
+  addLevel,
+  updateLevel,
+  removeLevel,
 };
