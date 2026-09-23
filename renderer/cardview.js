@@ -30,6 +30,16 @@ const HISTORY_LIMIT = 500;
 const HISTORY_PAGE = 500;
 const HISTORY_PREFETCH_BARS = 20;
 
+/**
+ * Higher-timeframe overlay. 4h is the one worth a fixed slot: long enough to
+ * frame a session on a 1m chart, short enough that ten of them still mean
+ * something. Only drawn under 4h -- on a 4h chart the box is the candle.
+ */
+const HTF_INTERVAL = '4h';
+const HTF_SECONDS = 4 * 3600;
+const HTF_COUNT = 10;
+const HTF_BELOW = ['1m', '5m', '15m', '1h'];
+
 export class CardView {
   /**
    * @param {{
@@ -146,6 +156,10 @@ export class CardView {
     this.fibOverlay = new FibOverlay();
     this.chartEl.append(this.fibOverlay.root);
 
+    this.htfBars = [];
+    this.htfEl = el('div.card__htf', { hidden: true });
+    this.chartEl.append(this.htfEl);
+
     this.profile = null;
     this.profileEl = el('div.card__vp', { hidden: true });
     this.chartEl.append(this.profileEl);
@@ -232,6 +246,8 @@ export class CardView {
     this.loadFibs();
     this.toolbar.setToggled('vp', this.card.showVolumeProfile);
     if (this.card.showVolumeProfile) this.setProfileEnabled(true);
+    this.toolbar.setToggled('htf', this.card.showHtf);
+    if (this.card.showHtf) this.setHtfEnabled(true);
     this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.chart.setLevels(levels);
@@ -249,6 +265,12 @@ export class CardView {
    * cursor icon to escape a mode is a poor use of the only 22px of chrome.
    */
   setActiveTool(id) {
+    if (id === 'htf') {
+      const next = !this.card.showHtf;
+      this.toolbar.setToggled('htf', next);
+      window.stockcard.updateCard(this.card.id, { showHtf: next });
+      return;
+    }
     if (id === 'vp') {
       // A display toggle, not a drawing mode -- it must not disarm whatever
       // tool the user currently has in hand.
@@ -367,6 +389,99 @@ export class CardView {
     window.addEventListener('mouseup', this.onLevelUp);
 
     this.bindMeasureInput(local);
+  }
+
+  /* ------------------------------------------------- higher timeframe */
+
+  htfApplies() {
+    return this.card.showHtf && HTF_BELOW.includes(this.card.interval);
+  }
+
+  /**
+   * The last N 4h candles, drawn as translucent boxes over the lower timeframe.
+   *
+   * The forming one is fed by its own subscription on the 4h stream rather than
+   * being aggregated out of the card's own bars: the card may be showing 1m,
+   * where 500 bars is only eight hours, and the exchange's own 4h candle is
+   * authoritative anyway. Streams are ref-counted in the hub, so a second
+   * subscription on the same symbol costs one extra kline stream, not a second
+   * connection.
+   */
+  async setHtfEnabled(enabled) {
+    if (!enabled) {
+      this.provider.unsubscribe(`${this.card.id}:htf`);
+      this.htfBars = [];
+      this.htfEl.hidden = true;
+      this.htfEl.replaceChildren();
+      return;
+    }
+    await this.loadHtf();
+    this.provider.subscribe(`${this.card.id}:htf`, this.card.symbol, HTF_INTERVAL, {
+      onBar: (bar) => {
+        if (this.destroyed || !this.htfApplies()) return;
+        const last = this.htfBars[this.htfBars.length - 1];
+        if (last && last.time === bar.time) this.htfBars[this.htfBars.length - 1] = bar;
+        else if (!last || bar.time > last.time) {
+          this.htfBars.push(bar);
+          if (this.htfBars.length > HTF_COUNT) this.htfBars.shift();
+        }
+        this.renderHtf();
+      },
+    });
+  }
+
+  async loadHtf() {
+    const symbol = this.card.symbol;
+    try {
+      const bars = await this.provider.getHistory(symbol, HTF_INTERVAL, HTF_COUNT);
+      if (this.destroyed || symbol !== this.card.symbol) return;
+      this.htfBars = bars.slice(-HTF_COUNT);
+      this.renderHtf();
+    } catch (err) {
+      console.error('[card] 4h overlay failed', err);
+    }
+  }
+
+  renderHtf() {
+    if (!this.htfApplies() || !this.chart || !this.htfBars.length) {
+      this.htfEl.hidden = true;
+      return;
+    }
+    const upIsGreen = this.prefs.upDownColor !== 'redUp';
+    const children = [];
+
+    for (const bar of this.htfBars) {
+      const x0 = this.chart.logicalToX(this.chart.logicalFromTime(bar.time));
+      const x1 = this.chart.logicalToX(this.chart.logicalFromTime(bar.time + HTF_SECONDS));
+      const yOpen = this.chart.priceToY(bar.open);
+      const yClose = this.chart.priceToY(bar.close);
+      const yHigh = this.chart.priceToY(bar.high);
+      const yLow = this.chart.priceToY(bar.low);
+      if ([x0, x1, yOpen, yClose, yHigh, yLow].some((v) => v === null)) continue;
+
+      const rising = bar.close >= bar.open;
+      const tone = rising === upIsGreen ? 'is-up' : 'is-down';
+      // `closed === false` is the candle still being traded; it is worth
+      // marking, because it is the only one that can still change shape.
+      const live = bar.closed === false ? ' is-live' : '';
+      const left = Math.min(x0, x1);
+      const width = Math.max(1, Math.abs(x1 - x0));
+
+      children.push(
+        el('div.card__htf-wick', {
+          class: tone + live,
+          style: `left:${left + width / 2}px;top:${yHigh}px;height:${Math.max(1, yLow - yHigh)}px`,
+        }),
+        el('div.card__htf-body', {
+          class: tone + live,
+          style:
+            `left:${left}px;width:${width}px;top:${Math.min(yOpen, yClose)}px;` +
+            `height:${Math.max(1, Math.abs(yClose - yOpen))}px`,
+        })
+      );
+    }
+    this.htfEl.replaceChildren(...children);
+    this.htfEl.hidden = false;
   }
 
   /* -------------------------------------------------------------- history */
@@ -685,6 +800,7 @@ export class CardView {
       this.renderMeasure();
       this.renderFibs();
       this.renderProfile();
+      this.renderHtf();
       // `from` is a logical index; negative means the view has run off the
       // start of the loaded data.
       if (range && range.from < HISTORY_PREFETCH_BARS) this.extendHistory();
@@ -789,6 +905,7 @@ export class CardView {
     if (this.offFibs) this.offFibs();
     if (this.offRangeChange) this.offRangeChange();
     this.provider.unsubscribe(this.card.id);
+    this.provider.unsubscribe(`${this.card.id}:htf`);
     if (this.chart) this.chart.destroy();
     this.root.remove();
   }
@@ -841,6 +958,7 @@ export class CardView {
       this.fibProjectTimer = setTimeout(() => {
         this.renderFibs();
         this.renderProfile();
+        this.renderHtf();
       }, 0);
       this.subscribe();
 
@@ -984,6 +1102,10 @@ export class CardView {
         this.toolbar.setToggled('vp', next.showVolumeProfile);
         this.setProfileEnabled(next.showVolumeProfile);
       }
+      if (next.showHtf !== prev.showHtf) {
+        this.toolbar.setToggled('htf', next.showHtf);
+        this.setHtfEnabled(next.showHtf);
+      }
     }
 
     this.renderIdentity();
@@ -1002,6 +1124,7 @@ export class CardView {
         this.fibOverlay.clear();
         this.loadFibs();
         if (this.card.showVolumeProfile) this.loadProfile();
+        if (this.card.showHtf) this.setHtfEnabled(true);
       }
       this.loadData();
     }

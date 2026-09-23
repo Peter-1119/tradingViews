@@ -175,6 +175,72 @@ button {
 }
 
 /*
+ * Higher-timeframe (4h) candle overlay.
+ *
+ * Sits *below* the series in z-order so the real candles stay readable on top
+ * of it -- the box is context, not the subject. Translucent fill with a firmer
+ * edge, so ten of them overlapping the chart still resolve individually.
+ */
+.card__htf {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.card__htf[hidden] {
+  display: none;
+}
+
+.card__htf-body {
+  position: absolute;
+  border: 1px solid;
+  border-radius: 1px;
+  box-sizing: border-box;
+}
+
+.card__htf-wick {
+  position: absolute;
+  width: 1px;
+  margin-left: -0.5px;
+}
+
+.card__htf-body.is-up {
+  background: rgba(38, 194, 129, 0.13);
+  border-color: rgba(38, 194, 129, 0.4);
+}
+
+.card__htf-body.is-down {
+  background: rgba(237, 84, 101, 0.13);
+  border-color: rgba(237, 84, 101, 0.4);
+}
+
+.card__htf-wick.is-up {
+  background: rgba(38, 194, 129, 0.34);
+}
+
+.card__htf-wick.is-down {
+  background: rgba(237, 84, 101, 0.34);
+}
+
+/* The candle still being traded -- the only one whose shape can still move. */
+.card__htf-body.is-live {
+  border-style: dashed;
+  border-width: 1px;
+}
+
+.card__htf-body.is-up.is-live {
+  background: rgba(38, 194, 129, 0.2);
+  border-color: rgba(38, 194, 129, 0.75);
+}
+
+.card__htf-body.is-down.is-live {
+  background: rgba(237, 84, 101, 0.2);
+  border-color: rgba(237, 84, 101, 0.75);
+}
+
+/*
  * Session volume profile. Bars grow leftward from the right edge, the way
  * TradingView draws it, so the histogram frames the candles instead of sitting
  * under them. Value-area rows are brighter -- that band is the part worth

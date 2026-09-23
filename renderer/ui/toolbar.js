@@ -25,6 +25,8 @@ const ICONS = {
   measure: '<path d="M2 12V4h8"/><path d="M2 12l9-9"/><path d="M6.5 7.5l1.6 1.6"/>',
   fib: '<path d="M1.5 2.5h11"/><path d="M1.5 5.5h11"/><path d="M1.5 8.5h11"/><path d="M1.5 11.5h11"/>',
   vp: '<path d="M12.5 2.5h-5"/><path d="M12.5 5h-9"/><path d="M12.5 7.5h-11"/><path d="M12.5 10h-7"/><path d="M12.5 12.5h-4"/>',
+  htf: '<rect x="1.5" y="4" width="4.5" height="6" rx="1"/><path d="M3.75 1.5v2.5M3.75 10v2.5"/>'
+    + '<rect x="8" y="5.5" width="4.5" height="5" rx="1"/><path d="M10.25 3v2.5M10.25 10.5v2"/>',
 };
 
 export const TOOLS = [
@@ -38,6 +40,12 @@ export const TOOLS = [
     hint: '本日成交量分布(UTC 日界)。顯示 POC 與價值區',
     // Not a drawing mode -- a per-card display toggle that happens to live on
     // the same rail, so it stays armed-looking while it is on.
+    toggle: true,
+  },
+  {
+    id: 'htf',
+    label: '4H 疊圖',
+    hint: '把最近 10 根 4 小時 K 棒疊在小週期圖上，未收盤的那根會跟著跳',
     toggle: true,
   },
 ];
