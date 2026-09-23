@@ -458,6 +458,36 @@ export class CardChart {
     };
   }
 
+  /**
+   * Splice older bars onto the front, preserving the viewport.
+   *
+   * setData would reset the visible range and yank the user back to the right
+   * edge mid-scroll, which is exactly when this gets called. The logical range
+   * also shifts by however many bars were added, so it has to be re-applied.
+   */
+  prependBars(older) {
+    if (!Array.isArray(older) || !older.length || !this.priceSeries) return 0;
+    const first = this.bars.length ? this.bars[0].time : Infinity;
+    const fresh = older.filter((b) => b.time < first).sort((a, b) => a.time - b.time);
+    if (!fresh.length) return 0;
+
+    const scale = this.chart.timeScale();
+    const before = scale.getVisibleLogicalRange();
+    this.bars = [...fresh, ...this.bars];
+    this.render();
+    if (before) {
+      try {
+        scale.setVisibleLogicalRange({
+          from: before.from + fresh.length,
+          to: before.to + fresh.length,
+        });
+      } catch {
+        /* range rejected mid-teardown */
+      }
+    }
+    return fresh.length;
+  }
+
   /** Replace the whole cache (initial load, or a symbol/interval change). */
   setData(bars) {
     this.bars = Array.isArray(bars) ? [...bars] : [];

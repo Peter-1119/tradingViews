@@ -36,6 +36,12 @@ const DEFAULTS = {
    * otherwise, which is why the axis read 8 hours behind Taipei by default.
    */
   timezone: 'auto',
+  /**
+   * Keep downloaded bars on disk. On by default: it has no downside beyond
+   * space, and the whole point is that the second look at a range is instant.
+   * The escape hatch that matters is clearing it, not switching it off.
+   */
+  cacheBars: true,
   launchAtStartup: false,
   clickThrough: false,
   /**
@@ -240,6 +246,7 @@ function getGlobalPrefs() {
   return {
     upDownColor: store.get('upDownColor') === 'redUp' ? 'redUp' : 'greenUp',
     timezone: getTimezone(),
+    cacheBars: store.get('cacheBars') !== false,
     mode: getMode(),
     clickThrough: store.get('clickThrough') === true,
     launchAtStartup: store.get('launchAtStartup') === true,

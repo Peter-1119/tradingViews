@@ -59,6 +59,14 @@ const api = {
   closeWindow: (opts) => ipcRenderer.invoke('window:close', opts || {}),
   setIgnoreMouse: (ignore) => ipcRenderer.send('window:set-ignore-mouse', { ignore }),
 
+  /* ------------------------------------------------------ bar cache */
+  readBars: (symbol, interval, from, to) =>
+    ipcRenderer.invoke('bars:read', { symbol, interval, from, to }),
+  writeBars: (symbol, interval, bars) =>
+    ipcRenderer.invoke('bars:write', { symbol, interval, bars }),
+  barCacheStats: () => ipcRenderer.invoke('bars:stats'),
+  clearBarCache: (symbol) => ipcRenderer.invoke('bars:clear', symbol),
+
   /* ------------------------------------------------------- datafeed */
   datafeed: {
     call: (method, args) => ipcRenderer.invoke('datafeed:call', { method, args }),

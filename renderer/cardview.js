@@ -12,6 +12,7 @@ import { SettingsPanel } from './ui/settings-panel.js';
 import { Toolbar } from './ui/toolbar.js';
 import { FibOverlay } from './ui/fib-overlay.js';
 import { buildProfile, sessionBounds } from './volume-profile.js';
+import { intervalToMs } from './datafeed/provider.js';
 import {
   el,
   formatPrice,
@@ -25,6 +26,9 @@ import {
 } from './util.js';
 
 const HISTORY_LIMIT = 500;
+/** How many more bars to pull per backfill, and how near the edge triggers one. */
+const HISTORY_PAGE = 500;
+const HISTORY_PREFETCH_BARS = 20;
 
 export class CardView {
   /**
@@ -365,6 +369,53 @@ export class CardView {
     this.bindMeasureInput(local);
   }
 
+  /* -------------------------------------------------------------- history */
+
+  /**
+   * Older bars, on demand, once the view nears the left edge of what is loaded.
+   *
+   * Cache first, network only for what is missing -- and whatever the network
+   * returns is written back, so the second visit to a range is a file read. The
+   * guards matter more than the fetch: one request in flight at a time, and a
+   * range that comes back empty is remembered as exhausted, otherwise scrolling
+   * past the start of an instrument's history retries forever.
+   */
+  async extendHistory() {
+    if (this.loadingMore || this.historyExhausted || !this.chart) return;
+    const bars = this.chart.bars;
+    if (!bars.length) return;
+
+    const { symbol, interval } = this.card;
+    const step = intervalToMs(interval) / 1000;
+    const oldest = bars[0].time;
+    const from = oldest - step * HISTORY_PAGE;
+    const to = oldest - step;
+    if (to <= 0) return;
+
+    this.loadingMore = true;
+    const seq = this.loadSeq;
+    try {
+      let older = await window.stockcard.readBars(symbol, interval, from, to);
+      if (!older.length) {
+        older = await this.provider.getRange(symbol, interval, from * 1000, to * 1000);
+        const keep = older.filter((b) => b.closed);
+        if (keep.length) window.stockcard.writeBars(symbol, interval, keep);
+      }
+      // The card may have changed symbol or interval while this was in flight.
+      if (this.destroyed || seq !== this.loadSeq) return;
+      if (!older.length) {
+        this.historyExhausted = true;
+        return;
+      }
+      this.chart.prependBars(older);
+      this.renderFibs();
+    } catch (err) {
+      console.error('[card] history extend failed', err);
+    } finally {
+      this.loadingMore = false;
+    }
+  }
+
   /* --------------------------------------------------------- volume profile */
 
   /**
@@ -630,10 +681,13 @@ export class CardView {
     };
 
     // Panning or zooming after a measure must keep the box on its candles.
-    this.offRangeChange = this.chart.onVisibleRangeChange(() => {
+    this.offRangeChange = this.chart.onVisibleRangeChange((range) => {
       this.renderMeasure();
       this.renderFibs();
       this.renderProfile();
+      // `from` is a logical index; negative means the view has run off the
+      // start of the loaded data.
+      if (range && range.from < HISTORY_PREFETCH_BARS) this.extendHistory();
     });
 
     el.addEventListener('mousedown', this.onMeasureDown, true);
@@ -761,6 +815,9 @@ export class CardView {
     try {
       const bars = await this.provider.getHistory(symbol, interval, HISTORY_LIMIT);
       if (seq !== this.loadSeq || this.destroyed) return;
+      // Everything closed goes to disk, so the next launch starts from a file.
+      const closed = bars.filter((b) => b.closed);
+      if (closed.length) window.stockcard.writeBars(symbol, interval, closed);
 
       if (!bars.length) {
         this.setOverlay('沒有資料', true);
@@ -768,6 +825,7 @@ export class CardView {
       }
 
       this.chart.setData(bars);
+      this.historyExhausted = false;
       this.lastBar = bars[bars.length - 1];
       this.setOverlay(null);
       this.renderQuote();

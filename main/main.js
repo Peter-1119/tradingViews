@@ -16,6 +16,7 @@ const store = require('./store');
 const windows = require('./windows');
 const tray = require('./tray');
 const shortcuts = require('./shortcuts');
+const barStore = require('./bar-store');
 
 // Must happen before `ready`.
 protocolSetup.registerScheme();
@@ -118,6 +119,7 @@ ipcMain.handle('prefs:get', () => store.getGlobalPrefs());
 ipcMain.handle('prefs:set', (_event, patch = {}) => {
   if ('upDownColor' in patch) store.set('upDownColor', patch.upDownColor);
   if ('timezone' in patch) store.set('timezone', patch.timezone);
+  if ('cacheBars' in patch) store.set('cacheBars', patch.cacheBars !== false);
   if ('launchAtStartup' in patch) tray.setLaunchAtStartup(patch.launchAtStartup);
   if ('boardColumns' in patch) store.setBoard({ columns: patch.boardColumns });
   const prefs = store.getGlobalPrefs();
@@ -321,6 +323,20 @@ ipcMain.handle('window:close', (event, { cardId } = {}) => {
 ipcMain.on('window:set-ignore-mouse', (event, { ignore } = {}) => {
   windows.setIgnoreMouseEventsFor(senderWindow(event), ignore !== false);
 });
+
+/* ---------------------------------------------------- IPC: bar cache */
+
+ipcMain.handle('bars:read', (_event, { symbol, interval, from, to } = {}) =>
+  store.get('cacheBars') === false ? [] : barStore.read(symbol, interval, from, to)
+);
+
+ipcMain.handle('bars:write', (_event, { symbol, interval, bars } = {}) =>
+  store.get('cacheBars') === false ? 0 : barStore.write(symbol, interval, bars)
+);
+
+ipcMain.handle('bars:stats', () => barStore.stats());
+
+ipcMain.handle('bars:clear', (_event, symbol) => barStore.clear(symbol));
 
 /* ------------------------------------------------------- IPC: datafeed */
 
