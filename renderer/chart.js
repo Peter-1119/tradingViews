@@ -17,6 +17,7 @@ import {
   HistogramSeries,
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
+import { VolumeProfilePrimitive } from './vp-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -281,6 +282,7 @@ export class CardChart {
 
     this.htf = new HtfPrimitive(this);
     this.htf.setColors(this.colors);
+    this.vp = new VolumeProfilePrimitive(this);
 
     this.createPriceSeries();
     if (this.showVolume) this.createVolumeSeries();
@@ -366,6 +368,7 @@ export class CardChart {
     // Primitives belong to a series and die with it, so a chart-type switch
     // has to re-attach -- this is the one place every new series comes from.
     this.priceSeries.attachPrimitive(this.htf);
+    this.priceSeries.attachPrimitive(this.vp);
   }
 
   createVolumeSeries() {
@@ -936,6 +939,28 @@ export class CardChart {
     if (this.volumeSeries) {
       this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
     }
+  }
+
+  /** Width of the plot area alone -- the pane, without the price scale. */
+  plotWidth() {
+    try {
+      return this.chart.timeScale().width() || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Volume profile layer: 'off' | 'session4h' | 'visible' | 'day'. */
+  setVolumeProfileMode(mode) {
+    this.vp.setMode(mode);
+  }
+
+  setDayProfile(profile) {
+    this.vp.setDayProfile(profile);
+  }
+
+  setPeriodProfiles(list) {
+    this.vp.setPeriodProfiles(list);
   }
 
   /** Higher-timeframe candles, drawn by the chart itself beneath the series. */

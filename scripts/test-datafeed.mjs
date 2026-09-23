@@ -475,7 +475,7 @@ await test('symbol search ranks exact and USDT pairs first, and caches the list'
 
 /* ------------------------------------------------------ volume profile */
 
-const { buildProfile, sessionBounds } = await import('../renderer/volume-profile.js');
+const { buildProfile, sessionBounds, buildPeriodProfiles, PERIOD_4H } = await import('../renderer/volume-profile.js');
 
 console.log('');
 console.log('volume profile');
@@ -535,6 +535,35 @@ await test('degenerate input yields no profile rather than a broken one', async 
   // Every bar at one price: no range to bucket.
   const flat = [{ time: 1, open: 5, high: 5, low: 5, close: 5, volume: 9 }];
   assert.equal(buildProfile(flat, 10), null);
+});
+
+await test('per-4h profiles land on the exchange 4h boundaries', async () => {
+  // 12h of 5m bars starting mid-block, so the first and last blocks are partial.
+  const t0 = Date.UTC(2026, 8, 23, 2, 0) / 1000;
+  const bars = Array.from({ length: 144 }, (_, i) => {
+    const base = 100 + Math.sin(i / 7) * 3;
+    return { time: t0 + i * 300, open: base, high: base + 0.6, low: base - 0.6, close: base, volume: 2 };
+  });
+  const blocks = buildPeriodProfiles(bars, PERIOD_4H, 12);
+  const hours = blocks.map((b) => new Date(b.start * 1000).getUTCHours());
+  assert.deepEqual(hours, [0, 4, 8, 12], 'blocks must open at 00/04/08/12 UTC');
+  for (const b of blocks) assert.equal(b.end - b.start, PERIOD_4H);
+});
+
+await test('per-4h profiles conserve volume block by block', async () => {
+  const t0 = Date.UTC(2026, 8, 23, 0, 0) / 1000;
+  const bars = Array.from({ length: 96 }, (_, i) => {
+    const base = 50 + (i % 13);
+    return { time: t0 + i * 300, open: base, high: base + 1, low: base - 1, close: base, volume: 1 + (i % 5) };
+  });
+  const blocks = buildPeriodProfiles(bars, PERIOD_4H, 10);
+  assert.equal(blocks.length, 2);
+  for (const b of blocks) {
+    const inBlock = bars.filter((x) => x.time >= b.start && x.time < b.end);
+    const want = inBlock.reduce((s, x) => s + x.volume, 0);
+    const got = b.profile.rows.reduce((s, r) => s + r.volume, 0);
+    assert.ok(Math.abs(want - got) < 1e-9, `block ${b.start}: ${got} vs ${want}`);
+  }
 });
 
 /* ---------------------------------------------------------------- report */

@@ -175,55 +175,63 @@ button {
 }
 
 /*
- * Session volume profile. Bars grow leftward from the right edge, the way
- * TradingView draws it, so the histogram frames the candles instead of sitting
- * under them. Value-area rows are brighter -- that band is the part worth
- * reading as support and resistance.
+ * Rail flyout. Opens to the right of the rail, as TradingView's tool families
+ * do; it keeps the rail pinned visible while open, since the rail otherwise
+ * fades the moment the pointer drifts onto the menu's far edge.
  */
-.card__vp {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  /* `right` is set per-render, to the width of the price scale gutter. */
-  right: 0;
-  z-index: 3;
-  pointer-events: none;
-  overflow: hidden;
+.card__rail.is-menu-open {
+  opacity: 1;
+  pointer-events: auto;
 }
 
-.card__vp[hidden] {
+.card__rail-menu {
+  position: absolute;
+  left: calc(100% + 4px);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  min-width: 96px;
+  padding: 3px;
+  border-radius: 7px;
+  background: rgba(11, 15, 23, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  -webkit-app-region: no-drag;
+}
+
+.card__rail-menu[hidden] {
   display: none;
 }
 
-.card__vp-row {
-  position: absolute;
-  right: 0;
-  background: rgba(125, 154, 196, 0.22);
-  border-radius: 1px 0 0 1px;
-}
-
-.card__vp-row.is-va {
-  background: rgba(125, 154, 196, 0.42);
-}
-
-.card__vp-poc {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 0;
-  border-top: 1px solid rgba(240, 180, 90, 0.85);
-}
-
-.card__vp-tag {
-  position: absolute;
-  top: 2px;
-  font-size: 9px;
-  line-height: 1.1;
-  color: rgba(245, 200, 130, 0.95);
-  font-variant-numeric: tabular-nums;
+.card__rail-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 11px;
+  text-align: left;
   white-space: nowrap;
-  text-shadow: 0 1px 2px rgba(6, 9, 15, 0.9);
+  cursor: pointer;
+  position: relative;
+}
+
+.card__rail-menu-item:hover {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--ink);
+}
+
+.card__rail-menu-item.is-current {
+  color: #f3d3a0;
+}
+
+.card__rail-menu-item.is-current::before {
+  content: '¹3';
+  position: absolute;
+  left: 6px;
 }
 
 .card__rail-btn.is-on {

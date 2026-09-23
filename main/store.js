@@ -15,6 +15,7 @@ const { randomUUID } = require('crypto');
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const CHART_TYPES = ['candlestick', 'line', 'area'];
+const VP_MODES = ['off', 'session4h', 'visible', 'day'];
 
 const CARD_MIN_WIDTH = 220;
 const CARD_MIN_HEIGHT = 140;
@@ -134,7 +135,13 @@ function sanitizeCard(raw, index = 0) {
     cardOpacity: clampNumber(card.cardOpacity, 0.1, 1, 0.75),
     windowOpacity: clampNumber(card.windowOpacity, 0.2, 1, 1),
     showVolume: card.showVolume === true,
-    showVolumeProfile: card.showVolumeProfile === true,
+    // Was a boolean; `true` meant today's UTC-session profile, which is what
+    // 'day' is now. Old configs keep showing what they showed.
+    volumeProfile: pick(
+      card.volumeProfile,
+      VP_MODES,
+      card.showVolumeProfile === true ? 'day' : 'off'
+    ),
     showHtf: card.showHtf === true,
     alwaysOnTop: card.alwaysOnTop !== false,
     bounds: normalizeBounds(card.bounds || defaultCardBounds(index)),

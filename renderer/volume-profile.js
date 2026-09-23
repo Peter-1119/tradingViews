@@ -105,3 +105,35 @@ export function buildProfile(bars, rows = 24) {
     step,
   };
 }
+
+/** Profile modes a card can show. 'off' first so it is the obvious default. */
+export const VP_MODES = ['off', 'session4h', 'visible', 'day'];
+
+/** Seconds in one per-period profile's block. */
+export const PERIOD_4H = 4 * 3600;
+
+/**
+ * One profile per fixed-length period, oldest first.
+ *
+ * Periods are aligned to epoch multiples of `periodSec`. For 4h that lands on
+ * 00/04/08/12/16/20 UTC -- the same boundaries Binance opens its 4h candles on,
+ * because 86400 divides evenly by 14400 and the epoch starts at a UTC midnight.
+ * So each block here is exactly the span of one real 4h candle.
+ *
+ * @returns {Array<{start: number, end: number, profile: object}>}
+ */
+export function buildPeriodProfiles(bars, periodSec = PERIOD_4H, rows = 16) {
+  if (!Array.isArray(bars) || !bars.length) return [];
+  const groups = new Map();
+  for (const bar of bars) {
+    const start = Math.floor(bar.time / periodSec) * periodSec;
+    if (!groups.has(start)) groups.set(start, []);
+    groups.get(start).push(bar);
+  }
+  const out = [];
+  for (const start of [...groups.keys()].sort((a, b) => a - b)) {
+    const profile = buildProfile(groups.get(start), rows);
+    if (profile) out.push({ start, end: start + periodSec, profile });
+  }
+  return out;
+}

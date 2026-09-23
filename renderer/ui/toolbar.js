@@ -37,10 +37,16 @@ export const TOOLS = [
   {
     id: 'vp',
     label: '成交量分布',
-    hint: '本日成交量分布(UTC 日界)。顯示 POC 與價值區',
-    // Not a drawing mode -- a per-card display toggle that happens to live on
-    // the same rail, so it stays armed-looking while it is on.
+    hint: '成交量分布(點一下選模式)',
+    // Not a drawing mode -- a display layer with several variants, so it opens
+    // a menu instead of arming a tool. It lights up while any variant is on.
     toggle: true,
+    menu: [
+      { value: 'off', label: '關閉' },
+      { value: 'session4h', label: '每 4H 分段' },
+      { value: 'visible', label: '可見範圍' },
+      { value: 'day', label: '本日 (UTC)' },
+    ],
   },
   {
     id: 'htf',
@@ -62,7 +68,10 @@ export class Toolbar {
    */
   constructor({ active = 'cursor', onSelect }) {
     this.active = active;
+    this.onSelect = onSelect;
     this.buttons = new Map();
+    this.menus = new Map();
+    this.openMenuId = null;
     this.root = el(
       'div.card__rail',
       {},
@@ -72,16 +81,92 @@ export class Toolbar {
           title: tool.hint,
           html: icon(tool.id),
           class: tool.id === active ? 'is-active' : '',
-          onclick: () => onSelect(tool.id),
+          onclick: () => (tool.menu ? this.toggleMenu(tool.id) : onSelect(tool.id)),
         });
         this.buttons.set(tool.id, button);
+        if (tool.menu) this.menus.set(tool.id, this.buildMenu(tool));
         return button;
       })
     );
+    for (const menu of this.menus.values()) this.root.append(menu.root);
+
+    // Any press outside an open menu closes it. Capture phase, so a click on
+    // the chart dismisses the menu before the chart acts on it.
+    this.onOutside = (event) => {
+      if (!this.openMenuId) return;
+      const menu = this.menus.get(this.openMenuId);
+      const button = this.buttons.get(this.openMenuId);
+      if (menu.root.contains(event.target) || button.contains(event.target)) return;
+      this.closeMenu();
+    };
+    window.addEventListener('mousedown', this.onOutside, true);
     // Must be set up front: the "keep an armed tool visible" rule keys off
     // `data-tool`, and an *absent* attribute matches :not([data-tool='cursor']),
     // which pinned the whole rail visible before a tool was ever chosen.
     this.root.dataset.tool = active;
+  }
+
+  /* ------------------------------------------------------------- menus */
+
+  buildMenu(tool) {
+    const items = new Map();
+    const root = el(
+      'div.card__rail-menu',
+      { hidden: true },
+      tool.menu.map((option) => {
+        const item = el('button.card__rail-menu-item', {
+          type: 'button',
+          text: option.label,
+          onclick: () => {
+            this.closeMenu();
+            this.onSelect(tool.id, option.value);
+          },
+        });
+        items.set(option.value, item);
+        return item;
+      })
+    );
+    return { root, items };
+  }
+
+  toggleMenu(id) {
+    if (this.openMenuId === id) {
+      this.closeMenu();
+      return;
+    }
+    this.closeMenu();
+    const menu = this.menus.get(id);
+    const button = this.buttons.get(id);
+    menu.root.hidden = false;
+    this.openMenuId = id;
+    this.root.classList.add('is-menu-open');
+
+    // Level with its button, but clamped inside the chart: on a 220px card the
+    // lower rail buttons sit close enough to the bottom that an unclamped menu
+    // would be cut off by the card's clip.
+    const chart = this.root.parentElement;
+    const railTop = this.root.offsetTop;
+    const room = (chart ? chart.clientHeight : 0) - railTop - menu.root.offsetHeight - 4;
+    menu.root.style.top = `${Math.max(-railTop + 4, Math.min(button.offsetTop, room))}px`;
+  }
+
+  closeMenu() {
+    if (!this.openMenuId) return;
+    this.menus.get(this.openMenuId).root.hidden = true;
+    this.openMenuId = null;
+    this.root.classList.remove('is-menu-open');
+  }
+
+  /** Tick the current option; light the rail button unless it is 'off'. */
+  setMenuValue(id, value) {
+    const menu = this.menus.get(id);
+    if (!menu) return;
+    for (const [key, item] of menu.items) item.classList.toggle('is-current', key === value);
+    this.setToggled(id, value && value !== 'off');
+  }
+
+  destroy() {
+    window.removeEventListener('mousedown', this.onOutside, true);
   }
 
   /**

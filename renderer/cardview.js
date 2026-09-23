@@ -11,7 +11,7 @@ import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { Toolbar } from './ui/toolbar.js';
 import { FibOverlay } from './ui/fib-overlay.js';
-import { buildProfile, sessionBounds } from './volume-profile.js';
+import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
 import {
   el,
@@ -158,14 +158,13 @@ export class CardView {
 
     this.htfBars = [];
 
-    this.profile = null;
-    this.profileEl = el('div.card__vp', { hidden: true });
-    this.chartEl.append(this.profileEl);
+    /** blockStart -> per-4h profile, for the current symbol. Closed blocks never change. */
+    this.periodCache = new Map();
 
     this.activeTool = 'cursor';
     this.toolbar = new Toolbar({
       active: this.activeTool,
-      onSelect: (id) => this.setActiveTool(id),
+      onSelect: (id, value) => this.setActiveTool(id, value),
     });
     this.chartEl.append(this.toolbar.root);
 
@@ -242,8 +241,7 @@ export class CardView {
       this.renderFibs();
     });
     this.loadFibs();
-    this.toolbar.setToggled('vp', this.card.showVolumeProfile);
-    if (this.card.showVolumeProfile) this.setProfileEnabled(true);
+    this.applyVolumeProfile(this.card.volumeProfile || 'off');
     this.toolbar.setToggled('htf', this.card.showHtf);
     if (this.card.showHtf) this.setHtfEnabled(true);
     this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
@@ -262,19 +260,17 @@ export class CardView {
    * is a toggle rather than a trap -- on a card this small, hunting for the
    * cursor icon to escape a mode is a poor use of the only 22px of chrome.
    */
-  setActiveTool(id) {
+  setActiveTool(id, value) {
+    if (id === 'vp') {
+      // A display layer, not a drawing mode -- choosing a variant must not
+      // disarm whatever tool the user currently has in hand.
+      window.stockcard.updateCard(this.card.id, { volumeProfile: value });
+      return;
+    }
     if (id === 'htf') {
       const next = !this.card.showHtf;
       this.toolbar.setToggled('htf', next);
       window.stockcard.updateCard(this.card.id, { showHtf: next });
-      return;
-    }
-    if (id === 'vp') {
-      // A display toggle, not a drawing mode -- it must not disarm whatever
-      // tool the user currently has in hand.
-      const next = !this.card.showVolumeProfile;
-      this.toolbar.setToggled('vp', next);
-      window.stockcard.updateCard(this.card.id, { showVolumeProfile: next });
       return;
     }
     const next = id === this.activeTool ? 'cursor' : id;
@@ -499,84 +495,116 @@ export class CardView {
   /* --------------------------------------------------------- volume profile */
 
   /**
-   * Session profile, refreshed on a slow timer.
+   * Bars for a time range: cache first, network when the cache is short.
    *
-   * The session is still forming, so the profile moves -- but it moves slowly,
-   * and a whole session is two API requests against a 6000-weight-per-minute
-   * budget. Two minutes is frequent enough to stay honest and nowhere near
-   * anything that could be called polling.
+   * `expect` is how many bars a complete range holds. A cache that has fewer is
+   * treated as missing rather than trusted, since a partly-cached block would
+   * otherwise produce a profile that silently leaves out hours of volume.
    */
-  setProfileEnabled(enabled) {
-    clearInterval(this.profileTimer);
-    this.profileTimer = null;
-    if (!enabled) {
-      this.profile = null;
-      this.profileEl.hidden = true;
-      this.profileEl.replaceChildren();
-      return;
-    }
-    this.loadProfile();
-    this.profileTimer = setInterval(() => this.loadProfile(), 120000);
+  async fetchBars(symbol, interval, fromSec, toSec, expect = 0) {
+    const cached = await window.stockcard.readBars(symbol, interval, fromSec, toSec);
+    if (expect && cached.length >= expect) return cached;
+    const fresh = await this.provider.getRange(symbol, interval, fromSec * 1000, toSec * 1000);
+    const closed = fresh.filter((b) => b.closed);
+    if (closed.length) window.stockcard.writeBars(symbol, interval, closed);
+    return fresh;
   }
 
-  async loadProfile() {
+  /**
+   * Switch the profile layer. Drawing is the chart's job (vp-primitive.js);
+   * this only decides what data it needs and keeps it fresh:
+   *
+   *   day        today's 1m bars, refreshed every 2 minutes
+   *   visible    nothing -- computed from the card's own bars on every repaint
+   *   session4h  5m bars per 4h block in view; closed blocks cached for good,
+   *              the one still trading refreshed every minute
+   */
+  applyVolumeProfile(mode) {
+    clearInterval(this.profileTimer);
+    this.profileTimer = null;
+    this.toolbar.setMenuValue('vp', mode);
+    if (!this.chart) return;
+    this.chart.setVolumeProfileMode(mode);
+
+    if (mode === 'day') {
+      this.loadDayProfile();
+      this.profileTimer = setInterval(() => this.loadDayProfile(), 120000);
+    } else if (mode === 'session4h') {
+      this.loadPeriodProfiles();
+      this.profileTimer = setInterval(() => this.loadPeriodProfiles({ liveOnly: true }), 60000);
+    }
+  }
+
+  async loadDayProfile() {
     const symbol = this.card.symbol;
     const { start, end } = sessionBounds();
     try {
       const bars = await this.provider.getRange(symbol, '1m', start, end);
-      if (this.destroyed || symbol !== this.card.symbol || !this.card.showVolumeProfile) return;
-      this.profile = buildProfile(bars, 26);
-      this.renderProfile();
+      if (this.destroyed || symbol !== this.card.symbol || this.card.volumeProfile !== 'day') return;
+      this.chart.setDayProfile(buildProfile(bars, 26));
     } catch (err) {
-      console.error('[card] volume profile failed', err);
+      console.error('[card] day profile failed', err);
     }
   }
 
-  renderProfile() {
-    const p = this.profile;
-    if (!p || !this.card.showVolumeProfile || !this.chart) {
-      this.profileEl.hidden = true;
+  /** 4h blocks overlapping the visible range, oldest first, capped. */
+  visibleBlocks() {
+    const range = this.chart.chart.timeScale().getVisibleLogicalRange();
+    if (!range) return [];
+    const from = this.chart.timeFromLogical(range.from);
+    const to = this.chart.timeFromLogical(range.to);
+    if (from === null || to === null) return [];
+    const now = Date.now() / 1000;
+    const out = [];
+    for (let t = Math.floor(from / PERIOD_4H) * PERIOD_4H; t <= Math.min(to, now); t += PERIOD_4H) {
+      out.push(t);
+    }
+    // Zoomed right out on 1h that is ~20 blocks; the cap is a backstop.
+    return out.slice(-30);
+  }
+
+  async loadPeriodProfiles({ liveOnly = false } = {}) {
+    if (!this.chart || this.card.volumeProfile !== 'session4h') return;
+    // A 4h block on a 4h-or-coarser chart is a single candle, or less.
+    if (!HTF_BELOW.includes(this.card.interval)) {
+      this.chart.setPeriodProfiles([]);
       return;
     }
-    // Stop at the plot edge: the overlay covers the whole chart element, and
-    // `right: 0` would otherwise put the bars under the price labels.
-    const gutter = this.chart.priceScaleWidth();
-    const width = this.chartEl.clientWidth - gutter;
-    if (width <= 0) return;
-    // Cap the histogram so it frames the candles rather than burying them.
-    const maxBar = Math.round(width * 0.34);
-    this.profileEl.style.right = `${gutter}px`;
+    if (this.loadingPeriods) return;
+    this.loadingPeriods = true;
+    const symbol = this.card.symbol;
+    const now = Date.now() / 1000;
+    const liveStart = Math.floor(now / PERIOD_4H) * PERIOD_4H;
 
-    const children = [];
-    for (const row of p.rows) {
-      const top = this.chart.priceToY(row.priceHigh);
-      const bottom = this.chart.priceToY(row.priceLow);
-      if (top === null || bottom === null) continue;
-      const height = Math.max(1, bottom - top - 1);
-      children.push(
-        el('div.card__vp-row', {
-          class: row.inValueArea ? 'is-va' : '',
-          style: `top:${top}px;height:${height}px;width:${Math.max(1, Math.round(row.ratio * maxBar))}px`,
-        })
-      );
+    try {
+      const wanted = this.visibleBlocks();
+      // Closed blocks: one request for the whole missing run, then split.
+      const missing = liveOnly ? [] : wanted.filter((t) => t !== liveStart && !this.periodCache.has(t));
+      if (missing.length) {
+        const from = missing[0];
+        const to = missing[missing.length - 1] + PERIOD_4H - 1;
+        const expect = ((to + 1 - from) / 300) | 0;
+        const bars = await this.fetchBars(symbol, '5m', from, to, expect);
+        if (symbol !== this.card.symbol) return;
+        for (const block of buildPeriodProfiles(bars, PERIOD_4H, 14)) {
+          if (block.start !== liveStart) this.periodCache.set(block.start, block);
+        }
+      }
+      // The live block always comes from the network: the cache only ever
+      // holds closed bars, so it is by construction missing the newest one.
+      if (wanted.includes(liveStart)) {
+        const bars = await this.provider.getRange(symbol, '5m', liveStart * 1000, now * 1000);
+        if (symbol !== this.card.symbol) return;
+        const [block] = buildPeriodProfiles(bars, PERIOD_4H, 14);
+        if (block) this.periodCache.set(liveStart, { ...block, live: true });
+      }
+      if (this.destroyed || this.card.volumeProfile !== 'session4h') return;
+      this.chart.setPeriodProfiles(wanted.map((t) => this.periodCache.get(t)).filter(Boolean));
+    } catch (err) {
+      console.error('[card] 4h profiles failed', err);
+    } finally {
+      this.loadingPeriods = false;
     }
-
-    const pocY = this.chart.priceToY(p.poc);
-    if (pocY !== null) {
-      children.push(
-        el(
-          'div.card__vp-poc',
-          { style: `top:${pocY}px` },
-          // Sits just clear of the widest bar, so it never lands on the axis.
-          el('span.card__vp-tag', {
-            style: `right:${maxBar + 6}px`,
-            text: `POC ${this.chart.formatPrice(p.poc)}`,
-          })
-        )
-      );
-    }
-    this.profileEl.replaceChildren(...children);
-    this.profileEl.hidden = false;
   }
 
   /* ------------------------------------------------------------------ fibs */
@@ -764,8 +792,11 @@ export class CardView {
     this.offRangeChange = this.chart.onVisibleRangeChange((range) => {
       this.renderMeasure();
       this.renderFibs();
-      this.renderProfile();
       this.renderHtf();
+      if (this.card.volumeProfile === 'session4h') {
+        clearTimeout(this.periodScrollTimer);
+        this.periodScrollTimer = setTimeout(() => this.loadPeriodProfiles(), 300);
+      }
       // `from` is a logical index; negative means the view has run off the
       // start of the loaded data.
       if (range && range.from < HISTORY_PREFETCH_BARS) this.extendHistory();
@@ -867,6 +898,8 @@ export class CardView {
     }
     clearTimeout(this.fibProjectTimer);
     clearInterval(this.profileTimer);
+    clearTimeout(this.periodScrollTimer);
+    this.toolbar.destroy();
     if (this.offFibs) this.offFibs();
     if (this.offRangeChange) this.offRangeChange();
     this.provider.unsubscribe(this.card.id);
@@ -922,8 +955,8 @@ export class CardView {
       clearTimeout(this.fibProjectTimer);
       this.fibProjectTimer = setTimeout(() => {
         this.renderFibs();
-        this.renderProfile();
         this.renderHtf();
+        if (this.card.volumeProfile === 'session4h') this.loadPeriodProfiles();
       }, 0);
       this.subscribe();
 
@@ -1063,10 +1096,7 @@ export class CardView {
     if (this.chart) {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
-      if (next.showVolumeProfile !== prev.showVolumeProfile) {
-        this.toolbar.setToggled('vp', next.showVolumeProfile);
-        this.setProfileEnabled(next.showVolumeProfile);
-      }
+      if (next.volumeProfile !== prev.volumeProfile) this.applyVolumeProfile(next.volumeProfile);
       if (next.showHtf !== prev.showHtf) {
         this.toolbar.setToggled('htf', next.showHtf);
         this.setHtfEnabled(next.showHtf);
@@ -1088,7 +1118,8 @@ export class CardView {
         this.fibs = [];
         this.fibOverlay.clear();
         this.loadFibs();
-        if (this.card.showVolumeProfile) this.loadProfile();
+        this.periodCache.clear();
+        this.applyVolumeProfile(this.card.volumeProfile || 'off');
         if (this.card.showHtf) this.setHtfEnabled(true);
       }
       this.loadData();
