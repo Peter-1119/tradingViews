@@ -16,6 +16,7 @@ import {
   AreaSeries,
   HistogramSeries,
 } from './vendor/lightweight-charts.mjs';
+import { HtfPrimitive } from './htf-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -278,6 +279,9 @@ export class CardChart {
     this.priceSeries = null;
     this.volumeSeries = null;
 
+    this.htf = new HtfPrimitive(this);
+    this.htf.setColors(this.colors);
+
     this.createPriceSeries();
     if (this.showVolume) this.createVolumeSeries();
 
@@ -359,6 +363,9 @@ export class CardChart {
 
   createPriceSeries() {
     this.priceSeries = this.chart.addSeries(this.seriesDefinition(), this.priceSeriesOptions());
+    // Primitives belong to a series and die with it, so a chart-type switch
+    // has to re-attach -- this is the one place every new series comes from.
+    this.priceSeries.attachPrimitive(this.htf);
   }
 
   createVolumeSeries() {
@@ -925,9 +932,16 @@ export class CardChart {
     if (next === this.upDownColor) return;
     this.upDownColor = next;
     this.priceSeries.applyOptions(this.priceSeriesOptions());
+    this.htf.setColors(this.colors);
     if (this.volumeSeries) {
       this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
     }
+  }
+
+  /** Higher-timeframe candles, drawn by the chart itself beneath the series. */
+  setHtf(bars, enabled) {
+    this.htf.setBars(bars);
+    this.htf.setEnabled(enabled);
   }
 
   /* ----------------------------------------------------------- lifecycle */

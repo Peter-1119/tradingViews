@@ -157,8 +157,6 @@ export class CardView {
     this.chartEl.append(this.fibOverlay.root);
 
     this.htfBars = [];
-    this.htfEl = el('div.card__htf', { hidden: true });
-    this.chartEl.append(this.htfEl);
 
     this.profile = null;
     this.profileEl = el('div.card__vp', { hidden: true });
@@ -411,8 +409,7 @@ export class CardView {
     if (!enabled) {
       this.provider.unsubscribe(`${this.card.id}:htf`);
       this.htfBars = [];
-      this.htfEl.hidden = true;
-      this.htfEl.replaceChildren();
+      this.renderHtf();
       return;
     }
     await this.loadHtf();
@@ -442,46 +439,14 @@ export class CardView {
     }
   }
 
+  /**
+   * Hand the bars to the chart, which draws them itself (htf-primitive.js).
+   * Positioning is no longer this method's job -- the chart recomputes it on
+   * every viewport change, in the same frame as the candles.
+   */
   renderHtf() {
-    if (!this.htfApplies() || !this.chart || !this.htfBars.length) {
-      this.htfEl.hidden = true;
-      return;
-    }
-    const upIsGreen = this.prefs.upDownColor !== 'redUp';
-    const children = [];
-
-    for (const bar of this.htfBars) {
-      const x0 = this.chart.logicalToX(this.chart.logicalFromTime(bar.time));
-      const x1 = this.chart.logicalToX(this.chart.logicalFromTime(bar.time + HTF_SECONDS));
-      const yOpen = this.chart.priceToY(bar.open);
-      const yClose = this.chart.priceToY(bar.close);
-      const yHigh = this.chart.priceToY(bar.high);
-      const yLow = this.chart.priceToY(bar.low);
-      if ([x0, x1, yOpen, yClose, yHigh, yLow].some((v) => v === null)) continue;
-
-      const rising = bar.close >= bar.open;
-      const tone = rising === upIsGreen ? 'is-up' : 'is-down';
-      // `closed === false` is the candle still being traded; it is worth
-      // marking, because it is the only one that can still change shape.
-      const live = bar.closed === false ? ' is-live' : '';
-      const left = Math.min(x0, x1);
-      const width = Math.max(1, Math.abs(x1 - x0));
-
-      children.push(
-        el('div.card__htf-wick', {
-          class: tone + live,
-          style: `left:${left + width / 2}px;top:${yHigh}px;height:${Math.max(1, yLow - yHigh)}px`,
-        }),
-        el('div.card__htf-body', {
-          class: tone + live,
-          style:
-            `left:${left}px;width:${width}px;top:${Math.min(yOpen, yClose)}px;` +
-            `height:${Math.max(1, Math.abs(yClose - yOpen))}px`,
-        })
-      );
-    }
-    this.htfEl.replaceChildren(...children);
-    this.htfEl.hidden = false;
+    if (!this.chart) return;
+    this.chart.setHtf(this.htfBars, this.htfApplies());
   }
 
   /* -------------------------------------------------------------- history */
