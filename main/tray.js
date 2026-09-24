@@ -88,7 +88,7 @@ function buildMenu() {
       label: hidden ? '顯示全部卡片' : '隱藏全部卡片',
       accelerator: prefs.shortcuts.toggleShow,
       click: () => {
-        windows.toggleShowAll();
+        windows.toggleShowAll('tray menu');
         refresh();
       },
     },
@@ -162,7 +162,8 @@ function buildMenu() {
 function refresh() {
   if (!tray || tray.isDestroyed()) return;
   tray.setContextMenu(buildMenu());
-  tray.setToolTip(`StockCard — ${store.getCards().length} 張卡片 · ${windows.getMode()} 模式`);
+  const hiddenNote = windows.isHidden() ? ' · 已隱藏(點圖示顯示)' : '';
+  tray.setToolTip(`StockCard — ${store.getCards().length} 張卡片 · ${windows.getMode()} 模式${hiddenNote}`);
 }
 
 function create() {
@@ -173,7 +174,7 @@ function create() {
 
   // Left click toggles visibility; the menu stays on right click.
   tray.on('click', () => {
-    windows.toggleShowAll();
+    windows.toggleShowAll('tray icon click');
     refresh();
   });
 

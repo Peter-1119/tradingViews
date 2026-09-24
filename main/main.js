@@ -31,7 +31,7 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    windows.showAll();
+    windows.showAll('second launch');
     tray.refresh();
   });
 }
@@ -155,7 +155,7 @@ ipcMain.handle('app:set-click-through', (_event, value) => {
 });
 
 ipcMain.handle('app:hide-all', () => {
-  windows.hideAll();
+  windows.hideAll('board hide button');
   tray.refresh();
   return true;
 });
@@ -436,7 +436,7 @@ app.whenReady().then(() => {
 
   const result = shortcuts.register({
     onToggleShow: () => {
-      windows.toggleShowAll();
+      windows.toggleShowAll('show/hide shortcut');
       tray.refresh();
     },
     onToggleClickThrough: () => {
@@ -451,7 +451,7 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) windows.bootstrap();
-    else windows.showAll();
+    else windows.showAll('app activate');
   });
 });
 

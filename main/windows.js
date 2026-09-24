@@ -315,6 +315,10 @@ function toggleMode() {
 /* ------------------------------------------------------- card commands */
 
 function addCard(partial = {}) {
+  // A new card is not shown while everything is hidden (ready-to-show checks
+  // allHidden), so adding one "did nothing" and read as the app being broken.
+  // Whoever adds a card wants to see it: lift the hide first.
+  if (state.allHidden) showAll('add card');
   const card = store.addCard(partial);
   if (getMode() === 'float') {
     createCardWindow(card);
@@ -354,7 +358,14 @@ function updateCard(cardId, patch) {
 
 /* ------------------------------------------------- visibility / on-top */
 
-function showAll() {
+/*
+ * Hide-all is easy to trigger by accident -- Ctrl+Alt+S is also a common app
+ * shortcut (JetBrains IDEs use it for Settings) and a global shortcut swallows
+ * it, and a stray left click on the tray icon toggles too. From the outside it
+ * looks exactly like the cards crashing, so both directions say so in the log.
+ */
+function showAll(reason = 'unknown') {
+  if (state.allHidden) console.log(`[visibility] showing all cards (${reason})`);
   state.allHidden = false;
   for (const win of contentWindows()) win.showInactive();
   // Ctrl+Alt+S doubles as the manual repair for a buried card, so do not wait
@@ -397,15 +408,16 @@ function stopAlwaysOnTopWatch() {
   onTopTimer = null;
 }
 
-function hideAll() {
+function hideAll(reason = 'unknown') {
+  console.log(`[visibility] all cards hidden (${reason}); Ctrl+Alt+S or the tray icon brings them back`);
   state.allHidden = true;
   for (const win of contentWindows()) win.hide();
   broadcast('app:visibility', { hidden: true });
 }
 
-function toggleShowAll() {
-  if (state.allHidden) showAll();
-  else hideAll();
+function toggleShowAll(reason) {
+  if (state.allHidden) showAll(reason);
+  else hideAll(reason);
   return !state.allHidden;
 }
 
