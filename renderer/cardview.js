@@ -152,9 +152,6 @@ export class CardView {
 
     this.chartEl = el('div.card__chart');
 
-    // Measure readout. Lives in the chart box (which is position:relative) and
-    // is hidden until a Shift-drag starts.
-
     this.fibs = [];
     this.rects = [];
 
@@ -169,6 +166,19 @@ export class CardView {
       onSelect: (id, value) => this.setActiveTool(id, value),
     });
     this.chartEl.append(this.toolbar.root);
+
+    // Shown only once the view has been moved off its default -- a stretched
+    // price axis, a zoom, a scroll into history -- tucked into the corner where
+    // the two axes meet. Alt+R does the same.
+    this.resetBtn = el('button.card__reset', {
+      type: 'button',
+      title: '重置圖表視圖 (Alt+R)',
+      hidden: true,
+      onclick: () => this.resetView(),
+    });
+    this.resetBtn.innerHTML =
+      '<svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 7a4.5 4.5 0 1 0 1.3-3.2"/><path d="M2.5 1.8v2.4h2.4"/></svg>';
+    this.chartEl.append(this.resetBtn);
 
     this.overlayText = el('div.card__overlay-text', { text: '載入中…' });
     this.retryBtn = el('button.sc-btn', {
@@ -322,6 +332,7 @@ export class CardView {
     this.onLevelDblClick = async (event) => {
       if (event.shiftKey) return; // Shift belongs to the measure tool
       const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
       const hit = this.chart.levelAt(y);
       if (hit) {
         const removed = this.chart.levels.get(hit);
@@ -338,6 +349,7 @@ export class CardView {
     this.onLevelClick = async (event) => {
       if (this.activeTool !== 'level' || event.shiftKey) return;
       const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
       // Clicking an existing level selects nothing and deletes nothing here --
       // that stays on double-click, so a mis-click while armed cannot destroy
       // a line the user just placed.
@@ -351,7 +363,8 @@ export class CardView {
     this.onLevelDown = (event) => {
       if (event.button !== 0) return;
       if (event.shiftKey) return; // ditto -- measuring beats grabbing a level
-      const { y } = local(event);
+      const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
       const hit = this.chart.levelAt(y);
       if (!hit) return;
       // Freeze the chart's own pan/zoom for the duration, rather than trying to
@@ -370,7 +383,9 @@ export class CardView {
         // Anything not over a level falls back to the armed tool's cursor, not
         // to the default -- otherwise arming a tool showed a crosshair only
         // until the pointer first moved.
-        el.style.cursor = event.shiftKey || this.activeTool !== 'cursor'
+        el.style.cursor = !this.chart.inPlot(x, y)
+          ? ''
+          : event.shiftKey || this.activeTool !== 'cursor'
           ? 'crosshair'
           : this.chart.levelAt(y)
             ? 'ns-resize'
@@ -725,6 +740,35 @@ export class CardView {
       this.undo();
     };
     window.addEventListener('keydown', this.onUndoKey);
+
+    this.onResetKey = (event) => {
+      if (lastActive !== this || !event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.code !== 'KeyR') return;
+      event.preventDefault();
+      this.resetView();
+    };
+    window.addEventListener('keydown', this.onResetKey);
+
+    this.offViewport = this.chart.onViewportChange(() => this.syncResetButton());
+  }
+
+  resetView() {
+    if (!this.chart) return;
+    this.chart.resetView();
+    this.syncResetButton();
+  }
+
+  /** Called on every repaint, so it only touches the DOM when something changed. */
+  syncResetButton() {
+    if (!this.chart) return;
+    const show = this.chart.isViewModified();
+    if (this.resetBtn.hidden === !show && !show) return;
+    this.resetBtn.hidden = !show;
+    if (!show) return;
+    const right = `${this.chart.priceScaleWidth() + 6}px`;
+    const bottom = `${this.chart.timeScaleHeight() + 6}px`;
+    if (this.resetBtn.style.right !== right) this.resetBtn.style.right = right;
+    if (this.resetBtn.style.bottom !== bottom) this.resetBtn.style.bottom = bottom;
   }
 
   /* ----------------------------------------------------------------- rects */
@@ -763,6 +807,7 @@ export class CardView {
       // grab or draw rectangles.
       if (this.activeTool !== 'cursor' && this.activeTool !== 'rect') return;
       const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
 
       const hit = prim().hitTest(x, y);
       if (hit && hit.part !== 'inside') {
@@ -931,6 +976,7 @@ export class CardView {
     this.onFibDown = (event) => {
       if (event.button !== 0 || event.shiftKey) return;
       const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
 
       // Grabbing an existing handle takes priority over starting a new one, so
       // an armed tool can still adjust what is already on the chart.
@@ -1054,6 +1100,7 @@ export class CardView {
       if (event.button !== 0) return;
       if (!event.shiftKey && this.activeTool !== 'measure') return;
       const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
       const from = this.chart.pointAt(x, y, { magnet: event.ctrlKey });
       if (!from) return;
       this.measuring = { from, to: from };
@@ -1157,6 +1204,8 @@ export class CardView {
       window.removeEventListener('mouseup', this.onRectUp);
     }
     if (this.onUndoKey) window.removeEventListener('keydown', this.onUndoKey);
+    if (this.onResetKey) window.removeEventListener('keydown', this.onResetKey);
+    if (this.offViewport) this.offViewport();
     if (this.onActivate) this.root.removeEventListener('pointerdown', this.onActivate, true);
     if (lastActive === this) lastActive = null;
     if (this.offRangeChange) this.offRangeChange();

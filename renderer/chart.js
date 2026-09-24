@@ -24,6 +24,13 @@ import { MeasurePrimitive } from './measure-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
+/** The view "Reset" returns to: the spacing and right-edge gap the chart starts with. */
+const DEFAULT_BAR_SPACING = 6;
+const DEFAULT_RIGHT_OFFSET = 3;
+
+/** Price-axis wheel zoom per notch: e^(100 * 0.0015) is about 16% a click. */
+const PRICE_WHEEL_RATE = 0.0015;
+
 /** Volume sub-pane sizing. Below ~30px the histogram is not readable at all. */
 const VOLUME_PANE_RATIO = 0.24;
 const MIN_VOLUME_PANE_PX = 30;
@@ -69,14 +76,16 @@ const ANCHOR_SNAP_PX = 14;
  * axisDoubleClickReset dead for the life of the card: one drag and the wheel
  * stopped zooming. Restore exactly what was there.
  *
- * The one deliberate deviation from the library defaults is
- * `axisPressedMouseMove.price`: dragging the price axis is off so that a level
- * reads true against the scale it was placed on.
+ * Dragging the price axis is on, as in TradingView: it stretches the price
+ * scale and switches autoscale off, after which a drag on the chart pans in
+ * both directions. It was off once, "so a level reads true against its scale",
+ * which never held -- levels are anchored to prices, and every drawing is
+ * re-projected on each repaint, so no rescale can put one in the wrong place.
  */
 const HANDLE_SCALE_ON = {
   mouseWheel: true,
   pinch: true,
-  axisPressedMouseMove: { time: true, price: false },
+  axisPressedMouseMove: { time: true, price: true },
   axisDoubleClickReset: { time: true, price: true },
 };
 const HANDLE_SCALE_OFF = {
@@ -220,8 +229,8 @@ export class CardChart {
         borderVisible: false,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 3,
-        barSpacing: 6,
+        rightOffset: DEFAULT_RIGHT_OFFSET,
+        barSpacing: DEFAULT_BAR_SPACING,
         minBarSpacing: 1,
         fixLeftEdge: false,
         lockVisibleTimeRangeOnResize: true,
@@ -282,6 +291,26 @@ export class CardChart {
 
     this.priceSeries = null;
     this.volumeSeries = null;
+
+    /*
+     * Wheel over the price axis scales price. The library has one wheel handler
+     * for the whole chart and it only ever zooms *time*, wherever the pointer
+     * is -- price axis included. Intercepting in the capture phase on the
+     * container, ahead of the library's own listener, and only when the pointer
+     * is over the main pane's price axis, leaves every other wheel alone.
+     */
+    this.onWheel = (event) => this.handlePriceAxisWheel(event);
+    container.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
+
+    /** Called whenever the viewport changes -- pan, zoom, resize, rescale. */
+    this.viewportListeners = new Set();
+    const watcher = {
+      updateAllViews: () => {
+        for (const cb of this.viewportListeners) cb();
+      },
+      paneViews: () => [],
+    };
+    this.viewportWatcher = watcher;
 
     this.htf = new HtfPrimitive(this);
     this.htf.setColors(this.colors);
@@ -378,6 +407,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.rects);
     this.priceSeries.attachPrimitive(this.fibLayer);
     this.priceSeries.attachPrimitive(this.measureLayer);
+    this.priceSeries.attachPrimitive(this.viewportWatcher);
   }
 
   createVolumeSeries() {
@@ -950,6 +980,108 @@ export class CardChart {
     }
   }
 
+  /**
+   * Is a point in the main plot -- not on an axis, not in the volume pane?
+   *
+   * Drawing gestures must stay out of the axes. The level gestures went by y
+   * alone, so double-clicking the price axis to reset its scale also dropped a
+   * level at that price, and pressing on the axis at a level's height grabbed
+   * the level instead of stretching the scale.
+   */
+  inPlot(x, y) {
+    const width = this.plotWidth();
+    let height = 0;
+    try {
+      height = this.chart.panes()[0].getHeight();
+    } catch {
+      return false;
+    }
+    return x >= 0 && x < width && y >= 0 && y < height;
+  }
+
+  handlePriceAxisWheel(event) {
+    if (!event.deltaY || !this.priceSeries) return;
+    const rect = this.container.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const width = this.plotWidth();
+    let height = 0;
+    try {
+      height = this.chart.panes()[0].getHeight();
+    } catch {
+      return;
+    }
+    // Only the main pane's price axis. The time axis and the plot keep the
+    // library's time zoom; the volume pane's scale is left to autoscale.
+    if (!width || x < width || y < 0 || y > height) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const scale = this.priceSeries.priceScale();
+    const range = scale.getVisibleRange();
+    const anchor = this.priceSeries.coordinateToPrice(y);
+    if (!range || anchor === null) return;
+    // Wheel down widens the range (zoom out), up narrows it. Anchored on the
+    // price under the pointer, so that price stays put while the rest moves.
+    const delta = Math.sign(event.deltaY) * Math.min(Math.abs(event.deltaY), 300);
+    const factor = Math.exp(delta * PRICE_WHEEL_RATE);
+    const from = anchor - (anchor - range.from) * factor;
+    const to = anchor + (range.to - anchor) * factor;
+    if (!(to > from)) return;
+    // Setting a range switches autoscale off, which is also what lets a plain
+    // drag on the chart pan vertically from here on.
+    scale.setVisibleRange({ from, to });
+  }
+
+  /** Has the user moved off the default view in a way worth a reset button? */
+  isViewModified() {
+    if (!this.priceSeries) return false;
+    if (!this.priceSeries.priceScale().options().autoScale) return true;
+    const ts = this.chart.timeScale();
+    const spacing = ts.options().barSpacing;
+    const width = ts.width();
+    if (!width) return false;
+    // lockVisibleTimeRangeOnResize scales the spacing with the width, so "not
+    // the default spacing" is not the same as "zoomed" -- a card opened narrow
+    // and then widened has never been touched. Follow resizes the same way the
+    // library does and compare against that.
+    const base = this.zoomBaseline;
+    if (!base) {
+      this.zoomBaseline = { spacing, width };
+    } else if (base.width !== width) {
+      base.spacing *= width / base.width;
+      base.width = width;
+    }
+    if (Math.abs(spacing - this.zoomBaseline.spacing) > 0.25) return true;
+    // Scrolled back into history by more than a couple of bars.
+    return ts.scrollPosition() < DEFAULT_RIGHT_OFFSET - 2;
+  }
+
+  /** Back to the view the chart opened with: autoscale, default zoom, live edge. */
+  resetView() {
+    if (!this.priceSeries) return;
+    this.priceSeries.priceScale().setAutoScale(true);
+    if (this.volumeSeries) this.volumeSeries.priceScale().setAutoScale(true);
+    const ts = this.chart.timeScale();
+    ts.applyOptions({ barSpacing: DEFAULT_BAR_SPACING, rightOffset: DEFAULT_RIGHT_OFFSET });
+    ts.scrollToRealTime();
+    this.zoomBaseline = { spacing: DEFAULT_BAR_SPACING, width: ts.width() };
+  }
+
+  onViewportChange(cb) {
+    this.viewportListeners.add(cb);
+    return () => this.viewportListeners.delete(cb);
+  }
+
+  timeScaleHeight() {
+    try {
+      return this.chart.timeScale().height();
+    } catch {
+      return 0;
+    }
+  }
+
   /** Width of the plot area alone -- the pane, without the price scale. */
   plotWidth() {
     try {
@@ -999,6 +1131,8 @@ export class CardChart {
   }
 
   destroy() {
+    this.container.removeEventListener('wheel', this.onWheel, { capture: true });
+    this.viewportListeners.clear();
     this.levels.clear();
     this.resizeObserver.disconnect();
     clearTimeout(this.paneRetryTimer);
