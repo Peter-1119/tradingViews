@@ -259,6 +259,31 @@ ipcMain.handle('fibs:remove', (_event, { symbol, id } = {}) => {
   return broadcastFibs(symbol);
 });
 
+function broadcastRects(symbol) {
+  const rects = store.getRects(symbol);
+  windows.broadcast('rects:changed', { symbol: String(symbol).toUpperCase(), rects });
+  return rects;
+}
+
+ipcMain.handle('rects:list', (_event, symbol) => store.getRects(symbol));
+
+ipcMain.handle('rects:add', (_event, { symbol, a, b } = {}) => {
+  const rect = store.addRect(symbol, a, b);
+  if (rect) broadcastRects(symbol);
+  return rect;
+});
+
+ipcMain.handle('rects:update', (_event, { symbol, id, patch } = {}) => {
+  const rect = store.updateRect(symbol, id, patch || {});
+  broadcastRects(symbol);
+  return rect;
+});
+
+ipcMain.handle('rects:remove', (_event, { symbol, id } = {}) => {
+  store.removeRect(symbol, id);
+  return broadcastRects(symbol);
+});
+
 /* -------------------------------------------------------- IPC: windows */
 
 function senderWindow(event) {

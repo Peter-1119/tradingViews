@@ -58,6 +58,12 @@ const DEFAULTS = {
    * how much history is loaded.
    */
   fibs: {},
+  /**
+   * Rectangles: a price zone bounded in time, for the short-lived support and
+   * resistance a full-width level would overstate. Keyed by symbol, anchors
+   * {time, price}, the same as fibs.
+   */
+  rects: {},
 };
 
 /** Enough for any real chart; a guard against a stuck drag writing thousands. */
@@ -407,6 +413,62 @@ function removeFib(symbol, id) {
   );
 }
 
+/* ----------------------------------------------------------------- rects */
+
+function sanitizeRect(raw) {
+  const a = sanitizeAnchor(raw && raw.a);
+  const b = sanitizeAnchor(raw && raw.b);
+  if (!a || !b) return null;
+  // A rectangle with no height or no width is a line, not a zone.
+  if (a.price === b.price || a.time === b.time) return null;
+  const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
+  return { id, a, b };
+}
+
+function getRects(symbol) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = store.get('rects') || {};
+  const list = Array.isArray(all[key]) ? all[key] : [];
+  return list.map(sanitizeRect).filter(Boolean);
+}
+
+function setRects(symbol, list) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = { ...(store.get('rects') || {}) };
+  const clean = (Array.isArray(list) ? list : [])
+    .map(sanitizeRect)
+    .filter(Boolean)
+    .slice(0, MAX_LEVELS_PER_SYMBOL);
+  if (clean.length) all[key] = clean;
+  else delete all[key];
+  store.set('rects', all);
+  return clean;
+}
+
+function addRect(symbol, a, b) {
+  const rect = sanitizeRect({ a, b });
+  if (!rect) return null;
+  setRects(symbol, [...getRects(symbol), rect]);
+  return getRects(symbol).find((r) => r.id === rect.id) || null;
+}
+
+function updateRect(symbol, id, patch) {
+  setRects(
+    symbol,
+    getRects(symbol).map((r) => (r.id === id ? { ...r, ...patch } : r))
+  );
+  return getRects(symbol).find((r) => r.id === id) || null;
+}
+
+function removeRect(symbol, id) {
+  return setRects(
+    symbol,
+    getRects(symbol).filter((r) => r.id !== id)
+  );
+}
+
 module.exports = {
   INTERVALS,
   CHART_TYPES,
@@ -445,4 +507,8 @@ module.exports = {
   addFib,
   updateFib,
   removeFib,
+  getRects,
+  addRect,
+  updateRect,
+  removeRect,
 };

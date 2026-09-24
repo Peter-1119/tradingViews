@@ -24,6 +24,7 @@ const ICONS = {
   level: '<path d="M1.5 7h11"/><circle cx="4.5" cy="7" r="1.6"/>',
   measure: '<path d="M2 12V4h8"/><path d="M2 12l9-9"/><path d="M6.5 7.5l1.6 1.6"/>',
   fib: '<path d="M1.5 2.5h11"/><path d="M1.5 5.5h11"/><path d="M1.5 8.5h11"/><path d="M1.5 11.5h11"/>',
+  rect: '<rect x="2" y="3.5" width="10" height="7" rx="0.5"/>',
   vp: '<path d="M12.5 2.5h-5"/><path d="M12.5 5h-9"/><path d="M12.5 7.5h-11"/><path d="M12.5 10h-7"/><path d="M12.5 12.5h-4"/>',
   htf: '<rect x="1.5" y="4" width="4.5" height="6" rx="1"/><path d="M3.75 1.5v2.5M3.75 10v2.5"/>'
     + '<rect x="8" y="5.5" width="4.5" height="5" rx="1"/><path d="M10.25 3v2.5M10.25 10.5v2"/>',
@@ -34,6 +35,7 @@ export const TOOLS = [
   { id: 'level', label: '水平線', hint: '水平支撐壓力線:點一下放線' },
   { id: 'measure', label: '量測', hint: '量測區間:直接拖曳' },
   { id: 'fib', label: '斐波那契', hint: '斐波那契回撤:拖曳畫出波段' },
+  { id: 'rect', label: '矩形', hint: '矩形區間:拖曳畫出。拖邊框移動、拖角調整、雙擊內部刪除' },
   {
     id: 'vp',
     label: '成交量分布',

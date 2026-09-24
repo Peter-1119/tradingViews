@@ -50,6 +50,12 @@ const api = {
   removeFib: (symbol, id) => ipcRenderer.invoke('fibs:remove', { symbol, id }),
   onFibsChanged: (cb) => on('fibs:changed', cb),
 
+  listRects: (symbol) => ipcRenderer.invoke('rects:list', symbol),
+  addRect: (symbol, a, b) => ipcRenderer.invoke('rects:add', { symbol, a, b }),
+  updateRect: (symbol, id, patch) => ipcRenderer.invoke('rects:update', { symbol, id, patch }),
+  removeRect: (symbol, id) => ipcRenderer.invoke('rects:remove', { symbol, id }),
+  onRectsChanged: (cb) => on('rects:changed', cb),
+
   /* --------------------------------------------------------- window */
   getBounds: () => ipcRenderer.invoke('window:get-bounds'),
   setSize: (width, height) => ipcRenderer.invoke('window:set-size', { width, height }),

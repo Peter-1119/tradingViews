@@ -163,6 +163,7 @@ export class CardView {
     this.chartEl.append(this.measureBox);
 
     this.fibs = [];
+    this.rects = [];
     this.fibOverlay = new FibOverlay();
     this.chartEl.append(this.fibOverlay.root);
 
@@ -252,6 +253,13 @@ export class CardView {
       this.renderFibs();
     });
     this.loadFibs();
+    this.bindRectInput();
+    this.offRects = window.stockcard.onRectsChanged(({ symbol, rects }) => {
+      if (this.destroyed || symbol !== this.card.symbol) return;
+      this.rects = rects;
+      this.chart.rects.setRects(rects);
+    });
+    this.loadRects();
     this.applyVolumeProfile(this.card.volumeProfile || 'off');
     this.toolbar.setToggled('htf', this.card.showHtf);
     if (this.card.showHtf) this.setHtfEnabled(true);
@@ -368,7 +376,10 @@ export class CardView {
       const { x, y } = local(event);
       if (this.measuring) return;
       if (!this.draggingLevel) {
-        el.style.cursor = event.shiftKey
+        // Anything not over a level falls back to the armed tool's cursor, not
+        // to the default -- otherwise arming a tool showed a crosshair only
+        // until the pointer first moved.
+        el.style.cursor = event.shiftKey || this.activeTool !== 'cursor'
           ? 'crosshair'
           : this.chart.levelAt(y)
             ? 'ns-resize'
@@ -676,6 +687,17 @@ export class CardView {
         case 'fib-move':
           await window.stockcard.updateFib(s, op.id, { [op.end]: op.from });
           break;
+        case 'rect-add':
+          await window.stockcard.removeRect(s, op.id);
+          break;
+        case 'rect-remove': {
+          const back = await window.stockcard.addRect(s, op.a, op.b);
+          if (back) this.remapUndo(op.id, back.id);
+          break;
+        }
+        case 'rect-move':
+          await window.stockcard.updateRect(s, op.id, op.from);
+          break;
         default:
           break;
       }
@@ -712,6 +734,172 @@ export class CardView {
       this.undo();
     };
     window.addEventListener('keydown', this.onUndoKey);
+  }
+
+  /* ----------------------------------------------------------------- rects */
+
+  async loadRects() {
+    const symbol = this.card.symbol;
+    const rects = await window.stockcard.listRects(symbol);
+    if (this.destroyed || symbol !== this.card.symbol) return;
+    this.rects = rects;
+    this.chart.rects.setRects(rects);
+  }
+
+  /**
+   * Rectangles: arm the tool and drag one out. Afterwards:
+   *
+   *   drag a corner  reshape -- the opposite corner stays where it is
+   *   drag an edge   move the whole zone
+   *   double-click   delete (anywhere on it, inside included)
+   *
+   * The interior is not grabbable, on purpose. A zone is large and it is where
+   * the user pans from; a grabbable interior would turn every pan that starts
+   * inside a zone into dragging the zone -- the accidental-drag problem again,
+   * only bigger. Ctrl magnets anchors to OHLC with the weak magnet, as for fibs.
+   */
+  bindRectInput() {
+    const el = this.chartEl;
+    const local = (event) => {
+      const rect = el.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+    const prim = () => this.chart.rects;
+
+    this.onRectDown = (event) => {
+      if (event.button !== 0 || event.shiftKey) return;
+      // Other armed tools own the pointer; only the cursor and rect tools may
+      // grab or draw rectangles.
+      if (this.activeTool !== 'cursor' && this.activeTool !== 'rect') return;
+      const { x, y } = local(event);
+
+      const hit = prim().hitTest(x, y);
+      if (hit && hit.part !== 'inside') {
+        const rect = this.rects.find((r) => r.id === hit.id);
+        if (!rect) return;
+        const orig = { a: { ...rect.a }, b: { ...rect.b } };
+        if (hit.part === 'corner') {
+          const minT = Math.min(rect.a.time, rect.b.time);
+          const maxT = Math.max(rect.a.time, rect.b.time);
+          const minP = Math.min(rect.a.price, rect.b.price);
+          const maxP = Math.max(rect.a.price, rect.b.price);
+          // Corners run clockwise from top-left; hold the diagonal opposite.
+          const fixed = [
+            { time: maxT, price: minP },
+            { time: minT, price: minP },
+            { time: minT, price: maxP },
+            { time: maxT, price: maxP },
+          ][hit.corner];
+          this.draggingRect = { id: hit.id, mode: 'corner', fixed, orig, next: null };
+        } else {
+          // No magnet on the reference point: it only measures the offset, and
+          // snapping it would make the zone jump the moment it is grabbed.
+          const start = this.chart.anchorAt(x, y);
+          if (!start) return;
+          this.draggingRect = { id: hit.id, mode: 'move', start, orig, next: null };
+        }
+        prim().setActive(hit.id);
+        this.chart.setInteractionEnabled(false);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      if (this.activeTool !== 'rect') return;
+      const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+      if (!anchor) return;
+      this.drawingRect = { id: '__draft__', a: anchor, b: { ...anchor } };
+      prim().setDraft({ ...this.drawingRect });
+      this.chart.setInteractionEnabled(false);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    this.onRectMove = (event) => {
+      const { x, y } = local(event);
+      if (this.drawingRect) {
+        const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+        if (!anchor) return;
+        this.drawingRect.b = anchor;
+        prim().setDraft({ ...this.drawingRect });
+        return;
+      }
+      if (this.draggingRect) {
+        const d = this.draggingRect;
+        if (d.mode === 'corner') {
+          const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+          if (!anchor) return;
+          d.next = { a: { ...d.fixed }, b: anchor };
+        } else {
+          const now = this.chart.anchorAt(x, y);
+          if (!now) return;
+          const dt = now.time - d.start.time;
+          const dp = now.price - d.start.price;
+          const shift = (p) => ({ time: Math.round(p.time + dt), price: Number((p.price + dp).toFixed(this.chart.precision)) });
+          d.next = { a: shift(d.orig.a), b: shift(d.orig.b) };
+        }
+        prim().setDraft({ id: d.id, ...d.next });
+        return;
+      }
+      // Hover feedback -- but never while another tool is mid-gesture.
+      if (this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib) return;
+      if (event.target !== el && !el.contains(event.target)) {
+        prim().setActive(null);
+        return;
+      }
+      const hit = prim().hitTest(x, y);
+      const grabbable = hit && hit.part !== 'inside';
+      prim().setActive(grabbable ? hit.id : null);
+      if (hit && hit.part === 'corner') el.style.cursor = hit.corner % 2 === 0 ? 'nwse-resize' : 'nesw-resize';
+      else if (hit && hit.part === 'edge') el.style.cursor = 'move';
+    };
+
+    this.onRectUp = async () => {
+      if (this.drawingRect) {
+        const draft = this.drawingRect;
+        this.drawingRect = null;
+        this.chart.setInteractionEnabled(true);
+        prim().setDraft(null);
+        // A click with no drag is not a zone; drop it.
+        if (draft.a.price === draft.b.price || draft.a.time === draft.b.time) return;
+        const added = await window.stockcard.addRect(this.card.symbol, draft.a, draft.b);
+        if (added) this.pushUndo({ kind: 'rect-add', id: added.id });
+        return;
+      }
+      if (this.draggingRect) {
+        const d = this.draggingRect;
+        this.draggingRect = null;
+        this.chart.setInteractionEnabled(true);
+        // The first click of a double-click arrives here without moving; not
+        // an edit, and must not cost an undo step.
+        if (!d.next) {
+          prim().setDraft(null);
+          return;
+        }
+        await window.stockcard.updateRect(this.card.symbol, d.id, d.next);
+        // The store's broadcast has landed by the time the invoke resolves, so
+        // dropping the draft now does not flash the old position.
+        prim().setDraft(null);
+        this.pushUndo({ kind: 'rect-move', id: d.id, from: d.orig });
+      }
+    };
+
+    this.onRectDblClick = async (event) => {
+      const { x, y } = local(event);
+      const hit = prim().hitTest(x, y);
+      if (!hit) return;
+      // Otherwise the double-click falls through and drops a level as well.
+      event.stopPropagation();
+      const rect = this.rects.find((r) => r.id === hit.id);
+      await window.stockcard.removeRect(this.card.symbol, hit.id);
+      prim().setActive(null);
+      if (rect) this.pushUndo({ kind: 'rect-remove', id: rect.id, a: { ...rect.a }, b: { ...rect.b } });
+    };
+
+    el.addEventListener('mousedown', this.onRectDown, true);
+    el.addEventListener('dblclick', this.onRectDblClick, true);
+    window.addEventListener('mousemove', this.onRectMove);
+    window.addEventListener('mouseup', this.onRectUp);
   }
 
   /* ------------------------------------------------------------------ fibs */
@@ -1019,6 +1207,13 @@ export class CardView {
     clearTimeout(this.periodScrollTimer);
     this.toolbar.destroy();
     if (this.offFibs) this.offFibs();
+    if (this.offRects) this.offRects();
+    if (this.onRectDown) {
+      this.chartEl.removeEventListener('mousedown', this.onRectDown, true);
+      this.chartEl.removeEventListener('dblclick', this.onRectDblClick, true);
+      window.removeEventListener('mousemove', this.onRectMove);
+      window.removeEventListener('mouseup', this.onRectUp);
+    }
     if (this.onUndoKey) window.removeEventListener('keydown', this.onUndoKey);
     if (this.onActivate) this.root.removeEventListener('pointerdown', this.onActivate, true);
     if (lastActive === this) lastActive = null;
@@ -1239,6 +1434,9 @@ export class CardView {
         this.fibs = [];
         this.fibOverlay.clear();
         this.loadFibs();
+        this.rects = [];
+        this.chart.rects.setRects([]);
+        this.loadRects();
         this.periodCache.clear();
         // Undo entries belong to the symbol they were recorded on; replaying
         // them after a switch would edit drawings that are not on screen.

@@ -18,6 +18,7 @@ import {
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
+import { RectPrimitive } from './rect-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -283,6 +284,7 @@ export class CardChart {
     this.htf = new HtfPrimitive(this);
     this.htf.setColors(this.colors);
     this.vp = new VolumeProfilePrimitive(this);
+    this.rects = new RectPrimitive(this);
 
     this.createPriceSeries();
     if (this.showVolume) this.createVolumeSeries();
@@ -369,6 +371,7 @@ export class CardChart {
     // has to re-attach -- this is the one place every new series comes from.
     this.priceSeries.attachPrimitive(this.htf);
     this.priceSeries.attachPrimitive(this.vp);
+    this.priceSeries.attachPrimitive(this.rects);
   }
 
   createVolumeSeries() {
