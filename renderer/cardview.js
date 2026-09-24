@@ -10,6 +10,7 @@
 import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { Toolbar } from './ui/toolbar.js';
+import { WatchlistMenu, WATCHLIST_MAX } from './ui/watchlist.js';
 import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
 import {
@@ -89,7 +90,31 @@ export class CardView {
   /* ----------------------------------------------------------------- DOM */
 
   buildDom(intervals, chartTypes) {
-    this.symbolEl = el('span.card__symbol', { text: prettySymbol(this.card.symbol) });
+    // The symbol name opens the watchlist; the star beside it adds or removes
+    // the current symbol. Both sit in the drag region, so both are no-drag.
+    this.symbolText = el('span', { text: prettySymbol(this.card.symbol) });
+    this.symbolEl = el(
+      'button.card__symbol',
+      {
+        type: 'button',
+        title: '常用幣種 (Alt+1~6 快速切換)',
+        onclick: () => this.watchlist.toggle(),
+      },
+      this.symbolText,
+      el('span.card__symbol-caret', { text: '▾' })
+    );
+    this.starBtn = el('button.sc-icon-btn.card__star', {
+      type: 'button',
+      onclick: () => this.toggleWatch(),
+    });
+    this.watchlist = new WatchlistMenu({
+      provider: this.provider,
+      onPick: (symbol) => this.switchSymbol(symbol),
+      onRemove: (symbol) => this.setWatchlist(this.watchlistSymbols().filter((s) => s !== symbol)),
+      onAdd: () => this.toggleWatch(),
+      onSearch: () => this.panel.open(),
+    });
+    this.watchlist.setAnchor(this.symbolEl);
     this.intervalEl = el('span.card__interval', {
       text: INTERVAL_LABELS[this.card.interval] || this.card.interval,
     });
@@ -143,7 +168,7 @@ export class CardView {
       'div.card__bar',
       { class: this.windowControls ? 'is-draggable' : '' },
       this.link,
-      el('div.card__id', {}, this.symbolEl, this.intervalEl),
+      el('div.card__id', {}, this.starBtn, this.symbolEl, this.intervalEl),
       el('div.card__quote', {}, this.priceEl, this.changeEl),
       this.tools
     );
@@ -223,6 +248,7 @@ export class CardView {
       this.bar,
       this.dot,
       this.chartEl,
+      this.watchlist.root,
       this.overlay,
       this.unlock,
       this.panel.root
@@ -743,9 +769,20 @@ export class CardView {
 
     this.onResetKey = (event) => {
       if (lastActive !== this || !event.altKey || event.ctrlKey || event.metaKey) return;
-      if (event.code !== 'KeyR') return;
+      if (event.code === 'KeyR') {
+        event.preventDefault();
+        this.resetView();
+        return;
+      }
+      // Alt+1..6: the watchlist, in order. `code` rather than `key`, so it
+      // works the same whatever the keyboard layout or IME state.
+      const digit = /^Digit([1-9])$/.exec(event.code);
+      if (!digit) return;
+      const symbol = this.watchlistSymbols()[Number(digit[1]) - 1];
+      if (!symbol) return;
       event.preventDefault();
-      this.resetView();
+      this.watchlist.close();
+      this.switchSymbol(symbol);
     };
     window.addEventListener('keydown', this.onResetKey);
 
@@ -1195,6 +1232,7 @@ export class CardView {
     clearInterval(this.profileTimer);
     clearTimeout(this.periodScrollTimer);
     this.toolbar.destroy();
+    this.watchlist.destroy();
     if (this.offFibs) this.offFibs();
     if (this.offRects) this.offRects();
     if (this.onRectDown) {
@@ -1303,7 +1341,8 @@ export class CardView {
   /* --------------------------------------------------------------- render */
 
   renderIdentity() {
-    this.symbolEl.textContent = prettySymbol(this.card.symbol);
+    this.symbolText.textContent = prettySymbol(this.card.symbol);
+    this.renderWatch();
     this.intervalEl.textContent = INTERVAL_LABELS[this.card.interval] || this.card.interval;
     this.pinBtn.classList.toggle('is-active', this.card.alwaysOnTop);
     this.root.title = '';
@@ -1384,6 +1423,49 @@ export class CardView {
     }
     this.panel.updatePrefs(prefs);
     this.renderQuote();
+    this.renderWatch();
+  }
+
+  /* ------------------------------------------------------------ watchlist */
+
+  watchlistSymbols() {
+    return Array.isArray(this.prefs && this.prefs.watchlist) ? this.prefs.watchlist : [];
+  }
+
+  /** Persisted globally; every card's star and dropdown follow via onPrefs. */
+  setWatchlist(list) {
+    window.stockcard.setPrefs({ watchlist: list.slice(0, WATCHLIST_MAX) });
+  }
+
+  toggleWatch() {
+    const list = this.watchlistSymbols();
+    const symbol = this.card.symbol;
+    if (list.includes(symbol)) {
+      this.setWatchlist(list.filter((s) => s !== symbol));
+    } else if (list.length < WATCHLIST_MAX) {
+      this.setWatchlist([...list, symbol]);
+    } else {
+      // Full: show the list, which is where one can be removed to make room.
+      this.watchlist.open();
+    }
+  }
+
+  switchSymbol(symbol) {
+    if (!symbol || symbol === this.card.symbol) return;
+    this.onPatch({ symbol });
+  }
+
+  renderWatch() {
+    const list = this.watchlistSymbols();
+    const watched = list.includes(this.card.symbol);
+    this.starBtn.textContent = watched ? '★' : '☆';
+    this.starBtn.classList.toggle('is-active', watched);
+    this.starBtn.title = watched
+      ? '從常用清單移除'
+      : list.length >= WATCHLIST_MAX
+        ? `常用清單已滿 (最多 ${WATCHLIST_MAX} 個)`
+        : '加入常用清單';
+    this.watchlist.setState(list, this.card.symbol);
   }
 
   /**

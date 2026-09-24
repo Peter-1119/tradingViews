@@ -46,6 +46,12 @@ const DEFAULTS = {
   launchAtStartup: false,
   clickThrough: false,
   /**
+   * Symbols one click away in the title bar's dropdown, in the user's order.
+   * Global rather than per card: it is a list of what the user trades, not a
+   * property of any one window.
+   */
+  watchlist: [],
+  /**
    * Horizontal support/resistance levels, keyed by symbol -- deliberately not
    * by card and not by interval. A price level has no time anchor, so the same
    * line is meaningful on every timeframe, and keying by symbol means every
@@ -65,6 +71,9 @@ const DEFAULTS = {
    */
   rects: {},
 };
+
+/** What fits the dropdown on a card of default height, and Alt+1..6. */
+const WATCHLIST_MAX = 6;
 
 /** Enough for any real chart; a guard against a stuck drag writing thousands. */
 const MAX_LEVELS_PER_SYMBOL = 60;
@@ -266,7 +275,31 @@ function getGlobalPrefs() {
     launchAtStartup: store.get('launchAtStartup') === true,
     shortcuts: getShortcuts(),
     boardColumns: getBoard().columns,
+    watchlist: getWatchlist(),
   };
+}
+
+/** Upper-case exchange symbols, de-duplicated, in order, at most WATCHLIST_MAX. */
+function sanitizeWatchlist(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    const symbol = String(item || '').toUpperCase();
+    if (!/^[A-Z0-9]{2,30}$/.test(symbol) || out.includes(symbol)) continue;
+    out.push(symbol);
+    if (out.length >= WATCHLIST_MAX) break;
+  }
+  return out;
+}
+
+function getWatchlist() {
+  return sanitizeWatchlist(store.get('watchlist'));
+}
+
+function setWatchlist(list) {
+  const clean = sanitizeWatchlist(list);
+  store.set('watchlist', clean);
+  return clean;
 }
 
 /** A zone the runtime actually knows; anything else falls back to the machine. */
@@ -494,6 +527,9 @@ module.exports = {
   setShortcuts,
   getGlobalPrefs,
   getTimezone,
+  getWatchlist,
+  setWatchlist,
+  sanitizeWatchlist,
   normalizeBounds,
   defaultCardBounds,
   sanitizeCard,

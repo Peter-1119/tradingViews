@@ -122,6 +122,7 @@ ipcMain.handle('prefs:set', (_event, patch = {}) => {
   if ('cacheBars' in patch) store.set('cacheBars', patch.cacheBars !== false);
   if ('launchAtStartup' in patch) tray.setLaunchAtStartup(patch.launchAtStartup);
   if ('boardColumns' in patch) store.setBoard({ columns: patch.boardColumns });
+  if ('watchlist' in patch) store.setWatchlist(patch.watchlist);
   const prefs = store.getGlobalPrefs();
   windows.broadcast('app:prefs', prefs);
   tray.refresh();
