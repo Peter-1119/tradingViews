@@ -19,6 +19,8 @@ import {
 import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
 import { RectPrimitive } from './rect-primitive.js';
+import { FibPrimitive } from './fib-primitive.js';
+import { MeasurePrimitive } from './measure-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -285,6 +287,8 @@ export class CardChart {
     this.htf.setColors(this.colors);
     this.vp = new VolumeProfilePrimitive(this);
     this.rects = new RectPrimitive(this);
+    this.fibLayer = new FibPrimitive(this);
+    this.measureLayer = new MeasurePrimitive(this);
 
     this.createPriceSeries();
     if (this.showVolume) this.createVolumeSeries();
@@ -372,6 +376,8 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.htf);
     this.priceSeries.attachPrimitive(this.vp);
     this.priceSeries.attachPrimitive(this.rects);
+    this.priceSeries.attachPrimitive(this.fibLayer);
+    this.priceSeries.attachPrimitive(this.measureLayer);
   }
 
   createVolumeSeries() {

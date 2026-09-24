@@ -10,15 +10,12 @@
 import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { Toolbar } from './ui/toolbar.js';
-import { FibOverlay } from './ui/fib-overlay.js';
 import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
 import {
   el,
   formatPrice,
   formatPercent,
-  formatDuration,
-  formatAtPrecision,
   prettySymbol,
   STATUS_BADGES,
   STATUS_LABELS,
@@ -157,15 +154,9 @@ export class CardView {
 
     // Measure readout. Lives in the chart box (which is position:relative) and
     // is hidden until a Shift-drag starts.
-    this.measureBox = el('div.card__measure', { hidden: true });
-    this.measureLabel = el('div.card__measure-label');
-    this.measureBox.append(this.measureLabel);
-    this.chartEl.append(this.measureBox);
 
     this.fibs = [];
     this.rects = [];
-    this.fibOverlay = new FibOverlay();
-    this.chartEl.append(this.fibOverlay.root);
 
     this.htfBars = [];
 
@@ -912,19 +903,14 @@ export class CardView {
     this.renderFibs();
   }
 
+  /**
+   * Hand the retracements to the chart, which draws them (fib-primitive.js).
+   * Positioning is not this method's job any more: the chart re-projects them
+   * on every viewport change, in the same frame as the candles.
+   */
   renderFibs() {
     if (!this.chart) return;
-    this.fibOverlay.render(
-      this.drawingFib ? [...this.fibs, this.drawingFib] : this.fibs,
-      (fib) => {
-        const a = this.chart.anchorToPixel(fib.a);
-        const b = this.chart.anchorToPixel(fib.b);
-        if (!a || !b) return null;
-        return { a, b, priceToY: (price) => this.chart.priceToY(price) };
-      },
-      (price) => this.chart.formatPrice(price),
-      this.activeFibId
-    );
+    this.chart.fibLayer.set(this.fibs, this.drawingFib, this.activeFibId);
   }
 
   /**
@@ -948,7 +934,7 @@ export class CardView {
 
       // Grabbing an existing handle takes priority over starting a new one, so
       // an armed tool can still adjust what is already on the chart.
-      const grabbed = this.fibHandleAt(event.target);
+      const grabbed = this.fibHandleAt(event);
       if (grabbed) {
         const fib = this.fibs.find((f) => f.id === grabbed.id);
         // Copy, not reference: the drag mutates this anchor in place.
@@ -971,7 +957,14 @@ export class CardView {
     };
 
     this.onFibMove = (event) => {
-      if (!this.drawingFib && !this.draggingFib) return;
+      if (!this.drawingFib && !this.draggingFib) {
+        if (this.draggingLevel || this.measuring || this.drawingRect || this.draggingRect) return;
+        const inside = event.target === el || el.contains(event.target);
+        const hit = inside ? this.fibHandleAt(event) : null;
+        this.chart.fibLayer.setHover(hit);
+        if (hit) el.style.cursor = 'grab';
+        return;
+      }
       const { x, y } = local(event);
       const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
       if (!anchor) return;
@@ -1015,7 +1008,7 @@ export class CardView {
     };
 
     this.onFibDblClick = async (event) => {
-      const grabbed = this.fibHandleAt(event.target);
+      const grabbed = this.fibHandleAt(event);
       if (!grabbed) return;
       event.stopPropagation();
       const fib = this.fibs.find((f) => f.id === grabbed.id);
@@ -1029,14 +1022,14 @@ export class CardView {
     window.addEventListener('mouseup', this.onFibUp);
   }
 
-  /** Map a DOM target back to the retracement handle it belongs to. */
-  fibHandleAt(target) {
-    if (!target || !target.classList || !target.classList.contains('card__fib-handle')) return null;
-    for (const [id, entry] of this.fibOverlay.rendered) {
-      const index = entry.handles.indexOf(target);
-      if (index >= 0) return { id, end: index === 0 ? 'a' : 'b' };
-    }
-    return null;
+  /**
+   * The retracement handle under a pointer event, by distance. The handles are
+   * painted on the chart's canvas now, so there is no DOM element to ask.
+   */
+  fibHandleAt(event) {
+    if (!this.chart) return null;
+    const rect = this.chartEl.getBoundingClientRect();
+    return this.chart.fibLayer.hitTest(event.clientX - rect.left, event.clientY - rect.top);
   }
 
   /* -------------------------------------------------------------- measure */
@@ -1091,13 +1084,12 @@ export class CardView {
       if (!this.measuring || !this.measuring.held) return;
       if (event && event.shiftKey) return;
       this.measuring = null;
-      this.measureBox.hidden = true;
+      this.chart.measureLayer.set(null);
     };
 
-    // Panning or zooming after a measure must keep the box on its candles.
+    // The drawings follow the viewport by themselves now (they are painted by
+    // the chart); what is left here is data that depends on the visible range.
     this.offRangeChange = this.chart.onVisibleRangeChange((range) => {
-      this.renderMeasure();
-      this.renderFibs();
       this.renderHtf();
       if (this.card.volumeProfile === 'session4h') {
         clearTimeout(this.periodScrollTimer);
@@ -1117,65 +1109,15 @@ export class CardView {
   dismissMeasure() {
     if (!this.measuring) return;
     this.measuring = null;
-    this.measureBox.hidden = true;
+    this.chart.measureLayer.set(null);
     this.chart.setInteractionEnabled(true);
   }
 
+  /** Hand the span to the chart, which draws it (measure-primitive.js). */
   renderMeasure() {
     const m = this.measuring;
-    if (!m) return;
-    const a = this.chart.pointToPixel(m.from);
-    const b = this.chart.pointToPixel(m.to);
-    if (!a || !b) {
-      this.measureBox.hidden = true;
-      return;
-    }
-
-    const left = Math.min(a.x, b.x);
-    const top = Math.min(a.y, b.y);
-    const box = this.measureBox;
-    box.hidden = false;
-    box.style.left = `${left}px`;
-    box.style.top = `${top}px`;
-    box.style.width = `${Math.abs(b.x - a.x)}px`;
-    box.style.height = `${Math.abs(b.y - a.y)}px`;
-
-    const stats = this.chart.measureStats(m.from, m.to);
-    // Respect the up/down colour convention rather than hardcoding green=up.
-    const upIsGreen = this.prefs.upDownColor !== 'redUp';
-    box.classList.toggle('is-up', stats.rising === upIsGreen);
-    box.classList.toggle('is-down', stats.rising !== upIsGreen);
-    // The label hangs off whichever end the pointer is at.
-    box.classList.toggle('is-below', b.y > a.y);
-
-    // Plain ASCII sign, to match the one formatPercent emits.
-    const sign = stats.priceDelta >= 0 ? '+' : '-';
-    const delta = formatAtPrecision(Math.abs(stats.priceDelta), this.chart.precision);
-    this.measureLabel.textContent =
-      `${sign}${delta} (${formatPercent(stats.percent)})
-` +
-      `${stats.bars} bars · ${formatDuration(stats.seconds)}`;
-
-    this.clampMeasureLabel(left, Math.abs(b.x - a.x));
-  }
-
-  /**
-   * Keep the readout inside the chart.
-   *
-   * The label is centred on the box, which pushes it off the card whenever the
-   * box sits near an edge -- and on a ~340px card that is most of the time.
-   * Nudge it back by however much it overhangs.
-   */
-  clampMeasureLabel(boxLeft, boxWidth) {
-    const label = this.measureLabel;
-    label.style.transform = 'translateX(-50%)';
-    const chartWidth = this.chartEl.clientWidth;
-    const labelWidth = label.offsetWidth;
-    const centre = boxLeft + boxWidth / 2;
-    const overflowLeft = Math.max(0, labelWidth / 2 - centre);
-    const overflowRight = Math.max(0, centre + labelWidth / 2 - chartWidth);
-    const nudge = overflowLeft - overflowRight;
-    if (nudge) label.style.transform = `translateX(calc(-50% + ${Math.round(nudge)}px))`;
+    if (!m || !this.chart) return;
+    this.chart.measureLayer.set({ from: m.from, to: m.to });
   }
 
   destroy() {
@@ -1260,17 +1202,14 @@ export class CardView {
       this.lastBar = bars[bars.length - 1];
       this.setOverlay(null);
       this.renderQuote();
-      // Anchors are timestamps, so they stay valid across an interval change,
-      // but they resolve to different pixels against the new bars. Re-project
-      // on the next tick rather than now: immediately after setData the time
-      // scale has not laid out, so logicalToCoordinate answers 0 for every
-      // anchor and the whole retracement stacks on the left edge. setTimeout
-      // and not requestAnimationFrame, because a hidden card's frames are
-      // throttled and this still has to be right when it comes back.
+      // The per-4h profiles depend on which blocks are in view, and right
+      // after setData the time scale has not laid out, so the visible range
+      // is not there to ask yet. Wait a tick. setTimeout and not
+      // requestAnimationFrame, because a hidden card's frames are throttled
+      // and this still has to happen when it comes back.
       this.dismissMeasure();
       clearTimeout(this.fibProjectTimer);
       this.fibProjectTimer = setTimeout(() => {
-        this.renderFibs();
         this.renderHtf();
         if (this.card.volumeProfile === 'session4h') this.loadPeriodProfiles();
       }, 0);
@@ -1432,7 +1371,7 @@ export class CardView {
         this.chart.setLevels([]);
         this.loadLevels();
         this.fibs = [];
-        this.fibOverlay.clear();
+        this.chart.fibLayer.set([]);
         this.loadFibs();
         this.rects = [];
         this.chart.rects.setRects([]);
