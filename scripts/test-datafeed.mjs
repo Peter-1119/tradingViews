@@ -437,6 +437,35 @@ await test('bars missed during an outage are backfilled before live bars resume'
   );
 });
 
+await test('streams added while the socket is still connecting are subscribed once it opens', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  // The 4h overlay subscribes first and opens the socket...
+  provider.subscribe('card:htf', 'BTCUSDT', '4h', {});
+  // ...and the chart's own stream arrives before the handshake finishes.
+  provider.subscribe('card', 'BTCUSDT', '1m', {});
+  provider.unsubscribe('other-never-subscribed');
+  assert.equal(sockets.length, 1);
+  assert.ok(!sockets[0].streams.includes('btcusdt@kline_1m'), 'precondition: not in the connect URL');
+
+  sockets[0].open();
+  const sub = sockets[0].sent.find((m) => m.method === 'SUBSCRIBE');
+  assert.ok(sub, 'nothing was subscribed on open');
+  assert.deepEqual(sub.params, ['btcusdt@kline_1m']);
+});
+
+await test('streams released while connecting are unsubscribed once it opens', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  provider.subscribe('a', 'BTCUSDT', '1m', {});
+  provider.subscribe('b', 'ETHUSDT', '1m', {});
+  provider.subscribe('a', 'SOLUSDT', '1m', {}); // BTC released before the socket opened
+  sockets[0].open();
+  const unsub = sockets[0].sent.find((m) => m.method === 'UNSUBSCRIBE');
+  assert.ok(unsub, 'BTC streams would keep flowing for nobody');
+  assert.ok(unsub.params.includes('btcusdt@kline_1m'));
+  const sub = sockets[0].sent.find((m) => m.method === 'SUBSCRIBE');
+  assert.ok(sub && sub.params.includes('ethusdt@kline_1m') && sub.params.includes('solusdt@kline_1m'));
+});
+
 await test('changing symbol replaces the subscription instead of stacking one', async () => {
   const provider = new BinanceProvider({ logger: silent });
   provider.subscribe('card', 'BTCUSDT', '1m', {});

@@ -479,8 +479,9 @@ export class BinanceProvider extends DataProvider {
     clearTimeout(this.reconnectTimer);
     this.intentionalClose = false;
 
-    const streams = [...this.streamRefs.keys()].join('/');
-    const url = `${this.config.ws}?streams=${streams}`;
+    // Remembered so onopen can tell what changed during the handshake.
+    const connectedWith = new Set(this.streamRefs.keys());
+    const url = `${this.config.ws}?streams=${[...connectedWith].join('/')}`;
     this.setStatus(this.reconnectAttempt > 0 ? STATUS.RECONNECTING : this.status);
 
     let ws;
@@ -499,6 +500,16 @@ export class BinanceProvider extends DataProvider {
       this.reconnectAttempt = 0;
       this.setStatus(STATUS.LIVE);
       this.log('connected', this.streamRefs.size, 'streams');
+
+      // subscribe() and unsubscribe() cannot send control frames while the
+      // socket is still connecting, so anything that changed since the URL was
+      // built is settled here. Without this, a stream added mid-handshake is
+      // counted but never subscribed -- which is how a card's own kline went
+      // silent while its 4h overlay, subscribed a moment earlier, kept moving.
+      const added = [...this.streamRefs.keys()].filter((s) => !connectedWith.has(s));
+      const removed = [...connectedWith].filter((s) => !this.streamRefs.has(s));
+      if (added.length) this.sendControl('SUBSCRIBE', added);
+      if (removed.length) this.sendControl('UNSUBSCRIBE', removed);
 
       // Binance drops long-lived connections around the 24h mark; get ahead of it.
       clearTimeout(this.recycleTimer);
