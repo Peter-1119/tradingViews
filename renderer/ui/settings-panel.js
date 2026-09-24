@@ -1,12 +1,12 @@
 /**
- * Per-card settings panel (spec 4.3): symbol, interval, chart type, opacity,
- * volume sub-pane, always-on-top.
+ * Per-card settings panel (spec 4.3): market, symbol, interval, chart type,
+ * opacity, volume sub-pane, always-on-top.
  *
  * Every control reports through `onPatch`, which the card turns into a store
  * write — the panel holds no state of its own beyond the DOM.
  */
 
-import { el, clamp, INTERVAL_LABELS, CHART_TYPE_LABELS } from '../util.js';
+import { el, clamp, INTERVAL_LABELS, CHART_TYPE_LABELS, MARKET_LABELS } from '../util.js';
 import { SymbolSearch } from './symbol-search.js';
 import { ShortcutInput } from './shortcut-input.js';
 
@@ -90,8 +90,13 @@ export class SettingsPanel {
   /**
    * @param {{
    *   card: object, provider: object, intervals: string[], chartTypes: string[],
-   *   showWindowOpacity: boolean, onPatch: Function, onClose: Function
+   *   showWindowOpacity: boolean, onPatch: Function, onMarket: Function, onClose: Function
    * }} options
+   *
+   * `provider` only has to answer searchSymbols(); the card hands in one that
+   * follows its current market, so search lists what the card can show.
+   * A market change goes through `onMarket` rather than `onPatch`, because the
+   * symbol may have to change with it (PEPEUSDT <-> 1000PEPEUSDT).
    */
   constructor({
     card,
@@ -101,6 +106,7 @@ export class SettingsPanel {
     chartTypes,
     showWindowOpacity,
     onPatch,
+    onMarket,
     onPrefs,
     onShortcut,
     onClose,
@@ -113,6 +119,10 @@ export class SettingsPanel {
       current: card.symbol,
       onPick: (symbol) => onPatch({ symbol }),
     });
+
+    this.marketSeg = segmented(Object.keys(MARKET_LABELS), MARKET_LABELS, card.market, (market) =>
+      onMarket(market)
+    );
 
     this.intervalSeg = segmented(intervals, INTERVAL_LABELS, card.interval, (interval) =>
       onPatch({ interval })
@@ -193,6 +203,7 @@ export class SettingsPanel {
         })
       ),
       el('div.sc-panel__body', {},
+        row('市場', this.marketSeg.root),
         row('交易對', this.symbolSearch.root),
         row('週期', this.intervalSeg.root),
         row('圖型', this.typeSeg.root),
@@ -242,6 +253,7 @@ export class SettingsPanel {
     if (document.activeElement !== this.symbolSearch.input) {
       this.symbolSearch.input.value = card.symbol;
     }
+    this.marketSeg.setValue(card.market);
     this.intervalSeg.setValue(card.interval);
     this.typeSeg.setValue(card.chartType);
     this.cardOpacity.setValue(Math.round(card.cardOpacity * 100));

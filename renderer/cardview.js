@@ -10,7 +10,7 @@
 import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { Toolbar } from './ui/toolbar.js';
-import { WatchlistMenu, WATCHLIST_MAX } from './ui/watchlist.js';
+import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchlist.js';
 import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
 import {
@@ -21,6 +21,9 @@ import {
   STATUS_BADGES,
   STATUS_LABELS,
   INTERVAL_LABELS,
+  MARKET_LABELS,
+  formatFundingRate,
+  formatCountdown,
 } from './util.js';
 
 const HISTORY_LIMIT = 500;
@@ -48,11 +51,17 @@ const HTF_SECONDS = 4 * 3600;
 const HTF_COUNT = 10;
 const HTF_BELOW = ['1m', '5m', '15m', '1h'];
 
+const MARKET_IDS = Object.keys(MARKET_LABELS);
+const otherMarket = (market) => (market === 'perp' ? 'spot' : 'perp');
+
+/** How long "no perpetual for this symbol" and the like stay on screen. */
+const NOTICE_MS = 2200;
+
 export class CardView {
   /**
    * @param {{
    *   card: object,
-   *   provider: object,
+   *   feedFor: (market: string) => object,   // the DataProvider for a market
    *   prefs: object,
    *   intervals: string[],
    *   chartTypes: string[],
@@ -63,7 +72,7 @@ export class CardView {
    */
   constructor({
     card,
-    provider,
+    feedFor,
     prefs,
     intervals,
     chartTypes,
@@ -72,7 +81,7 @@ export class CardView {
     onRemove,
   }) {
     this.card = card;
-    this.provider = provider;
+    this.feedFor = feedFor;
     this.prefs = prefs;
     this.windowControls = windowControls;
     this.onPatch = onPatch;
@@ -82,9 +91,25 @@ export class CardView {
     this.destroyed = false;
     this.lastBar = null;
     this.ticker = null;
-    this.status = provider.getStatus();
+    this.funding = null;
+    /** {key, promise} -- the other market's name for this symbol, being looked up. */
+    this.counterpartJob = null;
+    this.status = this.feed.getStatus();
 
     this.buildDom(intervals, chartTypes);
+  }
+
+  /**
+   * The provider for the market this card is on right now. A getter, not a
+   * field: the market is part of the card record and changes under us.
+   */
+  get feed() {
+    return this.feedFor(this.card.market);
+  }
+
+  /** What the loaded data belongs to. Async work compares it before landing. */
+  dataKey() {
+    return `${this.card.market}:${this.card.symbol}`;
   }
 
   /* ----------------------------------------------------------------- DOM */
@@ -108,13 +133,20 @@ export class CardView {
       onclick: () => this.toggleWatch(),
     });
     this.watchlist = new WatchlistMenu({
-      provider: this.provider,
-      onPick: (symbol) => this.switchSymbol(symbol),
-      onRemove: (symbol) => this.setWatchlist(this.watchlistSymbols().filter((s) => s !== symbol)),
+      feedFor: this.feedFor,
+      onPick: (entry) => this.switchTo(entry),
+      onRemove: (entry) => this.setWatchlist(this.watchlistEntries().filter((e) => !sameEntry(e, entry))),
       onAdd: () => this.toggleWatch(),
       onSearch: () => this.panel.open(),
     });
     this.watchlist.setAnchor(this.symbolEl);
+    // One click flips between spot and the perpetual of the same coin. The
+    // chip names the market the card is on, not the one it would switch to --
+    // it doubles as the only label saying which one this is.
+    this.marketBtn = el('button.card__market', {
+      type: 'button',
+      onclick: () => this.setMarket(otherMarket(this.card.market)),
+    });
     this.intervalEl = el('span.card__interval', {
       text: INTERVAL_LABELS[this.card.interval] || this.card.interval,
     });
@@ -168,7 +200,7 @@ export class CardView {
       'div.card__bar',
       { class: this.windowControls ? 'is-draggable' : '' },
       this.link,
-      el('div.card__id', {}, this.starBtn, this.symbolEl, this.intervalEl),
+      el('div.card__id', {}, this.starBtn, this.symbolEl, this.marketBtn, this.intervalEl),
       el('div.card__quote', {}, this.priceEl, this.changeEl),
       this.tools
     );
@@ -205,6 +237,19 @@ export class CardView {
       '<svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 7a4.5 4.5 0 1 0 1.3-3.2"/><path d="M2.5 1.8v2.4h2.4"/></svg>';
     this.chartEl.append(this.resetBtn);
 
+    // Perpetuals only: the funding rate and the time until it is charged, in
+    // the corner by the price axis where TradingView keeps its bar countdown.
+    this.fundingRateEl = el('span.card__funding-rate');
+    this.fundingTimeEl = el('span.card__funding-time');
+    this.fundingEl = el(
+      'div.card__funding',
+      { hidden: true, title: '資金費率 · 距離下次結算' },
+      this.fundingRateEl,
+      this.fundingTimeEl
+    );
+    this.noticeEl = el('div.card__notice', { hidden: true });
+    this.chartEl.append(this.fundingEl, this.noticeEl);
+
     this.overlayText = el('div.card__overlay-text', { text: '載入中…' });
     this.retryBtn = el('button.sc-btn', {
       type: 'button',
@@ -228,12 +273,14 @@ export class CardView {
 
     this.panel = new SettingsPanel({
       card: this.card,
-      provider: this.provider,
+      // Search follows the card's market, so it only offers what can be shown.
+      provider: { searchSymbols: (query) => this.feed.searchSymbols(query) },
       prefs: this.prefs,
       intervals,
       chartTypes,
       showWindowOpacity: this.windowControls,
       onPatch: (patch) => this.onPatch(patch),
+      onMarket: (market) => this.setMarket(market),
       onPrefs: (patch) => window.stockcard.setPrefs(patch),
       onShortcut: async (name, accelerator) => {
         const response = await window.stockcard.updateShortcuts({ [name]: accelerator });
@@ -268,8 +315,16 @@ export class CardView {
       timezone: this.prefs.timezone,
     });
 
-    this.offStatus = this.provider.onStatusChange((status) => this.setStatus(status));
-    this.setStatus(this.provider.getStatus());
+    // Each market has its own connection and so its own health; the dot
+    // reports the one this card is on.
+    this.offStatus = MARKET_IDS.map((market) =>
+      this.feedFor(market).onStatusChange((status) => {
+        if (market === this.card.market) this.setStatus(status);
+      })
+    );
+    this.setStatus(this.feed.getStatus());
+    this.refreshCounterpart();
+    this.fundingTimer = setInterval(() => this.renderFunding(), 1000);
 
     this.bindUndo();
     this.bindLevelInput();
@@ -467,13 +522,13 @@ export class CardView {
    */
   async setHtfEnabled(enabled) {
     if (!enabled) {
-      this.provider.unsubscribe(`${this.card.id}:htf`);
+      this.feed.unsubscribe(`${this.card.id}:htf`);
       this.htfBars = [];
       this.renderHtf();
       return;
     }
     await this.loadHtf();
-    this.provider.subscribe(`${this.card.id}:htf`, this.card.symbol, HTF_INTERVAL, {
+    this.feed.subscribe(`${this.card.id}:htf`, this.card.symbol, HTF_INTERVAL, {
       onBar: (bar) => {
         if (this.destroyed || !this.htfApplies()) return;
         const last = this.htfBars[this.htfBars.length - 1];
@@ -488,10 +543,10 @@ export class CardView {
   }
 
   async loadHtf() {
-    const symbol = this.card.symbol;
+    const key = this.dataKey();
     try {
-      const bars = await this.provider.getHistory(symbol, HTF_INTERVAL, HTF_COUNT);
-      if (this.destroyed || symbol !== this.card.symbol) return;
+      const bars = await this.feed.getHistory(this.card.symbol, HTF_INTERVAL, HTF_COUNT);
+      if (this.destroyed || key !== this.dataKey()) return;
       this.htfBars = bars.slice(-HTF_COUNT);
       this.renderHtf();
     } catch (err) {
@@ -525,7 +580,8 @@ export class CardView {
     const bars = this.chart.bars;
     if (!bars.length) return;
 
-    const { symbol, interval } = this.card;
+    const { market, symbol, interval } = this.card;
+    const feed = this.feed;
     const step = intervalToMs(interval) / 1000;
     const oldest = bars[0].time;
     const from = oldest - step * HISTORY_PAGE;
@@ -535,11 +591,11 @@ export class CardView {
     this.loadingMore = true;
     const seq = this.loadSeq;
     try {
-      let older = await window.stockcard.readBars(symbol, interval, from, to);
+      let older = await window.stockcard.readBars(market, symbol, interval, from, to);
       if (!older.length) {
-        older = await this.provider.getRange(symbol, interval, from * 1000, to * 1000);
+        older = await feed.getRange(symbol, interval, from * 1000, to * 1000);
         const keep = older.filter((b) => b.closed);
-        if (keep.length) window.stockcard.writeBars(symbol, interval, keep);
+        if (keep.length) window.stockcard.writeBars(market, symbol, interval, keep);
       }
       // The card may have changed symbol or interval while this was in flight.
       if (this.destroyed || seq !== this.loadSeq) return;
@@ -565,12 +621,12 @@ export class CardView {
    * treated as missing rather than trusted, since a partly-cached block would
    * otherwise produce a profile that silently leaves out hours of volume.
    */
-  async fetchBars(symbol, interval, fromSec, toSec, expect = 0) {
-    const cached = await window.stockcard.readBars(symbol, interval, fromSec, toSec);
+  async fetchBars(market, symbol, interval, fromSec, toSec, expect = 0) {
+    const cached = await window.stockcard.readBars(market, symbol, interval, fromSec, toSec);
     if (expect && cached.length >= expect) return cached;
-    const fresh = await this.provider.getRange(symbol, interval, fromSec * 1000, toSec * 1000);
+    const fresh = await this.feedFor(market).getRange(symbol, interval, fromSec * 1000, toSec * 1000);
     const closed = fresh.filter((b) => b.closed);
-    if (closed.length) window.stockcard.writeBars(symbol, interval, closed);
+    if (closed.length) window.stockcard.writeBars(market, symbol, interval, closed);
     return fresh;
   }
 
@@ -600,11 +656,11 @@ export class CardView {
   }
 
   async loadDayProfile() {
-    const symbol = this.card.symbol;
+    const key = this.dataKey();
     const { start, end } = sessionBounds();
     try {
-      const bars = await this.provider.getRange(symbol, '1m', start, end);
-      if (this.destroyed || symbol !== this.card.symbol || this.card.volumeProfile !== 'day') return;
+      const bars = await this.feed.getRange(this.card.symbol, '1m', start, end);
+      if (this.destroyed || key !== this.dataKey() || this.card.volumeProfile !== 'day') return;
       this.chart.setDayProfile(buildProfile(bars, 26));
     } catch (err) {
       console.error('[card] day profile failed', err);
@@ -636,7 +692,8 @@ export class CardView {
     }
     if (this.loadingPeriods) return;
     this.loadingPeriods = true;
-    const symbol = this.card.symbol;
+    const { market, symbol } = this.card;
+    const key = this.dataKey();
     const now = Date.now() / 1000;
     const liveStart = Math.floor(now / PERIOD_4H) * PERIOD_4H;
 
@@ -648,8 +705,8 @@ export class CardView {
         const from = missing[0];
         const to = missing[missing.length - 1] + PERIOD_4H - 1;
         const expect = ((to + 1 - from) / 300) | 0;
-        const bars = await this.fetchBars(symbol, '5m', from, to, expect);
-        if (symbol !== this.card.symbol) return;
+        const bars = await this.fetchBars(market, symbol, '5m', from, to, expect);
+        if (key !== this.dataKey()) return;
         for (const block of buildPeriodProfiles(bars, PERIOD_4H, 14)) {
           if (block.start !== liveStart) this.periodCache.set(block.start, block);
         }
@@ -657,8 +714,8 @@ export class CardView {
       // The live block always comes from the network: the cache only ever
       // holds closed bars, so it is by construction missing the newest one.
       if (wanted.includes(liveStart)) {
-        const bars = await this.provider.getRange(symbol, '5m', liveStart * 1000, now * 1000);
-        if (symbol !== this.card.symbol) return;
+        const bars = await this.feedFor(market).getRange(symbol, '5m', liveStart * 1000, now * 1000);
+        if (key !== this.dataKey()) return;
         const [block] = buildPeriodProfiles(bars, PERIOD_4H, 14);
         if (block) this.periodCache.set(liveStart, { ...block, live: true });
       }
@@ -778,11 +835,11 @@ export class CardView {
       // works the same whatever the keyboard layout or IME state.
       const digit = /^Digit([1-9])$/.exec(event.code);
       if (!digit) return;
-      const symbol = this.watchlistSymbols()[Number(digit[1]) - 1];
-      if (!symbol) return;
+      const entry = this.watchlistEntries()[Number(digit[1]) - 1];
+      if (!entry) return;
       event.preventDefault();
       this.watchlist.close();
-      this.switchSymbol(symbol);
+      this.switchTo(entry);
     };
     window.addEventListener('keydown', this.onResetKey);
 
@@ -1207,7 +1264,9 @@ export class CardView {
   destroy() {
     this.destroyed = true;
     this.loadSeq += 1; // invalidate any in-flight load
-    if (this.offStatus) this.offStatus();
+    if (this.offStatus) this.offStatus.forEach((off) => off());
+    clearInterval(this.fundingTimer);
+    clearTimeout(this.noticeTimer);
     if (this.offLevels) this.offLevels();
     if (this.onLevelDblClick) {
       this.chartEl.removeEventListener('dblclick', this.onLevelDblClick);
@@ -1247,8 +1306,8 @@ export class CardView {
     if (this.onActivate) this.root.removeEventListener('pointerdown', this.onActivate, true);
     if (lastActive === this) lastActive = null;
     if (this.offRangeChange) this.offRangeChange();
-    this.provider.unsubscribe(this.card.id);
-    this.provider.unsubscribe(`${this.card.id}:htf`);
+    this.feed.unsubscribe(this.card.id);
+    this.feed.unsubscribe(`${this.card.id}:htf`);
     if (this.chart) this.chart.destroy();
     this.root.remove();
   }
@@ -1269,15 +1328,16 @@ export class CardView {
 
   async loadData() {
     const seq = ++this.loadSeq;
-    const { symbol, interval } = this.card;
+    const { market, symbol, interval } = this.card;
+    const feed = this.feed;
 
     this.setOverlay('載入中…');
     try {
-      const bars = await this.provider.getHistory(symbol, interval, HISTORY_LIMIT);
+      const bars = await feed.getHistory(symbol, interval, HISTORY_LIMIT);
       if (seq !== this.loadSeq || this.destroyed) return;
       // Everything closed goes to disk, so the next launch starts from a file.
       const closed = bars.filter((b) => b.closed);
-      if (closed.length) window.stockcard.writeBars(symbol, interval, closed);
+      if (closed.length) window.stockcard.writeBars(market, symbol, interval, closed);
 
       if (!bars.length) {
         this.setOverlay('沒有資料', true);
@@ -1302,7 +1362,7 @@ export class CardView {
       }, 0);
       this.subscribe();
 
-      this.provider
+      feed
         .getTicker(symbol)
         .then((ticker) => {
           if (seq === this.loadSeq && !this.destroyed) this.applyTicker(ticker);
@@ -1310,6 +1370,17 @@ export class CardView {
         .catch(() => {
           /* the miniTicker stream will fill this in shortly */
         });
+
+      if (market === 'perp') {
+        feed
+          .getFunding(symbol)
+          .then((funding) => {
+            if (seq === this.loadSeq && !this.destroyed) this.applyFunding(funding);
+          })
+          .catch(() => {
+            /* the markPrice stream carries it too, every 3s */
+          });
+      }
     } catch (err) {
       if (seq !== this.loadSeq || this.destroyed) return;
       this.setOverlay(`載入失敗:${err.message}`, true);
@@ -1319,7 +1390,7 @@ export class CardView {
   subscribe() {
     // subId is the card id, so re-subscribing after a symbol change replaces
     // the previous stream instead of stacking a second one.
-    this.provider.subscribe(this.card.id, this.card.symbol, this.card.interval, {
+    this.feed.subscribe(this.card.id, this.card.symbol, this.card.interval, {
       onBar: (bar) => {
         if (this.destroyed) return;
         this.chart.update(bar);
@@ -1330,6 +1401,10 @@ export class CardView {
         if (this.destroyed) return;
         if (ticker.symbol === this.card.symbol) this.applyTicker(ticker);
       },
+      onFunding: (funding) => {
+        if (this.destroyed) return;
+        if (funding.symbol === this.card.symbol) this.applyFunding(funding);
+      },
     });
   }
 
@@ -1338,10 +1413,116 @@ export class CardView {
     this.renderQuote();
   }
 
+  applyFunding(funding) {
+    this.funding = funding && this.card.market === 'perp' ? funding : null;
+    this.renderFunding();
+  }
+
+  /**
+   * Ticks once a second for the countdown. The rate itself only changes when
+   * the markPrice stream says so; the clock is computed here, so it keeps
+   * counting between frames and through a dropped feed.
+   */
+  renderFunding() {
+    const f = this.funding;
+    if (!f || this.card.market !== 'perp' || !Number.isFinite(f.fundingRate)) {
+      this.fundingEl.hidden = true;
+      return;
+    }
+    this.fundingEl.hidden = false;
+    this.fundingRateEl.textContent = formatFundingRate(f.fundingRate);
+    const left = f.nextFundingTime - Date.now();
+    // Zero until the exchange rolls nextFundingTime forward, a few seconds on.
+    this.fundingTimeEl.textContent = left > 0 ? formatCountdown(left) : '結算中';
+    if (this.chart) {
+      const right = `${this.chart.priceScaleWidth() + 6}px`;
+      if (this.fundingEl.style.right !== right) this.fundingEl.style.right = right;
+    }
+  }
+
+  /* --------------------------------------------------------------- market */
+
+  /**
+   * Look up this symbol's name on the other market, ahead of any click, so the
+   * chip can say up front when there is nothing to switch to.
+   *
+   * Resolves to the symbol, null when the other market does not list it, or
+   * undefined when the lookup itself failed (offline) and is worth retrying.
+   */
+  refreshCounterpart() {
+    const key = this.dataKey();
+    const job = {
+      key,
+      promise: this.feed.counterpart(this.card.symbol, otherMarket(this.card.market)).catch(() => undefined),
+    };
+    this.counterpartJob = job;
+    this.renderMarket();
+    job.promise.then((symbol) => {
+      job.symbol = symbol;
+      if (!this.destroyed && this.counterpartJob === job) this.renderMarket();
+    });
+    return job;
+  }
+
+  /**
+   * Move the card to `market`, taking the symbol along -- including where the
+   * other market names it differently (PEPEUSDT on spot is 1000PEPEUSDT on
+   * perp). Drawings are keyed by symbol, so plain BTCUSDT keeps every line.
+   */
+  async setMarket(market) {
+    if (!MARKET_IDS.includes(market) || market === this.card.market) return;
+    const key = this.dataKey();
+    let job = this.counterpartJob && this.counterpartJob.key === key ? this.counterpartJob : this.refreshCounterpart();
+    let target = await job.promise;
+    if (target === undefined) {
+      job = this.refreshCounterpart();
+      target = await job.promise;
+    }
+    // Another switch landed while we were waiting; that one wins.
+    if (this.destroyed || key !== this.dataKey()) return;
+    if (!target) {
+      this.notify(
+        target === null
+          ? `${prettySymbol(this.card.symbol)} 沒有${MARKET_LABELS[market]}`
+          : '無法取得交易對清單，請稍後再試'
+      );
+      this.panel.update(this.card); // put the panel's market control back
+      return;
+    }
+    this.onPatch({ market, symbol: target });
+  }
+
+  renderMarket() {
+    const { market, symbol } = this.card;
+    const other = MARKET_LABELS[otherMarket(market)];
+    const job = this.counterpartJob;
+    const resolved = job && job.key === this.dataKey() ? job.symbol : undefined;
+    this.marketBtn.textContent = MARKET_LABELS[market] || market;
+    this.marketBtn.classList.toggle('is-perp', market === 'perp');
+    this.marketBtn.classList.toggle('is-unavailable', resolved === null);
+    this.marketBtn.title =
+      resolved === null
+        ? `${prettySymbol(symbol)} 沒有${other}`
+        : resolved && resolved !== symbol
+          ? `切換到${other} (${prettySymbol(resolved)})`
+          : `切換到${other}`;
+  }
+
+  /** A short message over the chart that clears itself. */
+  notify(text) {
+    clearTimeout(this.noticeTimer);
+    this.noticeEl.textContent = text;
+    this.noticeEl.hidden = false;
+    this.noticeTimer = setTimeout(() => {
+      this.noticeEl.hidden = true;
+    }, NOTICE_MS);
+  }
+
   /* --------------------------------------------------------------- render */
 
   renderIdentity() {
     this.symbolText.textContent = prettySymbol(this.card.symbol);
+    this.renderMarket();
     this.renderWatch();
     this.intervalEl.textContent = INTERVAL_LABELS[this.card.interval] || this.card.interval;
     this.pinBtn.classList.toggle('is-active', this.card.alwaysOnTop);
@@ -1428,8 +1609,12 @@ export class CardView {
 
   /* ------------------------------------------------------------ watchlist */
 
-  watchlistSymbols() {
+  watchlistEntries() {
     return Array.isArray(this.prefs && this.prefs.watchlist) ? this.prefs.watchlist : [];
+  }
+
+  currentEntry() {
+    return { symbol: this.card.symbol, market: this.card.market };
   }
 
   /** Persisted globally; every card's star and dropdown follow via onPrefs. */
@@ -1438,34 +1623,36 @@ export class CardView {
   }
 
   toggleWatch() {
-    const list = this.watchlistSymbols();
-    const symbol = this.card.symbol;
-    if (list.includes(symbol)) {
-      this.setWatchlist(list.filter((s) => s !== symbol));
+    const list = this.watchlistEntries();
+    const current = this.currentEntry();
+    if (list.some((e) => sameEntry(e, current))) {
+      this.setWatchlist(list.filter((e) => !sameEntry(e, current)));
     } else if (list.length < WATCHLIST_MAX) {
-      this.setWatchlist([...list, symbol]);
+      this.setWatchlist([...list, current]);
     } else {
       // Full: show the list, which is where one can be removed to make room.
       this.watchlist.open();
     }
   }
 
-  switchSymbol(symbol) {
-    if (!symbol || symbol === this.card.symbol) return;
-    this.onPatch({ symbol });
+  /** A watchlist pick: symbol and market together. */
+  switchTo(entry) {
+    if (!entry || sameEntry(entry, this.currentEntry())) return;
+    this.onPatch({ symbol: entry.symbol, market: entry.market });
   }
 
   renderWatch() {
-    const list = this.watchlistSymbols();
-    const watched = list.includes(this.card.symbol);
+    const list = this.watchlistEntries();
+    const current = this.currentEntry();
+    const watched = list.some((e) => sameEntry(e, current));
     this.starBtn.textContent = watched ? '★' : '☆';
     this.starBtn.classList.toggle('is-active', watched);
     this.starBtn.title = watched
-      ? '從常用清單移除'
+      ? `把 ${entryLabel(current)} 從常用清單移除`
       : list.length >= WATCHLIST_MAX
         ? `常用清單已滿 (最多 ${WATCHLIST_MAX} 個)`
-        : '加入常用清單';
-    this.watchlist.setState(list, this.card.symbol);
+        : `把 ${entryLabel(current)} 加入常用清單`;
+    this.watchlist.setState(list, current);
   }
 
   /**
@@ -1476,14 +1663,26 @@ export class CardView {
     const prev = this.card;
     this.card = next;
 
-    const symbolChanged = next.symbol !== prev.symbol || next.interval !== prev.interval;
+    const marketChanged = next.market !== prev.market;
+    const symbolChanged = marketChanged || next.symbol !== prev.symbol || next.interval !== prev.interval;
+
+    if (marketChanged) {
+      // Both streams move to the other market's socket. subscribe() on the new
+      // side does not reach the old one, so release it here, explicitly.
+      const old = this.feedFor(prev.market);
+      old.unsubscribe(prev.id);
+      old.unsubscribe(`${prev.id}:htf`);
+      this.setStatus(this.feed.getStatus());
+      this.funding = null;
+      this.renderFunding();
+    }
 
     if (next.cardOpacity !== prev.cardOpacity) this.applyOpacity();
     if (this.chart) {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
       if (next.volumeProfile !== prev.volumeProfile) this.applyVolumeProfile(next.volumeProfile);
-      if (next.showHtf !== prev.showHtf) {
+      if (next.showHtf !== prev.showHtf && !marketChanged) {
         this.toolbar.setToggled('htf', next.showHtf);
         this.setHtfEnabled(next.showHtf);
       }
@@ -1496,8 +1695,10 @@ export class CardView {
       this.ticker = null;
       this.lastBar = null;
       this.renderQuote();
+      if (next.symbol !== prev.symbol || marketChanged) this.refreshCounterpart();
       // Levels belong to the symbol, so a symbol switch swaps the whole set.
-      // The interval half of `symbolChanged` is a harmless no-op reload.
+      // A market switch that keeps the name keeps them too: BTCUSDT's lines
+      // are the same lines on spot and perp, and so is its undo history.
       if (next.symbol !== prev.symbol) {
         this.chart.setLevels([]);
         this.loadLevels();
@@ -1507,11 +1708,17 @@ export class CardView {
         this.rects = [];
         this.chart.rects.setRects([]);
         this.loadRects();
-        this.periodCache.clear();
         // Undo entries belong to the symbol they were recorded on; replaying
         // them after a switch would edit drawings that are not on screen.
         this.undoStack = [];
+      }
+      // Profiles and the 4h overlay are built from the market's own candles.
+      if (next.symbol !== prev.symbol || marketChanged) {
+        this.periodCache.clear();
         this.applyVolumeProfile(this.card.volumeProfile || 'off');
+        this.toolbar.setToggled('htf', this.card.showHtf);
+        this.htfBars = [];
+        this.renderHtf();
         if (this.card.showHtf) this.setHtfEnabled(true);
       }
       this.loadData();

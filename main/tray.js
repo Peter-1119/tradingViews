@@ -48,7 +48,7 @@ function buildMenu() {
       label: '卡片',
       enabled: cards.length > 0,
       submenu: cards.map((card) => ({
-        label: `${card.symbol}  ·  ${card.interval}`,
+        label: `${card.symbol}${card.market === 'perp' ? ' 永續' : ''}  ·  ${card.interval}`,
         submenu: [
           {
             label: '移除這張卡片',

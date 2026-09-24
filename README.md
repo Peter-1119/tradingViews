@@ -1,6 +1,6 @@
 # StockCard
 
-桌面透明行情小卡片。無邊框、半透明、可置頂,即時顯示加密貨幣線圖。
+桌面透明行情小卡片。無邊框、半透明、可置頂,即時顯示加密貨幣線圖，現貨與 USDⓈ-M 永續合約一鍵切換。
 
 **Electron 43 + TradingView Lightweight Charts v5 + Binance 公開行情 API**(免註冊、免 API key)
 
@@ -32,8 +32,10 @@ npm run dist      # 打包成 Windows 安裝檔 + 免安裝版 -> release/
 | 吸附到 OHLC | 按住 `Ctrl`,十字線會吸到**離游標最近的**開/高/低/收 —— 在 K 棒上方吸 high、下方吸 low |
 | 加支撐壓力線 | 在圖上**雙擊**空白處。按著 `Ctrl` 雙擊會吸到最近的 OHLC |
 | 移動 / 刪除線 | 拖曳線本身移動(按 `Ctrl` 吸附);**雙擊線本身**刪除 |
-| 常用幣種 | 標題列幣種名稱左邊的 ☆ 把目前的幣種加入常用清單（最多 6 個，所有卡片共用）。點**幣種名稱**展開清單，顯示即時價格與 24h 漲跌，點一下切換；滑到某列點 ✕ 移除 |
-| 快速切換幣種 | `Alt+1` ~ `Alt+6` 切到常用清單的第 1~6 個（作用在最後點過的卡片） |
+| 現貨 / 永續 | 點標題列幣種名稱右邊的「現貨」/「永續」標籤，在同一個幣的現貨與永續合約之間切換；設定面板的「市場」也可以切。名稱不同的會自動對應（現貨 `PEPEUSDT` ↔ 永續 `1000PEPEUSDT`）；對面沒有這個交易對時標籤會變灰，點了會說明原因 |
+| 資金費率 | 永續盤在圖表右上角（價格軸左邊）顯示目前資金費率與距離下次結算的倒數，每秒更新 |
+| 常用幣種 | 標題列幣種名稱左邊的 ☆ 把目前的幣種加入常用清單（最多 6 個，所有卡片共用）。清單會記住市場，同一個幣的現貨和永續是兩列，永續那列有標記。點**幣種名稱**展開清單，顯示即時價格與 24h 漲跌，點一下切換（連市場一起）；滑到某列點 ✕ 移除 |
+| 快速切換幣種 | `Alt+1` ~ `Alt+6` 切到常用清單的第 1~6 個，市場一起切（作用在最後點過的卡片） |
 | 選工具 | 滑鼠移到卡片上，左側會浮出工具列（游標 / 水平線 / 量測）。再點一次同一個圖示可取消 |
 | 量測區間 | 按住 `Shift` 拖曳,顯示價差、百分比、K 棒數與時間長度。加按 `Ctrl` 可吸到 OHLC |
 | 關閉量測 | 放開後讀數會留著;點一下空白處或按 `Esc` 清除 |
@@ -55,7 +57,7 @@ npm run dist      # 打包成 Windows 安裝檔 + 免安裝版 -> release/
 
 **4H 疊圖**只在 1m / 5m / 15m / 1h 下顯示 —— 在 4h 圖上那個方塊就是 K 棒本身。未收盤的那根由**兩條獨立的 4h 訂閱**馀養，而不是拿卡片自己的 K 棒去聚合：卡片可能在看 1m，500 根才 8 小時，而交易所自己的 4h K 棒本來就是權威值。hub 的 stream 是計數的，所以同一個幣別多一條訂閱只多一條 kline stream，不會多一條連線。
 
-**歷史資料快取**：往左滾動到快碰到資料邊緣時，背景自動補更舊的 K 棒，先查本地再打 API，而且抓回來的都會寫進快取。檔案在 `userData/bars/{SYMBOL}/{interval}/{chunk}.bin`，固定寬度二進位，每筆 48 bytes（六個 float64：`time, open, high, low, close, volume`）。1m / 5m 按**月**分檔，其餘按**年** —— 回補的舊資料會寫進不同的檔案，所以每個檔永遠只會 append、內部永遠有序，**不需要全域排序，也不需要重寫整份歷史**。只寫已收盤的 K 棒：幣安回傳的最後一根永遠是未收盤的，快取它等於把半根 K 棒永久寫死。實測同一段區間：快取 7.4ms vs 網路 142ms（**19 倍**），內容完全一致。
+**歷史資料快取**：往左滾動到快碰到資料邊緣時，背景自動補更舊的 K 棒，先查本地再打 API，而且抓回來的都會寫進快取。檔案在 `userData/bars/{SYMBOL}/{interval}/{chunk}.bin`（永續在 `userData/bars/_perp/...`，因為 BTCUSDT 在兩個市場同名但 K 棒不同），固定寬度二進位，每筆 48 bytes（六個 float64：`time, open, high, low, close, volume`）。1m / 5m 按**月**分檔，其餘按**年** —— 回補的舊資料會寫進不同的檔案，所以每個檔永遠只會 append、內部永遠有序，**不需要全域排序，也不需要重寫整份歷史**。只寫已收盤的 K 棒：幣安回傳的最後一根永遠是未收盤的，快取它等於把半根 K 棒永久寫死。實測同一段區間：快取 7.4ms vs 網路 142ms（**19 倍**），內容完全一致。
 
 **成交量分布**有三種模式，從工具列圖示的彈出選單切換：
 
@@ -76,6 +78,10 @@ npm run dist      # 打包成 Windows 安裝檔 + 免安裝版 -> release/
 **量測工具**刻意做成手勢而不是工具列按鈕 —— TradingView 自己的快速量測也是 `Shift` 拖曳,而在這種尺寸的卡片上,手勢不佔任何畫面空間。量測框的兩個錨點存的是 logical(小數 K 棒索引)而不是像素,所以平移縮放時框會跟著 K 棒跑,而且在最右側那段沒有 K 棒的留白區也定位得到。
 
 **支撐壓力線**依 **symbol** 儲存,不依卡片也不依週期。所以同一條線會出現在每一張同幣別的卡片上,而且 1 分、15 分、1 日切來切去都在 —— 水平價位本來就沒有時間錨點。相同價格的線會自動去重。
+
+**現貨與永續共用畫線**：水平線、斐波那契、矩形一樣依 symbol 儲存、不分市場。BTCUSDT 現貨和永續的價差通常只有萬分之一、二，同一個支撐位在兩邊都成立，切過去線還在，撤銷紀錄也保留。報價放大過的合約（`1000PEPEUSDT`）本來就是不同的 symbol，所以各自有自己的線 —— 價格差了一千倍，本來就不能共用。
+
+**永續合約**走 Binance USDⓈ-M（`fapi.binance.com` / `fstream.binance.com`）。REST 路徑和 stream 名稱都跟現貨相同，所以是同一個 `BinanceProvider` 帶不同的市場設定，重連、回補、100ms 合併全部沿用。要注意的是永續的 WebSocket 要連 **`/market/stream`**：舊的 `/stream` 還是連得上，但已經不送 kline、成交和 ticker，卡片會顯示「即時」卻完全不動。資金費率來自 `@markPrice` stream（每 3 秒），倒數在卡片端每秒自己算，所以兩次推送之間、甚至斷線時也會繼續走。
 
 **兩種顯示模式**
 
@@ -98,7 +104,7 @@ main/                 Electron 主行程
   protocol.js         app:// 自訂協定
 preload/preload.js    contextBridge 白名單 API
 renderer/
-  hub.html/js         隱藏視窗:全 App 唯一一條 WebSocket
+  hub.html/js         隱藏視窗:持有全部 WebSocket(每個市場最多一條)
   card.html/js        Float 模式單卡頁面
   board.html/js       Board 模式多卡頁面
   cardview.js         卡片元件(兩種模式共用)
@@ -117,7 +123,7 @@ scripts/              圖示產生、vendor 同步、語法檢查、datafeed 測
 
 規格同時要求「renderer 直接連 Binance」和「不管幾張卡都只有一條 WebSocket」。Float 模式下每張卡是獨立的 renderer 行程,卡片自己開 socket 就會變成一卡一條連線。
 
-所以連線放在一個常駐隱藏的 renderer(`renderer/hub.js`)裡,卡片透過 IPC 跟它要資料:
+所以連線放在一個常駐隱藏的 renderer(`renderer/hub.js`)裡,卡片透過 IPC 跟它要資料。現貨和永續在不同主機上，不可能共用一條 socket，所以規則是**每個市場最多一條**：沒有卡片在看永續時就不開那條，全部卡片都切到永續時現貨那條也會關掉:
 
 ```
 card --invoke--> main --send--> hub --(WebSocket)--> Binance
@@ -132,12 +138,13 @@ Chromium 不允許從 `file://` 載入 ES module(來源是 opaque origin,CORS �
 
 ## 資料來源
 
-一律走 Binance 公開現貨端點:
+一律走 Binance 公開端點。現貨在 `api.binance.com/api/v3` 與 `stream.binance.com:9443/stream`，永續在 `fapi.binance.com/fapi/v1` 與 `fstream.binance.com/market/stream`，底下的路徑相同:
 
-- 歷史 K 線 `GET /api/v3/klines`(500 根)
-- 即時 `wss://stream.binance.com:9443/stream` combined stream,`@kline_<interval>` + `@miniTicker` + `@aggTrade`
-- 交易對清單 `GET /api/v3/exchangeInfo`,快取 24 小時
+- 歷史 K 線 `GET /klines`(500 根)
+- 即時 combined stream,`@kline_<interval>` + `@miniTicker` + `@aggTrade`;永續多一條 `@markPrice`(資金費率)
+- 交易對清單 `GET /exchangeInfo`,快取 24 小時;永續只取 `PERPETUAL`,不含交割合約
 - 24h 漲跌:啟動打一次 `/ticker/24hr`,之後由 miniTicker 更新
+- 資金費率(永續):啟動打一次 `/premiumIndex`,之後由 markPrice 更新
 
 **更新頻率**:Binance 的 `@kline_*` 固定每秒推一次,這是 K 棒官方數值的上限。為了讓價格跳得更即時,另外訂了逐筆的 `@aggTrade`,在兩次 kline 之間把成交價併進「正在形成的那根」的 close / high / low / volume。逐筆訊息在 hub 端以 **100ms** 為窗口合併(`LIVE_TICK_MS`),同一窗口內只有最後一筆會送出去,所以不論行情多熱,每張卡最多每秒 10 次重繪。kline 一到就立刻覆蓋回官方數值,誤差最多存活一秒。跨棒的那一刻不自己開新 K 棒,等 kline 來 roll。
 
@@ -151,7 +158,7 @@ Chromium 不允許從 `file://` 載入 ES module(來源是 opaque origin,CORS �
 
 ```js
 getHistory(symbol, interval, limit)   // -> Bar[]  { time(秒), open, high, low, close, volume, closed }
-subscribe(subId, symbol, interval, { onBar, onTicker })
+subscribe(subId, symbol, interval, { onBar, onTicker, onFunding })
 unsubscribe(subId)
 searchSymbols(query)                  // -> SymbolInfo[]
 getTicker(symbol)                     // -> { symbol, last, changePercent, high, low, volume }

@@ -55,7 +55,6 @@ function attachResizeGrip(container) {
 
 async function main() {
   const boot = await api.bootstrap({});
-  const provider = getProvider();
 
   let prefs = boot.prefs;
   let columns = clamp(prefs.boardColumns || 2, MIN_COLUMNS, MAX_COLUMNS);
@@ -145,7 +144,7 @@ async function main() {
 
     const view = new CardView({
       card,
-      provider,
+      feedFor: getProvider,
       prefs,
       intervals: boot.intervals,
       chartTypes: boot.chartTypes,

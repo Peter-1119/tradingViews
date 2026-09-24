@@ -16,6 +16,8 @@ const { randomUUID } = require('crypto');
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const CHART_TYPES = ['candlestick', 'line', 'area'];
 const VP_MODES = ['off', 'session4h', 'visible', 'day'];
+/** Binance spot, or USD-M perpetuals. */
+const MARKETS = ['spot', 'perp'];
 
 const CARD_MIN_WIDTH = 220;
 const CARD_MIN_HEIGHT = 140;
@@ -46,14 +48,19 @@ const DEFAULTS = {
   launchAtStartup: false,
   clickThrough: false,
   /**
-   * Symbols one click away in the title bar's dropdown, in the user's order.
-   * Global rather than per card: it is a list of what the user trades, not a
-   * property of any one window.
+   * {symbol, market} entries one click away in the title bar's dropdown, in the
+   * user's order. Global rather than per card: it is a list of what the user
+   * trades, not a property of any one window. The market is part of the entry,
+   * so "BTC perp" and "ETH spot" can sit side by side and Alt+1..6 lands on the
+   * right one.
    */
   watchlist: [],
   /**
    * Horizontal support/resistance levels, keyed by symbol -- deliberately not
-   * by card and not by interval. A price level has no time anchor, so the same
+   * by card, not by interval, and not by market: spot and perp BTCUSDT track
+   * each other to within a basis point or two, so a level drawn on one is the
+   * level on the other. Contracts quoted at a multiple (1000PEPEUSDT) have
+   * their own symbol, and so their own drawings, which their scale needs. A price level has no time anchor, so the same
    * line is meaningful on every timeframe, and keying by symbol means every
    * card showing BTCUSDT shows the same levels without any syncing logic.
    */
@@ -90,6 +97,10 @@ function clampNumber(value, min, max, fallback) {
 
 function pick(value, allowed, fallback) {
   return allowed.includes(value) ? value : fallback;
+}
+
+function pickMarket(value) {
+  return pick(value, MARKETS, 'spot');
 }
 
 /** A brand-new card, positioned so stacked cards do not perfectly overlap. */
@@ -145,6 +156,7 @@ function sanitizeCard(raw, index = 0) {
   return {
     id: typeof card.id === 'string' && card.id ? card.id : randomUUID(),
     symbol: typeof card.symbol === 'string' && card.symbol ? card.symbol.toUpperCase() : 'BTCUSDT',
+    market: pickMarket(card.market),
     interval: pick(card.interval, INTERVALS, '1m'),
     chartType: pick(card.chartType, CHART_TYPES, 'candlestick'),
     cardOpacity: clampNumber(card.cardOpacity, 0.1, 1, 0.75),
@@ -279,14 +291,20 @@ function getGlobalPrefs() {
   };
 }
 
-/** Upper-case exchange symbols, de-duplicated, in order, at most WATCHLIST_MAX. */
+/**
+ * {symbol, market} entries, de-duplicated, in order, at most WATCHLIST_MAX.
+ * A bare string is a list saved before perpetuals existed, and means spot.
+ */
 function sanitizeWatchlist(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
   for (const item of raw) {
-    const symbol = String(item || '').toUpperCase();
-    if (!/^[A-Z0-9]{2,30}$/.test(symbol) || out.includes(symbol)) continue;
-    out.push(symbol);
+    const entry = item && typeof item === 'object' ? item : { symbol: item };
+    const symbol = String(entry.symbol || '').toUpperCase();
+    const market = pickMarket(entry.market);
+    if (!/^[A-Z0-9]{2,30}$/.test(symbol)) continue;
+    if (out.some((e) => e.symbol === symbol && e.market === market)) continue;
+    out.push({ symbol, market });
     if (out.length >= WATCHLIST_MAX) break;
   }
   return out;
@@ -505,6 +523,8 @@ function removeRect(symbol, id) {
 module.exports = {
   INTERVALS,
   CHART_TYPES,
+  MARKETS,
+  pickMarket,
   CARD_MIN_WIDTH,
   CARD_MIN_HEIGHT,
   CARD_DEFAULT_WIDTH,

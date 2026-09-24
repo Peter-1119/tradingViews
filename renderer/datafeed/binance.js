@@ -1,7 +1,9 @@
 /**
- * Binance public market data (spec 6). No API key, no account, spot only.
+ * Binance public market data (spec 6). No API key, no account.
  *
- * One combined WebSocket serves every card in the app; `subscribe()` calls are
+ * One instance per market -- spot, or USD-M perpetuals. The two live on
+ * different hosts, so they cannot share a socket; within a market, one
+ * combined WebSocket serves every card in the app. `subscribe()` calls are
  * reference-counted onto stream names and the socket is grown/shrunk with
  * SUBSCRIBE / UNSUBSCRIBE frames rather than reconnected.
  *
@@ -15,13 +17,37 @@
 
 import { DataProvider, STATUS, intervalToMs } from './provider.js';
 
-const REST_BASE = 'https://api.binance.com/api/v3';
-const WS_BASE = 'wss://stream.binance.com:9443/stream';
+/**
+ * Everything that differs between the two markets. The paths under each REST
+ * base are the same (/klines, /ticker/24hr, /exchangeInfo), and so are the
+ * stream names and payloads, which is why one class serves both.
+ *
+ * The futures socket is on `/market/stream`: the bare `/stream` route on
+ * fstream still accepts the connection but no longer delivers kline, trade or
+ * ticker frames, so a card on it would sit "live" and never move.
+ */
+export const MARKETS = Object.freeze({
+  spot: Object.freeze({
+    name: 'Binance Spot',
+    rest: 'https://api.binance.com/api/v3',
+    ws: 'wss://stream.binance.com:9443/stream',
+    exchangeInfo: '/exchangeInfo?permissions=SPOT',
+    symbolsCacheKey: 'stockcard.symbols.v1',
+    funding: false,
+  }),
+  perp: Object.freeze({
+    name: 'Binance USD-M',
+    rest: 'https://fapi.binance.com/fapi/v1',
+    ws: 'wss://fstream.binance.com/market/stream',
+    exchangeInfo: '/exchangeInfo',
+    symbolsCacheKey: 'stockcard.symbols.perp.v1',
+    funding: true,
+  }),
+});
 
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
 const PROACTIVE_RECYCLE_MS = 23 * 60 * 60 * 1000; // stay ahead of the 24h cut
-const SYMBOLS_CACHE_KEY = 'stockcard.symbols.v1';
 const SYMBOLS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -36,6 +62,40 @@ const SYMBOLS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
  * cost at 10 updates/sec per card no matter how hot the tape runs.
  */
 const LIVE_TICK_MS = 100;
+
+/**
+ * Leading multipliers Binance puts on low-priced perpetuals: spot PEPEUSDT
+ * trades as 1000PEPEUSDT, spot MOG as 1000000MOGUSDT, BABYDOGE as 1MBABYDOGE.
+ */
+const SCALED_PREFIXES = ['1000', '1000000', '1M'];
+const SCALED_BASE = /^(1000000|1000|1M)(?=[A-Z])/;
+
+/**
+ * `symbol` from one market's list, by its name in another's; null if absent.
+ *
+ * An exact name match wins -- that also keeps 1000SATS, which is its real spot
+ * name, from being stripped. Otherwise the base asset is reduced to its
+ * unscaled form and every multiplier is tried against the target list. The
+ * quote asset must match: BTCUSDC is not a stand-in for BTCUSDT.
+ *
+ * @param {string} symbol
+ * @param {SymbolInfo[]} source  the list `symbol` comes from
+ * @param {SymbolInfo[]} target  the list to find it in
+ */
+export function counterpartSymbol(symbol, source, target) {
+  const upper = String(symbol || '').toUpperCase();
+  const names = new Set(target.map((s) => s.symbol));
+  if (names.has(upper)) return upper;
+
+  const info = source.find((s) => s.symbol === upper);
+  if (!info) return null;
+  const base = info.base.replace(SCALED_BASE, '');
+  for (const prefix of ['', ...SCALED_PREFIXES]) {
+    const candidate = `${prefix}${base}${info.quote}`;
+    if (names.has(candidate)) return candidate;
+  }
+  return null;
+}
 
 /** Binance kline array -> our Bar. */
 function toBar(k) {
@@ -75,15 +135,27 @@ function aggTradeStream(symbol) {
   return `${symbol.toLowerCase()}@aggTrade`;
 }
 
-/** Every stream one card needs. Ref-counting walks this list in both directions. */
-function streamsFor(symbol, interval) {
-  return [klineStream(symbol, interval), tickerStream(symbol), aggTradeStream(symbol)];
+/** Mark price and funding, every 3s. Perpetuals only. */
+function markPriceStream(symbol) {
+  return `${symbol.toLowerCase()}@markPrice`;
+}
+
+/** Binance premiumIndex / markPriceUpdate -> our Funding. */
+function toFunding(symbol, markPrice, rate, nextTime) {
+  return {
+    symbol,
+    markPrice: Number(markPrice),
+    fundingRate: Number(rate),
+    nextFundingTime: Number(nextTime),
+  };
 }
 
 export class BinanceProvider extends DataProvider {
-  constructor({ logger = console } = {}) {
+  constructor({ logger = console, market = 'spot' } = {}) {
     super();
     this.logger = logger;
+    this.market = market in MARKETS ? market : 'spot';
+    this.config = MARKETS[this.market];
 
     /** subId -> {symbol, interval, handlers, lastBarTime, liveBar, tickTimer, lastEmitAt} */
     this.subs = new Map();
@@ -102,6 +174,8 @@ export class BinanceProvider extends DataProvider {
 
     // Last ticker per symbol, so a newly-mounted card gets a value immediately.
     this.tickerCache = new Map();
+    this.fundingCache = new Map();
+    this.symbols = null;
 
     this.handleOnline = () => {
       if (this.status !== STATUS.LIVE && this.streamRefs.size > 0) {
@@ -118,11 +192,18 @@ export class BinanceProvider extends DataProvider {
   }
 
   get name() {
-    return 'Binance Spot';
+    return this.config.name;
   }
 
   log(...args) {
-    this.logger.log('[binance]', ...args);
+    this.logger.log(`[binance:${this.market}]`, ...args);
+  }
+
+  /** Every stream one card needs. Ref-counting walks this list in both directions. */
+  streamsFor(symbol, interval) {
+    const streams = [klineStream(symbol, interval), tickerStream(symbol), aggTradeStream(symbol)];
+    if (this.config.funding) streams.push(markPriceStream(symbol));
+    return streams;
   }
 
   /* --------------------------------------------------------------- status */
@@ -154,7 +235,7 @@ export class BinanceProvider extends DataProvider {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`${REST_BASE}${path}`, { signal: controller.signal });
+      const res = await fetch(`${this.config.rest}${path}`, { signal: controller.signal });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         throw new Error(`Binance ${res.status} ${path} ${body.slice(0, 160)}`);
@@ -228,21 +309,37 @@ export class BinanceProvider extends DataProvider {
     return ticker;
   }
 
+  /** Mark price, the current funding rate and when it is charged. Perpetuals only. */
+  async getFunding(symbol) {
+    if (!this.config.funding) return null;
+    const upper = symbol.toUpperCase();
+    const raw = await this.fetchJson(`/premiumIndex?symbol=${encodeURIComponent(upper)}`);
+    const funding = toFunding(upper, raw.markPrice, raw.lastFundingRate, raw.nextFundingTime);
+    this.fundingCache.set(upper, funding);
+    return funding;
+  }
+
   /* --------------------------------------------------------- symbol list */
 
   async loadSymbols() {
+    // Parsed once per session: the counterpart lookup asks on every symbol load.
+    if (this.symbols && Date.now() - this.symbols.at < SYMBOLS_CACHE_TTL_MS) return this.symbols.list;
+
+    const key = this.config.symbolsCacheKey;
     try {
-      const cached = JSON.parse(localStorage.getItem(SYMBOLS_CACHE_KEY) || 'null');
+      const cached = JSON.parse(localStorage.getItem(key) || 'null');
       if (cached && Date.now() - cached.at < SYMBOLS_CACHE_TTL_MS && Array.isArray(cached.list)) {
+        this.symbols = cached;
         return cached.list;
       }
     } catch {
       /* corrupt cache is not worth reporting; fall through and refetch */
     }
 
-    const info = await this.fetchJson('/exchangeInfo?permissions=SPOT', { timeoutMs: 30000 });
+    const info = await this.fetchJson(this.config.exchangeInfo, { timeoutMs: 30000 });
     const list = (info.symbols || [])
-      .filter((s) => s.status === 'TRADING')
+      // Futures exchangeInfo also lists dated quarterlies; only perpetuals here.
+      .filter((s) => s.status === 'TRADING' && (!s.contractType || s.contractType === 'PERPETUAL'))
       .map((s) => ({
         symbol: s.symbol,
         base: s.baseAsset,
@@ -250,8 +347,9 @@ export class BinanceProvider extends DataProvider {
         description: `${s.baseAsset} / ${s.quoteAsset}`,
       }));
 
+    this.symbols = { at: Date.now(), list };
     try {
-      localStorage.setItem(SYMBOLS_CACHE_KEY, JSON.stringify({ at: Date.now(), list }));
+      localStorage.setItem(key, JSON.stringify(this.symbols));
     } catch {
       /* quota exceeded: run uncached rather than fail */
     }
@@ -307,7 +405,7 @@ export class BinanceProvider extends DataProvider {
     // would let the refcount hit zero on a single-card app, closing the shared
     // socket and forcing a reconnect just to change symbol.
     const added = [];
-    for (const stream of streamsFor(upper, interval)) {
+    for (const stream of this.streamsFor(upper, interval)) {
       const next = (this.streamRefs.get(stream) || 0) + 1;
       this.streamRefs.set(stream, next);
       if (next === 1) added.push(stream);
@@ -315,7 +413,7 @@ export class BinanceProvider extends DataProvider {
 
     const removed = [];
     if (previous) {
-      for (const stream of streamsFor(previous.symbol, previous.interval)) {
+      for (const stream of this.streamsFor(previous.symbol, previous.interval)) {
         const next = (this.streamRefs.get(stream) || 1) - 1;
         if (next <= 0) {
           this.streamRefs.delete(stream);
@@ -329,6 +427,8 @@ export class BinanceProvider extends DataProvider {
     // Hand over whatever we already know so the card is not blank while it loads.
     const cachedTicker = this.tickerCache.get(upper);
     if (cachedTicker && handlers.onTicker) handlers.onTicker(cachedTicker);
+    const cachedFunding = this.fundingCache.get(upper);
+    if (cachedFunding && handlers.onFunding) handlers.onFunding(cachedFunding);
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.connect();
@@ -345,7 +445,7 @@ export class BinanceProvider extends DataProvider {
     this.cancelPendingTick(sub);
 
     const removed = [];
-    for (const stream of streamsFor(sub.symbol, sub.interval)) {
+    for (const stream of this.streamsFor(sub.symbol, sub.interval)) {
       const next = (this.streamRefs.get(stream) || 1) - 1;
       if (next <= 0) {
         this.streamRefs.delete(stream);
@@ -380,7 +480,7 @@ export class BinanceProvider extends DataProvider {
     this.intentionalClose = false;
 
     const streams = [...this.streamRefs.keys()].join('/');
-    const url = `${WS_BASE}?streams=${streams}`;
+    const url = `${this.config.ws}?streams=${streams}`;
     this.setStatus(this.reconnectAttempt > 0 ? STATUS.RECONNECTING : this.status);
 
     let ws;
@@ -593,6 +693,16 @@ export class BinanceProvider extends DataProvider {
       for (const sub of this.subs.values()) {
         if (sub.symbol !== data.s) continue;
         if (sub.handlers.onTicker) sub.handlers.onTicker(ticker);
+      }
+      return;
+    }
+
+    if (data.e === 'markPriceUpdate') {
+      const funding = toFunding(data.s, data.p, data.r, data.T);
+      this.fundingCache.set(data.s, funding);
+      for (const sub of this.subs.values()) {
+        if (sub.symbol !== data.s) continue;
+        if (sub.handlers.onFunding) sub.handlers.onFunding(funding);
       }
     }
   }

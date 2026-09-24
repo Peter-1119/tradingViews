@@ -66,21 +66,22 @@ const api = {
   setIgnoreMouse: (ignore) => ipcRenderer.send('window:set-ignore-mouse', { ignore }),
 
   /* ------------------------------------------------------ bar cache */
-  readBars: (symbol, interval, from, to) =>
-    ipcRenderer.invoke('bars:read', { symbol, interval, from, to }),
-  writeBars: (symbol, interval, bars) =>
-    ipcRenderer.invoke('bars:write', { symbol, interval, bars }),
+  readBars: (market, symbol, interval, from, to) =>
+    ipcRenderer.invoke('bars:read', { market, symbol, interval, from, to }),
+  writeBars: (market, symbol, interval, bars) =>
+    ipcRenderer.invoke('bars:write', { market, symbol, interval, bars }),
   barCacheStats: () => ipcRenderer.invoke('bars:stats'),
   clearBarCache: (symbol) => ipcRenderer.invoke('bars:clear', symbol),
 
   /* ------------------------------------------------------- datafeed */
   datafeed: {
-    call: (method, args) => ipcRenderer.invoke('datafeed:call', { method, args }),
-    subscribe: (subId, symbol, interval) =>
-      ipcRenderer.send('datafeed:subscribe', { subId, symbol, interval }),
-    unsubscribe: (subId) => ipcRenderer.send('datafeed:unsubscribe', { subId }),
+    call: (market, method, args) => ipcRenderer.invoke('datafeed:call', { market, method, args }),
+    subscribe: (subId, market, symbol, interval) =>
+      ipcRenderer.send('datafeed:subscribe', { subId, market, symbol, interval }),
+    unsubscribe: (subId, market) => ipcRenderer.send('datafeed:unsubscribe', { subId, market }),
     onBar: (cb) => on('datafeed:bar', cb),
     onTicker: (cb) => on('datafeed:ticker', cb),
+    onFunding: (cb) => on('datafeed:funding', cb),
     onStatus: (cb) => on('datafeed:status', cb),
     onReset: (cb) => on('datafeed:reset', cb),
   },
@@ -96,8 +97,8 @@ const api = {
 };
 
 /**
- * Hub-only surface. The hidden hub window owns the single Binance connection
- * and answers requests relayed by the main process.
+ * Hub-only surface. The hidden hub window owns the Binance connections (one
+ * per market) and answers requests relayed by the main process.
  */
 const hubApi = {
   ready: () => ipcRenderer.send('hub:ready'),

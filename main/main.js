@@ -58,7 +58,7 @@ function sendHub(channel, payload) {
   else hubQueue.push({ channel, payload });
 }
 
-function hubRequest(method, args, timeoutMs = 20000) {
+function hubRequest(market, method, args, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
     const reqId = randomUUID();
     const timer = setTimeout(() => {
@@ -67,7 +67,7 @@ function hubRequest(method, args, timeoutMs = 20000) {
     }, timeoutMs);
 
     pendingHubRequests.set(reqId, { resolve, reject, timer });
-    sendHub('hub:request', { reqId, method, args });
+    sendHub('hub:request', { reqId, market, method, args });
   });
 }
 
@@ -183,7 +183,7 @@ ipcMain.handle('card:update', (_event, { cardId, patch } = {}) => {
   if (card) {
     // Keep any other view of the same card (e.g. board grid) in sync.
     windows.broadcast('card:changed', card);
-    if (patch && ('symbol' in patch || 'interval' in patch)) tray.refresh();
+    if (patch && ('symbol' in patch || 'interval' in patch || 'market' in patch)) tray.refresh();
   }
   return card;
 });
@@ -352,12 +352,12 @@ ipcMain.on('window:set-ignore-mouse', (event, { ignore } = {}) => {
 
 /* ---------------------------------------------------- IPC: bar cache */
 
-ipcMain.handle('bars:read', (_event, { symbol, interval, from, to } = {}) =>
-  store.get('cacheBars') === false ? [] : barStore.read(symbol, interval, from, to)
+ipcMain.handle('bars:read', (_event, { market, symbol, interval, from, to } = {}) =>
+  store.get('cacheBars') === false ? [] : barStore.read(symbol, interval, from, to, market)
 );
 
-ipcMain.handle('bars:write', (_event, { symbol, interval, bars } = {}) =>
-  store.get('cacheBars') === false ? 0 : barStore.write(symbol, interval, bars)
+ipcMain.handle('bars:write', (_event, { market, symbol, interval, bars } = {}) =>
+  store.get('cacheBars') === false ? 0 : barStore.write(symbol, interval, bars, market)
 );
 
 ipcMain.handle('bars:stats', () => barStore.stats());
@@ -366,18 +366,32 @@ ipcMain.handle('bars:clear', (_event, symbol) => barStore.clear(symbol));
 
 /* ------------------------------------------------------- IPC: datafeed */
 
-ipcMain.handle('datafeed:call', async (_event, { method, args } = {}) => {
-  const ALLOWED = ['getHistory', 'getRange', 'searchSymbols', 'getTicker', 'getStatus'];
+ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) => {
+  const ALLOWED = [
+    'getHistory',
+    'getRange',
+    'searchSymbols',
+    'getTicker',
+    'getFunding',
+    'getStatus',
+    'counterpart',
+  ];
   if (!ALLOWED.includes(method)) throw new Error(`unknown datafeed method: ${method}`);
-  return hubRequest(method, args || []);
+  return hubRequest(store.pickMarket(market), method, args || []);
 });
 
-ipcMain.on('datafeed:subscribe', (event, { subId, symbol, interval } = {}) => {
-  sendHub('hub:subscribe', { subId, symbol, interval, ownerId: event.sender.id });
+ipcMain.on('datafeed:subscribe', (event, { subId, market, symbol, interval } = {}) => {
+  sendHub('hub:subscribe', {
+    subId,
+    market: store.pickMarket(market),
+    symbol,
+    interval,
+    ownerId: event.sender.id,
+  });
 });
 
-ipcMain.on('datafeed:unsubscribe', (event, { subId } = {}) => {
-  sendHub('hub:unsubscribe', { subId, ownerId: event.sender.id });
+ipcMain.on('datafeed:unsubscribe', (event, { subId, market } = {}) => {
+  sendHub('hub:unsubscribe', { subId, market: store.pickMarket(market), ownerId: event.sender.id });
 });
 
 /* ------------------------------------------------------------ lifecycle */

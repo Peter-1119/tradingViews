@@ -5,7 +5,13 @@
  *
  * Layout
  * ------
- *   userData/bars/{SYMBOL}/{interval}/{chunk}.bin
+ *   userData/bars/{SYMBOL}/{interval}/{chunk}.bin          spot
+ *   userData/bars/_perp/{SYMBOL}/{interval}/{chunk}.bin    USD-M perpetuals
+ *
+ * Perpetuals get their own tree because BTCUSDT names both, and their candles
+ * differ -- by the basis, and in volume by a wide margin. Spot keeps the
+ * original layout, so a cache written before perpetuals existed stays valid.
+ * The underscore keeps `_perp` from ever colliding with a symbol directory.
  *
  * Each record is 48 bytes -- six float64, little endian:
  *
@@ -66,12 +72,16 @@ function chunkKey(interval, timeSec) {
   return `${year}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-function chunkDir(symbol, interval) {
-  return path.join(root(), safeName(symbol).toUpperCase(), safeName(interval));
+function marketRoot(market) {
+  return market === 'perp' ? path.join(root(), '_perp') : root();
 }
 
-function chunkPath(symbol, interval, key) {
-  return path.join(chunkDir(symbol, interval), `${key}.bin`);
+function chunkDir(symbol, interval, market) {
+  return path.join(marketRoot(market), safeName(symbol).toUpperCase(), safeName(interval));
+}
+
+function chunkPath(symbol, interval, key, market) {
+  return path.join(chunkDir(symbol, interval, market), `${key}.bin`);
 }
 
 /* ------------------------------------------------------------ encode/decode */
@@ -112,9 +122,9 @@ function decode(buf) {
   return out;
 }
 
-function readChunk(symbol, interval, key) {
+function readChunk(symbol, interval, key, market) {
   try {
-    return decode(fs.readFileSync(chunkPath(symbol, interval, key)));
+    return decode(fs.readFileSync(chunkPath(symbol, interval, key, market)));
   } catch {
     return [];
   }
@@ -123,10 +133,10 @@ function readChunk(symbol, interval, key) {
 /* --------------------------------------------------------------------- api */
 
 /** Chunk keys present on disk, in ascending order. */
-function chunkKeys(symbol, interval) {
+function chunkKeys(symbol, interval, market = 'spot') {
   try {
     return fs
-      .readdirSync(chunkDir(symbol, interval))
+      .readdirSync(chunkDir(symbol, interval, market))
       .filter((name) => name.endsWith('.bin'))
       .map((name) => name.slice(0, -4))
       .sort();
@@ -140,12 +150,12 @@ function chunkKeys(symbol, interval) {
  * Chunks never overlap and each is internally sorted, so concatenating them in
  * filename order is already sorted -- no merge step.
  */
-function read(symbol, interval, fromSec, toSec) {
+function read(symbol, interval, fromSec, toSec, market = 'spot') {
   const from = Number(fromSec);
   const to = Number(toSec);
   const out = [];
-  for (const key of chunkKeys(symbol, interval)) {
-    for (const bar of readChunk(symbol, interval, key)) {
+  for (const key of chunkKeys(symbol, interval, market)) {
+    for (const bar of readChunk(symbol, interval, key, market)) {
       if (bar.time >= from && bar.time <= to) out.push(bar);
     }
   }
@@ -153,10 +163,10 @@ function read(symbol, interval, fromSec, toSec) {
 }
 
 /** The newest cached bar time for a symbol+interval, or 0. */
-function latest(symbol, interval) {
-  const keys = chunkKeys(symbol, interval);
+function latest(symbol, interval, market = 'spot') {
+  const keys = chunkKeys(symbol, interval, market);
   for (let i = keys.length - 1; i >= 0; i--) {
-    const bars = readChunk(symbol, interval, keys[i]);
+    const bars = readChunk(symbol, interval, keys[i], market);
     if (bars.length) return bars[bars.length - 1].time;
   }
   return 0;
@@ -170,7 +180,7 @@ function latest(symbol, interval) {
  * rewrites just that chunk -- bounded by the chunk size, and rare, since
  * backfill normally opens older chunks that do not exist yet.
  */
-function write(symbol, interval, bars) {
+function write(symbol, interval, bars, market = 'spot') {
   const closed = (Array.isArray(bars) ? bars : []).filter(
     (b) => b && b.closed === true && Number.isFinite(b.time) && Number.isFinite(b.close)
   );
@@ -183,13 +193,13 @@ function write(symbol, interval, bars) {
     byChunk.get(key).push(bar);
   }
 
-  fs.mkdirSync(chunkDir(symbol, interval), { recursive: true });
+  fs.mkdirSync(chunkDir(symbol, interval, market), { recursive: true });
   let written = 0;
 
   for (const [key, incoming] of byChunk) {
     incoming.sort((a, b) => a.time - b.time);
-    const file = chunkPath(symbol, interval, key);
-    const existing = readChunk(symbol, interval, key);
+    const file = chunkPath(symbol, interval, key, market);
+    const existing = readChunk(symbol, interval, key, market);
 
     if (!existing.length) {
       fs.writeFileSync(file, encode(incoming));
@@ -244,8 +254,8 @@ function stats() {
   return { files, bytes, bars: Math.floor(bytes / RECORD), dir: root() };
 }
 
-function clear(symbol) {
-  const target = symbol ? path.join(root(), safeName(symbol).toUpperCase()) : root();
+function clear(symbol, market = 'spot') {
+  const target = symbol ? path.join(marketRoot(market), safeName(symbol).toUpperCase()) : root();
   try {
     fs.rmSync(target, { recursive: true, force: true });
   } catch {

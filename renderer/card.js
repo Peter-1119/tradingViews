@@ -62,7 +62,6 @@ async function main() {
     return;
   }
 
-  const provider = getProvider();
 
   const persist = createPatchQueue(async (patch) => {
     const updated = await api.updateCard(cardId, patch);
@@ -71,7 +70,7 @@ async function main() {
 
   const view = new CardView({
     card: boot.card,
-    provider,
+    feedFor: getProvider,
     prefs: boot.prefs,
     intervals: boot.intervals,
     chartTypes: boot.chartTypes,

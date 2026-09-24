@@ -76,6 +76,18 @@ t('a truncated file yields whole bars, not garbage', () => {
   assert.ok(back.every((b) => Number.isFinite(b.time) && b.time > 0), 'no partial record should surface');
 });
 
+t('perp bars live apart from spot bars of the same name', () => {
+  const t0 = Date.UTC(2026, 11, 1) / 1000;
+  store.write('SOLUSDT', '1m', [bar(t0, 5)]);
+  store.write('SOLUSDT', '1m', [bar(t0, 7), bar(t0 + 60, 7)], 'perp');
+  assert.equal(store.read('SOLUSDT', '1m', 0, 1e12).length, 1, 'spot must not see perp bars');
+  const perp = store.read('SOLUSDT', '1m', 0, 1e12, 'perp');
+  assert.equal(perp.length, 2);
+  assert.equal(perp[0].volume, 7);
+  assert.equal(store.latest('SOLUSDT', '1m', 'perp'), t0 + 60);
+  assert.ok(fs.existsSync(path.join(DIR, 'SOLUSDT', '1m')), 'spot keeps the original layout');
+});
+
 t('stats and clear', () => {
   const s = store.stats();
   assert.ok(s.files >= 3 && s.bytes > 0, JSON.stringify(s));

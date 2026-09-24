@@ -171,6 +171,29 @@ export const INTERVAL_LABELS = {
   '1d': '1 日',
 };
 
+/** Title-bar chip text. Two characters, to sit beside the interval chip. */
+export const MARKET_LABELS = {
+  spot: '現貨',
+  perp: '永續',
+};
+
+/** Funding rate as Binance quotes it: 0.0001 -> "+0.0100%". */
+export function formatFundingRate(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n)) return '—';
+  const pct = n * 100;
+  return `${pct > 0 ? '+' : ''}${pct.toFixed(4)}%`;
+}
+
+/** Time left to the next funding, as a clock: 3:07:45, or 07:45 under an hour. */
+export function formatCountdown(ms) {
+  const total = Math.max(0, Math.floor(Number(ms) / 1000) || 0);
+  const s = String(total % 60).padStart(2, '0');
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${String(m).padStart(2, '0')}:${s}`;
+}
+
 export const CHART_TYPE_LABELS = {
   candlestick: 'K 線',
   line: '折線',

@@ -473,6 +473,118 @@ await test('symbol search ranks exact and USDT pairs first, and caches the list'
   assert.equal(fetchCalls.length, callsAfterFirst, 'the symbol list must be served from cache');
 });
 
+/* ------------------------------------------------------ perpetuals */
+
+const { counterpartSymbol } = await import('../renderer/datafeed/binance.js');
+
+console.log('');
+console.log('perpetuals');
+
+await test('perp talks to the futures hosts, on the /market stream route', async () => {
+  const provider = new BinanceProvider({ logger: silent, market: 'perp' });
+  provider.subscribe('card', 'BTCUSDT', '1m', {});
+  await provider.getHistory('BTCUSDT', '1m', 10);
+
+  const url = new URL(sockets[0].url);
+  assert.equal(url.host, 'fstream.binance.com');
+  assert.equal(url.pathname, '/market/stream', 'the bare /stream route no longer carries market data');
+  assert.ok(fetchCalls[0].startsWith('https://fapi.binance.com/fapi/v1/klines?'), fetchCalls[0]);
+  assert.ok(sockets[0].streams.includes('btcusdt@markPrice'), 'perp needs the funding stream');
+});
+
+await test('spot does not subscribe to a funding stream it cannot have', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  provider.subscribe('card', 'BTCUSDT', '1m', {});
+  assert.ok(!sockets[0].streams.some((s) => s.includes('markPrice')));
+  assert.equal(await provider.getFunding('BTCUSDT'), null);
+  assert.equal(fetchCalls.length, 0, 'spot getFunding must not hit the network');
+});
+
+await test('markPriceUpdate reaches onFunding, and a late subscriber gets it at once', async () => {
+  const provider = new BinanceProvider({ logger: silent, market: 'perp' });
+  const got = [];
+  provider.subscribe('card', 'BTCUSDT', '1m', { onFunding: (f) => got.push(f) });
+  sockets[0].open();
+  sockets[0].emit({
+    stream: 'btcusdt@markPrice',
+    data: { e: 'markPriceUpdate', s: 'BTCUSDT', p: '84238.8', r: '0.00001462', T: 1790265600000 },
+  });
+
+  assert.equal(got.length, 1);
+  assert.deepEqual(got[0], {
+    symbol: 'BTCUSDT',
+    markPrice: 84238.8,
+    fundingRate: 0.00001462,
+    nextFundingTime: 1790265600000,
+  });
+
+  const late = [];
+  provider.subscribe('card-2', 'BTCUSDT', '1m', { onFunding: (f) => late.push(f) });
+  assert.equal(late.length, 1, 'the cached funding should be handed over on subscribe');
+});
+
+await test('getFunding maps premiumIndex', async () => {
+  const provider = new BinanceProvider({ logger: silent, market: 'perp' });
+  klineResponder = () => ({
+    symbol: 'ETHUSDT',
+    markPrice: '3200.5',
+    lastFundingRate: '-0.00012',
+    nextFundingTime: 1790265600000,
+  });
+  const f = await provider.getFunding('ethusdt');
+  assert.ok(fetchCalls[0].endsWith('/premiumIndex?symbol=ETHUSDT'), fetchCalls[0]);
+  assert.equal(f.fundingRate, -0.00012);
+  assert.equal(f.markPrice, 3200.5);
+});
+
+await test('perp symbol list keeps perpetuals only, cached apart from spot', async () => {
+  localStorage.removeItem('stockcard.symbols.v1');
+  const spot = new BinanceProvider({ logger: silent });
+  const perp = new BinanceProvider({ logger: silent, market: 'perp' });
+  klineResponder = (url) =>
+    url.includes('fapi')
+      ? {
+          symbols: [
+            { symbol: 'BTCUSDT', baseAsset: 'BTC', quoteAsset: 'USDT', status: 'TRADING', contractType: 'PERPETUAL' },
+            { symbol: 'BTCUSDT_251226', baseAsset: 'BTC', quoteAsset: 'USDT', status: 'TRADING', contractType: 'CURRENT_QUARTER' },
+          ],
+        }
+      : { symbols: [{ symbol: 'ETHUSDT', baseAsset: 'ETH', quoteAsset: 'USDT', status: 'TRADING' }] };
+
+  const perpList = await perp.loadSymbols();
+  const spotList = await spot.loadSymbols();
+  assert.deepEqual(perpList.map((s) => s.symbol), ['BTCUSDT'], 'quarterlies are not perpetuals');
+  assert.deepEqual(spotList.map((s) => s.symbol), ['ETHUSDT'], 'the markets must not share a cache entry');
+});
+
+await test('counterpart: same name, scaled contracts, and none', () => {
+  const info = (symbol, base, quote) => ({ symbol, base, quote });
+  const spot = [
+    info('BTCUSDT', 'BTC', 'USDT'),
+    info('PEPEUSDT', 'PEPE', 'USDT'),
+    info('1000SATSUSDT', '1000SATS', 'USDT'),
+    info('1INCHUSDT', '1INCH', 'USDT'),
+    info('BTCUSDC', 'BTC', 'USDC'),
+    info('BNBBTC', 'BNB', 'BTC'),
+  ];
+  const perp = [
+    info('BTCUSDT', 'BTC', 'USDT'),
+    info('1000PEPEUSDT', '1000PEPE', 'USDT'),
+    info('1000SATSUSDT', '1000SATS', 'USDT'),
+    info('1000000MOGUSDT', '1000000MOG', 'USDT'),
+    info('1INCHUSDT', '1INCH', 'USDT'),
+  ];
+
+  assert.equal(counterpartSymbol('BTCUSDT', spot, perp), 'BTCUSDT');
+  assert.equal(counterpartSymbol('PEPEUSDT', spot, perp), '1000PEPEUSDT');
+  assert.equal(counterpartSymbol('1000PEPEUSDT', perp, spot), 'PEPEUSDT');
+  assert.equal(counterpartSymbol('1000SATSUSDT', spot, perp), '1000SATSUSDT', 'a real 1000 name is not a multiplier');
+  assert.equal(counterpartSymbol('1INCHUSDT', perp, spot), '1INCHUSDT');
+  assert.equal(counterpartSymbol('1000000MOGUSDT', perp, spot), null, 'MOG has no spot pair here');
+  assert.equal(counterpartSymbol('BNBBTC', spot, perp), null);
+  assert.equal(counterpartSymbol('BTCUSDC', spot, perp), null, 'a different quote is a different instrument');
+});
+
 /* ------------------------------------------------------ volume profile */
 
 const { buildProfile, sessionBounds, buildPeriodProfiles, PERIOD_4H } = await import('../renderer/volume-profile.js');
