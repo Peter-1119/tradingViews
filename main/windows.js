@@ -43,6 +43,35 @@ let onTopTimer = null;
 
 /* ------------------------------------------------------------- helpers */
 
+/**
+ * A card window must never stay minimized.
+ *
+ * Cards are `skipTaskbar`, so a minimized one has no taskbar button to click
+ * it back with -- it is simply gone. And they are not minimizable from our own
+ * UI, but Windows will still minimize them on request from outside: Win+M,
+ * another app's "minimize all", some full-screen video players. The on-top
+ * watchdog cannot see it either, since a minimized window still reports
+ * itself visible and on top. So undo it the moment it happens.
+ *
+ * showInactive, not restore: restore() activates the window and would pull
+ * focus off whatever the user is doing -- which is watching the video.
+ */
+function keepUnminimized(win) {
+  win.on('minimize', () => {
+    if (state.quitting || state.allHidden) return;
+    console.log('[visibility] a card was minimized from outside; restoring it');
+    // After the minimize has finished, or Windows finishes it on top of us.
+    setImmediate(() => {
+      if (!win.isDestroyed() && win.isMinimized()) win.showInactive();
+    });
+  });
+}
+
+/** Minimized or hidden while the app thinks it is showing: not on screen. */
+function isMissing(win) {
+  return win.isMinimized() || !win.isVisible();
+}
+
 function baseWebPreferences() {
   return {
     preload: PRELOAD,
@@ -154,6 +183,8 @@ function createCardWindow(card) {
     resizable: true,
     // Transparent windows cannot be maximized on Windows (spec 4.2 caveat).
     maximizable: false,
+    // No taskbar button means no way back from a minimize; see keepUnminimized.
+    minimizable: false,
     fullscreenable: false,
     skipTaskbar: true,
     minWidth: store.CARD_MIN_WIDTH,
@@ -164,6 +195,7 @@ function createCardWindow(card) {
   });
 
   win.setMenu(null);
+  keepUnminimized(win);
   if (card.alwaysOnTop !== false) win.setAlwaysOnTop(true, 'floating');
   if (card.windowOpacity < 1) win.setOpacity(card.windowOpacity);
 
@@ -230,6 +262,7 @@ function createBoardWindow() {
     alwaysOnTop: board.alwaysOnTop,
     resizable: true,
     maximizable: false,
+    minimizable: false,
     fullscreenable: false,
     skipTaskbar: true,
     minWidth: 320,
@@ -240,6 +273,7 @@ function createBoardWindow() {
   });
 
   win.setMenu(null);
+  keepUnminimized(win);
   win.setAlwaysOnTop(board.alwaysOnTop, board.alwaysOnTop ? 'floating' : 'normal');
   win.loadURL(url('board.html'));
 
@@ -389,6 +423,8 @@ function showAll(reason = 'unknown') {
 function reassertAlwaysOnTop() {
   if (state.quitting || state.allHidden) return;
   for (const win of contentWindows()) {
+    // Backstop for a minimize the 'minimize' event did not undo.
+    if (win.isMinimized()) win.showInactive();
     if (!win.isAlwaysOnTop() || !win.isVisible()) continue;
     // setAlwaysOnTop repairs the flag in the rarer case Windows really did drop
     // it; moveTop repairs the ordering *within* the band, which is the common
@@ -415,8 +451,18 @@ function hideAll(reason = 'unknown') {
   broadcast('app:visibility', { hidden: true });
 }
 
+/**
+ * Show if anything is off screen, hide only if everything is showing.
+ *
+ * A plain flip on `allHidden` got this backwards exactly when it mattered: with
+ * a card vanished (minimized from outside) the app still believed it was
+ * showing, so the first press *hid* everything, nothing visibly changed, and
+ * the shortcut read as broken. Whoever presses it while a card is missing
+ * wants it back.
+ */
 function toggleShowAll(reason) {
-  if (state.allHidden) showAll(reason);
+  const missing = contentWindows().some(isMissing);
+  if (state.allHidden || missing) showAll(reason);
   else hideAll(reason);
   return !state.allHidden;
 }
