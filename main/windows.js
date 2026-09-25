@@ -425,13 +425,28 @@ function reassertAlwaysOnTop() {
   for (const win of contentWindows()) {
     // Backstop for a minimize the 'minimize' event did not undo.
     if (win.isMinimized()) win.showInactive();
-    if (!win.isAlwaysOnTop() || !win.isVisible()) continue;
+    // Ask the store, not the window. When Windows strips the topmost flag --
+    // starting a game does it -- `isAlwaysOnTop()` answers false too, so
+    // asking the window skipped exactly the cards this exists to repair.
+    if (!wantsOnTop(win) || !win.isVisible()) continue;
+    if (!win.isAlwaysOnTop()) console.log('[visibility] Windows dropped always-on-top from a card; restoring it');
     // setAlwaysOnTop repairs the flag in the rarer case Windows really did drop
     // it; moveTop repairs the ordering *within* the band, which is the common
     // one. Neither subsumes the other.
     win.setAlwaysOnTop(true, 'floating');
     win.moveTop();
   }
+}
+
+/** Whether the user pinned this window, per the store -- the window may have lost it. */
+function wantsOnTop(win) {
+  if (win === state.board) return store.getBoard().alwaysOnTop;
+  for (const [cardId, cardWin] of state.cards) {
+    if (cardWin !== win) continue;
+    const card = store.getCard(cardId);
+    return !!card && card.alwaysOnTop !== false;
+  }
+  return false;
 }
 
 function startAlwaysOnTopWatch() {
