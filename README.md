@@ -174,6 +174,8 @@ getTicker(symbol)                     // -> { symbol, last, changePercent, high,
 
 ## 已知限制
 
+> 卡片「不見了」?先看 [docs/vanishing-cards.md](docs/vanishing-cards.md):目前遇過的每一種情況、怎麼判斷、怎麼修,以及給其他桌面小工具專案的檢查清單。
+
 - **`backdrop-filter` 模糊不到桌面。** CSS 的 backdrop-filter 只能模糊「同一個網頁裡」的背景;透明視窗背後是桌面,不在網頁裡。要真正的毛玻璃必須呼叫 Windows DWM 的 acrylic API(原生層)。目前的半透明效果來自卡片背景的 rgba alpha,這也是透明度滑桿實際在調的東西。
 - **透明視窗不能最大化**,這是 Windows 上的限制,所以沒有提供最大化。
 - 卡片用 `skipTaskbar`,不會出現在工作列,一律由托盤管理。也因此卡片被最小化就沒有工作列按鈕可以點回來,所以卡片不能最小化;`Win+M` 或其他程式從外部把它縮下去時會立刻自動恢復。
