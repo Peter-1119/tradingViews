@@ -28,6 +28,13 @@ const ICONS = {
   vp: '<path d="M12.5 2.5h-5"/><path d="M12.5 5h-9"/><path d="M12.5 7.5h-11"/><path d="M12.5 10h-7"/><path d="M12.5 12.5h-4"/>',
   htf: '<rect x="1.5" y="4" width="4.5" height="6" rx="1"/><path d="M3.75 1.5v2.5M3.75 10v2.5"/>'
     + '<rect x="8" y="5.5" width="4.5" height="5" rx="1"/><path d="M10.25 3v2.5M10.25 10.5v2"/>',
+  // Vertical bars from a baseline -- the volume pane itself, and unlike the
+  // horizontal bars of the volume *profile* above.
+  volume: '<path d="M1.5 12.5h11"/><path d="M3.5 10.5V8" stroke-width="2.2"/>'
+    + '<path d="M7 10.5V3.5" stroke-width="2.2"/><path d="M10.5 10.5V6" stroke-width="2.2"/>',
+  // The letters: no glyph says "open interest", and traders read OI at a glance.
+  oi: '<text x="7" y="10.2" text-anchor="middle" font-size="7.5" font-weight="700" letter-spacing="-0.2"'
+    + ' font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">OI</text>',
 };
 
 export const TOOLS = [
@@ -56,6 +63,9 @@ export const TOOLS = [
     hint: '把最近 10 根 4 小時 K 棒疊在小週期圖上，未收盤的那根會跟著跳',
     toggle: true,
   },
+  { id: 'volume', label: '成交量', hint: '成交量副圖', toggle: true },
+  // Hidden on spot cards: there is no open interest to show.
+  { id: 'oi', label: '未平倉量', hint: '未平倉量 (OI) 副圖，約每 3 秒更新', toggle: true },
 ];
 
 function icon(name) {
@@ -167,8 +177,27 @@ export class Toolbar {
     this.setToggled(id, value && value !== 'off');
   }
 
+  /**
+   * Fit the rail to the chart's height: as many rows as fit below its top
+   * offset with room left for the time axis, then a new column. Re-run on
+   * every resize of the card.
+   */
+  fitTo(container) {
+    const ROW = 24; // 22px button + 2px gap
+    const CHROME = 8; // rail padding and border
+    const RESERVED = 64; // offset from the top, time axis at the bottom
+    const apply = () => {
+      const room = container.clientHeight - RESERVED - CHROME + 2;
+      this.root.style.setProperty('--rail-rows', String(Math.max(3, Math.floor(room / ROW))));
+    };
+    this.resizeObserver = new ResizeObserver(apply);
+    this.resizeObserver.observe(container);
+    apply();
+  }
+
   destroy() {
     window.removeEventListener('mousedown', this.onOutside, true);
+    if (this.resizeObserver) this.resizeObserver.disconnect();
   }
 
   /**
@@ -178,6 +207,12 @@ export class Toolbar {
   setToggled(id, on) {
     const button = this.buttons.get(id);
     if (button) button.classList.toggle('is-on', !!on);
+  }
+
+  /** Take a button off the rail, e.g. OI on a spot card. */
+  setHidden(id, hidden) {
+    const button = this.buttons.get(id);
+    if (button) button.hidden = !!hidden;
   }
 
   setActive(id) {

@@ -462,8 +462,20 @@ button {
   left: 4px;
   top: 32px;
   z-index: 6;
-  display: flex;
-  flex-direction: column;
+  /*
+   * Fills downward, and wraps into a second column when the chart is too
+   * short for one. On a default 220px card a single column already ran past
+   * the bottom and clipped its last button.
+   *
+   * The row count is set from JS (Toolbar.fitTo), not `auto-fill` against a
+   * max-height: Chromium sizes the rail's width as if auto-fill made a single
+   * row -- one column per button, a 222px box over the chart -- and only then
+   * lays out the real rows. An explicit count gives it the right width.
+   */
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(var(--rail-rows, 20), 22px);
+  grid-auto-columns: 22px;
   gap: 2px;
   padding: 3px;
   border-radius: 8px;
@@ -509,6 +521,11 @@ button {
   cursor: pointer;
   transition: opacity 0.15s ease;
   -webkit-app-region: no-drag;
+}
+
+/* The class sets display, which would otherwise override [hidden]. */
+.card__rail-btn[hidden] {
+  display: none;
 }
 
 .card__rail-btn:hover {

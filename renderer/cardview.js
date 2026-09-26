@@ -235,6 +235,7 @@ export class CardView {
       onSelect: (id, value) => this.setActiveTool(id, value),
     });
     this.chartEl.append(this.toolbar.root);
+    this.toolbar.fitTo(this.chartEl);
 
     // Shown only once the view has been moved off its default -- a stretched
     // price axis, a zoom, a scroll into history -- tucked into the corner where
@@ -358,6 +359,7 @@ export class CardView {
     this.applyVolumeProfile(this.card.volumeProfile || 'off');
     this.toolbar.setToggled('htf', this.card.showHtf);
     if (this.card.showHtf) this.setHtfEnabled(true);
+    this.renderRail();
     this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.chart.setLevels(levels);
@@ -385,6 +387,15 @@ export class CardView {
       const next = !this.card.showHtf;
       this.toolbar.setToggled('htf', next);
       window.stockcard.updateCard(this.card.id, { showHtf: next });
+      return;
+    }
+    // Sub-panes, the same switches as in the settings panel, one click away.
+    if (id === 'volume') {
+      this.onPatch({ showVolume: !this.card.showVolume });
+      return;
+    }
+    if (id === 'oi') {
+      this.onPatch({ showOI: !this.card.showOI });
       return;
     }
     const next = id === this.activeTool ? 'cursor' : id;
@@ -749,6 +760,12 @@ export class CardView {
     return this.card.market === 'perp' && this.card.showOI === true;
   }
 
+  /** The rail's sub-pane switches follow the card; OI exists only on perp. */
+  renderRail() {
+    this.toolbar.setToggled('volume', this.card.showVolume);
+    this.toolbar.setToggled('oi', this.card.showOI);
+    this.toolbar.setHidden('oi', this.card.market !== 'perp');
+  }
 
   /** Forget the OI of the previous symbol or market. */
   resetOI() {
@@ -1810,6 +1827,7 @@ export class CardView {
     }
 
     this.renderIdentity();
+    this.renderRail();
     this.panel.update(next);
 
     if (symbolChanged) {
