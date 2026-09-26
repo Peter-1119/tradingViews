@@ -20,6 +20,7 @@ import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
 import { RectPrimitive } from './rect-primitive.js';
 import { FibPrimitive } from './fib-primitive.js';
+import { formatCompact } from './util.js';
 import { MeasurePrimitive } from './measure-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
@@ -34,6 +35,8 @@ const PRICE_WHEEL_RATE = 0.0015;
 /** Volume sub-pane sizing. Below ~30px the histogram is not readable at all. */
 const VOLUME_PANE_RATIO = 0.24;
 const MIN_VOLUME_PANE_PX = 30;
+/** Open interest: the perp tint, so it reads as a perp-only layer. */
+const OI_COLOR = '#f0b45a';
 
 const PALETTE = {
   greenUp: { up: '#26c281', down: '#ed5465' },
@@ -245,7 +248,9 @@ export class CardChart {
       handleScale: HANDLE_SCALE_ON,
       localization: {
         locale: navigator.language || 'en-US',
-        priceFormatter: (price) => this.formatPrice(price),
+        // No chart-wide priceFormatter: it overrides every series' own format,
+        // which would print open interest as 94887.21 instead of 94.89K. The
+        // price series formats itself at `this.precision` (priceSeriesOptions).
         timeFormatter: (time) => this.formatters.crosshair(time),
       },
     });
@@ -291,6 +296,10 @@ export class CardChart {
 
     this.priceSeries = null;
     this.volumeSeries = null;
+    this.oiSeries = null;
+    this.showOI = false;
+    /** OHLC records aligned to `bars`, from open-interest.js; the line plots close. */
+    this.oiData = [];
 
     /*
      * Wheel over the price axis scales price. The library has one wheel handler
@@ -320,7 +329,7 @@ export class CardChart {
     this.measureLayer = new MeasurePrimitive(this);
 
     this.createPriceSeries();
-    if (this.showVolume) this.createVolumeSeries();
+    this.syncSubPanes();
 
     // autoSize handles the common case; this catches pane height ratios, which
     // are expressed in pixels and so must be recomputed per resize.
@@ -410,29 +419,58 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.viewportWatcher);
   }
 
-  createVolumeSeries() {
-    if (this.volumeSeries) return;
-    // Pane index 1 creates the volume sub-pane below the price pane.
-    this.volumeSeries = this.chart.addSeries(
-      HistogramSeries,
-      {
-        priceFormat: { type: 'volume' },
-        priceLineVisible: false,
-        lastValueVisible: false,
-      },
-      1
-    );
-    this.volumeSeries.priceScale().applyOptions({
-      scaleMargins: { top: 0.15, bottom: 0 },
-      borderVisible: false,
-    });
-    this.layoutPanes();
-  }
-
-  removeVolumeSeries() {
-    if (!this.volumeSeries) return;
-    this.chart.removeSeries(this.volumeSeries);
+  /**
+   * Rebuild the sub-panes -- volume, then open interest -- in that order.
+   *
+   * Panes are addressed by index and the library drops a pane the moment its
+   * last series goes, shifting the rest up. Toggling volume off with OI on
+   * leaves OI at index 1, and toggling volume back on at index 1 would then
+   * put the histogram *inside* the OI pane. Rebuilding both from scratch on
+   * any change keeps the order fixed; both are re-fed from data we hold.
+   */
+  syncSubPanes() {
+    if (this.volumeSeries) this.chart.removeSeries(this.volumeSeries);
+    if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
     this.volumeSeries = null;
+    this.oiSeries = null;
+
+    let pane = 1;
+    if (this.showVolume) {
+      this.volumeSeries = this.chart.addSeries(
+        HistogramSeries,
+        {
+          priceFormat: { type: 'volume' },
+          priceLineVisible: false,
+          lastValueVisible: false,
+        },
+        pane++
+      );
+      this.volumeSeries.priceScale().applyOptions({
+        scaleMargins: { top: 0.15, bottom: 0 },
+        borderVisible: false,
+      });
+      this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
+    }
+    if (this.showOI) {
+      this.oiSeries = this.chart.addSeries(
+        LineSeries,
+        {
+          color: OI_COLOR,
+          lineWidth: 1.5,
+          title: 'OI',
+          priceFormat: { type: 'custom', formatter: (v) => formatCompact(v), minMove: 0.001 },
+          lastValueVisible: true,
+          priceLineVisible: false,
+          crosshairMarkerRadius: 2,
+        },
+        pane
+      );
+      this.oiSeries.priceScale().applyOptions({
+        scaleMargins: { top: 0.2, bottom: 0.1 },
+        borderVisible: false,
+      });
+      this.oiSeries.setData(this.oiData.map((r) => ({ time: r.time, value: r.close })));
+    }
     this.layoutPanes();
   }
 
@@ -456,10 +494,13 @@ export class CardChart {
     const panes = this.chart.panes();
     if (panes.length < 2) return;
     const total = this.container.clientHeight || 200;
-    const volumeHeight = Math.max(MIN_VOLUME_PANE_PX, Math.round(total * VOLUME_PANE_RATIO));
+    // Two sub-panes share a little more than one would get, so the price pane
+    // keeps the majority of a card this small.
+    const ratio = panes.length > 2 ? VOLUME_PANE_RATIO * 0.75 : VOLUME_PANE_RATIO;
+    const subHeight = Math.max(MIN_VOLUME_PANE_PX, Math.round(total * ratio));
 
     try {
-      panes[1].setHeight(volumeHeight);
+      for (let i = 1; i < panes.length; i++) panes[i].setHeight(subHeight);
     } catch (err) {
       // A pane really can vanish mid-resize during teardown. Anything else is
       // worth seeing -- the old bare `catch {}` here meant a broken layout left
@@ -478,7 +519,7 @@ export class CardChart {
       // the pane out. Deliberately setTimeout and not requestAnimationFrame:
       // a hidden or occluded card window gets its frames throttled, which is
       // when this retry matters most.
-      if (current.length >= 2 && current[1].getHeight() === 0) this.layoutPanes({ retry: false });
+      if (current.slice(1).some((p) => p.getHeight() === 0)) this.layoutPanes({ retry: false });
     }, 50);
   }
 
@@ -584,6 +625,9 @@ export class CardChart {
     this.priceSeries.setData(this.bars.map((b) => this.toPricePoint(b)));
     if (this.volumeSeries) {
       this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
+    }
+    if (this.oiSeries) {
+      this.oiSeries.setData(this.oiData.map((r) => ({ time: r.time, value: r.close })));
     }
   }
 
@@ -961,12 +1005,42 @@ export class CardChart {
     const next = visible === true;
     if (next === this.showVolume) return;
     this.showVolume = next;
-    if (next) {
-      this.createVolumeSeries();
-      this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
-    } else {
-      this.removeVolumeSeries();
+    this.syncSubPanes();
+  }
+
+  /* ------------------------------------------------------ open interest */
+
+  setOIVisible(visible) {
+    const next = visible === true;
+    if (next === this.showOI) return;
+    this.showOI = next;
+    this.syncSubPanes();
+  }
+
+  /** Replace the whole OI series: records {time, open, high, low, close}. */
+  setOIData(records) {
+    this.oiData = Array.isArray(records) ? records : [];
+    if (!this.oiSeries) return;
+    if (this.paused) {
+      this.dirtyWhilePaused = true;
+      return;
     }
+    this.oiSeries.setData(this.oiData.map((r) => ({ time: r.time, value: r.close })));
+  }
+
+  /** The live bar's OI moved. Same rules as update(): same bar replaces, newer appends. */
+  updateOI(record) {
+    if (!record) return;
+    const last = this.oiData[this.oiData.length - 1];
+    if (!last || record.time > last.time) this.oiData.push(record);
+    else if (record.time === last.time) this.oiData[this.oiData.length - 1] = record;
+    else return;
+    if (!this.oiSeries) return;
+    if (this.paused) {
+      this.dirtyWhilePaused = true;
+      return;
+    }
+    this.oiSeries.update({ time: record.time, value: record.close });
   }
 
   setUpDownColor(mode) {
@@ -1145,6 +1219,8 @@ export class CardChart {
     this.chart = null;
     this.priceSeries = null;
     this.volumeSeries = null;
+    this.oiSeries = null;
     this.bars = [];
+    this.oiData = [];
   }
 }

@@ -156,6 +156,12 @@ export class SettingsPanel {
       onChange: (showVolume) => onPatch({ showVolume }),
     });
 
+    this.oiToggle = toggle({
+      label: '顯示未平倉量 (OI) 副圖 · 永續',
+      checked: card.showOI,
+      onChange: (showOI) => onPatch({ showOI }),
+    });
+
     this.onTopToggle = toggle({
       label: '視窗置頂',
       checked: card.alwaysOnTop,
@@ -209,7 +215,13 @@ export class SettingsPanel {
         row('圖型', this.typeSeg.root),
         row('卡片透明度', this.cardOpacity.root),
         showWindowOpacity ? row('整體透明度', this.windowOpacity.root) : null,
-        el('div.sc-row.sc-row--stack', {}, this.volumeToggle.root, showWindowOpacity ? this.onTopToggle.root : null),
+        el(
+          'div.sc-row.sc-row--stack',
+          {},
+          this.volumeToggle.root,
+          this.oiToggle.root,
+          showWindowOpacity ? this.onTopToggle.root : null
+        ),
         el('div.sc-divider', { text: '全域設定' }),
         row('漲跌顏色', this.upDownSeg.root),
         row('時間顯示', this.timezoneSeg.root),
@@ -259,6 +271,7 @@ export class SettingsPanel {
     this.cardOpacity.setValue(Math.round(card.cardOpacity * 100));
     this.windowOpacity.setValue(Math.round(card.windowOpacity * 100));
     this.volumeToggle.setValue(card.showVolume);
+    this.oiToggle.setValue(card.showOI);
     this.onTopToggle.setValue(card.alwaysOnTop);
   }
 }

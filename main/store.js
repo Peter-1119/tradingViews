@@ -170,6 +170,9 @@ function sanitizeCard(raw, index = 0) {
       card.showVolumeProfile === true ? 'day' : 'off'
     ),
     showHtf: card.showHtf === true,
+    // Open interest sub-pane. Perpetuals only; a spot card keeps the setting
+    // and shows it again when switched back to perp.
+    showOI: card.showOI === true,
     alwaysOnTop: card.alwaysOnTop !== false,
     bounds: normalizeBounds(card.bounds || defaultCardBounds(index)),
   };

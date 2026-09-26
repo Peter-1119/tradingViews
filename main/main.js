@@ -373,6 +373,7 @@ ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) =>
     'searchSymbols',
     'getTicker',
     'getFunding',
+    'getOpenInterestHist',
     'getStatus',
     'counterpart',
   ];

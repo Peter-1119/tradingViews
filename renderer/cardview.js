@@ -13,6 +13,7 @@ import { Toolbar } from './ui/toolbar.js';
 import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchlist.js';
 import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
+import { oiPoints, bucketOI, historyRecords, OI_MAX_GAP_SEC } from './open-interest.js';
 import {
   el,
   formatPrice,
@@ -57,6 +58,13 @@ const otherMarket = (market) => (market === 'perp' ? 'spot' : 'perp');
 /** How long "no perpetual for this symbol" and the like stay on screen. */
 const NOTICE_MS = 2200;
 
+/** Binance keeps OI history this long; the margin keeps a request inside it. */
+const OI_HISTORY_SEC = 30 * 24 * 3600 - 120;
+/** Our own per-minute OI is only worth reading this far back; beyond, 5m is plenty. */
+const OI_MINUTES_SEC = 3 * 24 * 3600;
+/** Live samples kept in memory, so a reload does not lose the current minute. */
+const OI_LIVE_KEEP_SEC = 2 * 3600;
+
 export class CardView {
   /**
    * @param {{
@@ -92,6 +100,10 @@ export class CardView {
     this.lastBar = null;
     this.ticker = null;
     this.funding = null;
+    /** Open interest points {t, v} behind the OI pane, and this session's live ones. */
+    this.oiPoints = [];
+    this.oiLive = [];
+    this.oiSeq = 0;
     /** {key, promise} -- the other market's name for this symbol, being looked up. */
     this.counterpartJob = null;
     this.status = this.feed.getStatus();
@@ -314,6 +326,7 @@ export class CardView {
       upDownColor: this.prefs.upDownColor,
       timezone: this.prefs.timezone,
     });
+    this.chart.setOIVisible(this.oiApplies());
 
     // Each market has its own connection and so its own health; the dot
     // reports the one this card is on.
@@ -605,6 +618,8 @@ export class CardView {
       }
       this.chart.prependBars(older);
       this.renderFibs();
+      // The OI pane has to cover the bars that just arrived too.
+      this.loadOI();
     } catch (err) {
       console.error('[card] history extend failed', err);
     } finally {
@@ -726,6 +741,103 @@ export class CardView {
     } finally {
       this.loadingPeriods = false;
     }
+  }
+
+  /* --------------------------------------------------------- open interest */
+
+  oiApplies() {
+    return this.card.market === 'perp' && this.card.showOI === true;
+  }
+
+
+  /** Forget the OI of the previous symbol or market. */
+  resetOI() {
+    this.oiSeq += 1;
+    this.oiPoints = [];
+    this.oiLive = [];
+    if (this.chart) this.chart.setOIData([]);
+  }
+
+  /**
+   * Build the OI pane for every bar on the chart, from what is stored plus
+   * what the exchange still has. See open-interest.js for the two sources.
+   *
+   * Only the 5m history is fetched; the per-minute series is ours, recorded by
+   * the hub while the app runs, so there is nothing to fetch for it.
+   */
+  async loadOI() {
+    if (!this.chart || !this.oiApplies()) return;
+    const bars = this.chart.bars;
+    if (!bars.length) return;
+    const seq = ++this.oiSeq;
+    const key = this.dataKey();
+    const { symbol, interval } = this.card;
+    const now = Date.now() / 1000;
+    const from = bars[0].time - OI_MAX_GAP_SEC;
+
+    try {
+      let history = await window.stockcard.readBars('perp', symbol, 'oi_5m', from, now);
+      const fetched = await this.backfillOIHistory(symbol, from, now, history);
+      if (fetched.length) {
+        const byTime = new Map(history.map((r) => [r.time, r]));
+        for (const r of fetched) byTime.set(r.time, r);
+        history = [...byTime.values()].sort((a, b) => a.time - b.time);
+      }
+      const minutes = await window.stockcard.readBars(
+        'perp',
+        symbol,
+        'oi_1m',
+        Math.max(from, now - OI_MINUTES_SEC),
+        now
+      );
+      if (this.destroyed || seq !== this.oiSeq || key !== this.dataKey()) return;
+      this.oiPoints = oiPoints(minutes, history, this.oiLive);
+      const step = intervalToMs(interval) / 1000;
+      this.chart.setOIData(bucketOI(this.oiPoints, this.chart.bars.map((b) => b.time), step));
+    } catch (err) {
+      console.error('[card] open interest failed', err);
+    }
+  }
+
+  /**
+   * Fetch the 5m history the cache is missing and store it. Usually that is
+   * only the tail since the last visit -- so as long as the app is opened at
+   * least once every 30 days, the cache keeps growing past the exchange's
+   * own 30-day window.
+   */
+  async backfillOIHistory(symbol, from, now, cached) {
+    const want = Math.max(from, now - OI_HISTORY_SEC);
+    const headMissing = !cached.length || cached[0].time > want + 300;
+    const start = headMissing ? want : cached[cached.length - 1].time + 1;
+    // Samples land on 5m boundaries, a few minutes late; nothing new yet.
+    if (now - start < 300) return [];
+    const rows = await this.feed.getOpenInterestHist(symbol, '5m', start * 1000, now * 1000);
+    const records = historyRecords(rows);
+    if (records.length) window.stockcard.writeBars('perp', symbol, 'oi_5m', records);
+    return records;
+  }
+
+  /** A live OI sample: keep it, and move the forming bar's OI. */
+  applyLiveOI(sample) {
+    if (!sample || sample.symbol !== this.card.symbol || this.card.market !== 'perp') return;
+    const point = { t: sample.time / 1000, v: sample.value };
+    const last = this.oiLive[this.oiLive.length - 1];
+    if (last && point.t <= last.t) return;
+    this.oiLive.push(point);
+    while (this.oiLive.length && this.oiLive[0].t < point.t - OI_LIVE_KEEP_SEC) this.oiLive.shift();
+
+    if (!this.chart || !this.oiApplies()) return;
+    const tail = this.oiPoints[this.oiPoints.length - 1];
+    if (!tail || point.t > tail.t) this.oiPoints.push(point);
+    const bars = this.chart.bars;
+    const lastBar = bars[bars.length - 1];
+    if (!lastBar) return;
+    // Only the points that can touch the last bar: one gap's worth before it.
+    let k = this.oiPoints.length;
+    while (k > 0 && this.oiPoints[k - 1].t >= lastBar.time - OI_MAX_GAP_SEC) k--;
+    const step = intervalToMs(this.card.interval) / 1000;
+    const [record] = bucketOI(this.oiPoints.slice(k), [lastBar.time], step);
+    if (record) this.chart.updateOI(record);
   }
 
   /* ------------------------------------------------------------------ undo */
@@ -1346,6 +1458,7 @@ export class CardView {
 
       this.chart.setData(bars);
       this.historyExhausted = false;
+      this.loadOI();
       this.lastBar = bars[bars.length - 1];
       this.setOverlay(null);
       this.renderQuote();
@@ -1404,6 +1517,9 @@ export class CardView {
       onFunding: (funding) => {
         if (this.destroyed) return;
         if (funding.symbol === this.card.symbol) this.applyFunding(funding);
+      },
+      onOI: (oi) => {
+        if (!this.destroyed) this.applyLiveOI(oi);
       },
     });
   }
@@ -1682,6 +1798,11 @@ export class CardView {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
       if (next.volumeProfile !== prev.volumeProfile) this.applyVolumeProfile(next.volumeProfile);
+      if (next.showOI !== prev.showOI || marketChanged) {
+        this.chart.setOIVisible(this.oiApplies());
+        // A symbol or market change reloads it with the bars, below.
+        if (!symbolChanged && this.oiApplies()) this.loadOI();
+      }
       if (next.showHtf !== prev.showHtf && !marketChanged) {
         this.toolbar.setToggled('htf', next.showHtf);
         this.setHtfEnabled(next.showHtf);
@@ -1695,7 +1816,10 @@ export class CardView {
       this.ticker = null;
       this.lastBar = null;
       this.renderQuote();
-      if (next.symbol !== prev.symbol || marketChanged) this.refreshCounterpart();
+      if (next.symbol !== prev.symbol || marketChanged) {
+        this.refreshCounterpart();
+        this.resetOI();
+      }
       // Levels belong to the symbol, so a symbol switch swaps the whole set.
       // A market switch that keeps the name keeps them too: BTCUSDT's lines
       // are the same lines on spot and perp, and so is its undo history.

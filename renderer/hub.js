@@ -25,6 +25,16 @@ function feed(market) {
   return providers.get(market) || providers.get('spot');
 }
 
+// Open interest is recorded here, once, as each minute closes -- not by the
+// cards, several of which may show the same symbol and would write it twice.
+for (const [market, provider] of providers) {
+  provider.onOIMinute = (symbol, record) => {
+    hub.writeBars(market, symbol, 'oi_1m', [record]).catch((err) => {
+      console.error('[hub] OI write failed', symbol, err);
+    });
+  };
+}
+
 /** subId -> {ownerId, market}. */
 const owners = new Map();
 
@@ -74,6 +84,7 @@ hub.onSubscribe(({ subId, market, symbol, interval, ownerId }) => {
     onBar: (bar) => hub.emit(ownerId, 'datafeed:bar', { subId, market, bar }),
     onTicker: (ticker) => hub.emit(ownerId, 'datafeed:ticker', { subId, market, ticker }),
     onFunding: (funding) => hub.emit(ownerId, 'datafeed:funding', { subId, market, funding }),
+    onOI: (oi) => hub.emit(ownerId, 'datafeed:oi', { subId, market, oi }),
   });
 
   // A card that mounts mid-session needs the current link state right away.

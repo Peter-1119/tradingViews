@@ -7,6 +7,8 @@
  * ------
  *   userData/bars/{SYMBOL}/{interval}/{chunk}.bin          spot
  *   userData/bars/_perp/{SYMBOL}/{interval}/{chunk}.bin    USD-M perpetuals
+ *   userData/bars/_perp/{SYMBOL}/oi_1m/{chunk}.bin         open interest, recorded here
+ *   userData/bars/_perp/{SYMBOL}/oi_5m/{chunk}.bin         open interest, exchange history
  *
  * Perpetuals get their own tree because BTCUSDT names both, and their candles
  * differ -- by the basis, and in volume by a wide margin. Spot keeps the
@@ -68,7 +70,9 @@ function safeName(value) {
 function chunkKey(interval, timeSec) {
   const d = new Date(timeSec * 1000);
   const year = d.getUTCFullYear();
-  if (!MONTHLY.has(interval)) return String(year);
+  // Series other than price share the layout: open interest is kept as
+  // `oi_1m` / `oi_5m` and chunks exactly like the bars of its resolution.
+  if (!MONTHLY.has(String(interval).replace(/^oi_/, ''))) return String(year);
   return `${year}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 

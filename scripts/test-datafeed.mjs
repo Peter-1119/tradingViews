@@ -517,7 +517,8 @@ await test('perp talks to the futures hosts, on the /market stream route', async
   const url = new URL(sockets[0].url);
   assert.equal(url.host, 'fstream.binance.com');
   assert.equal(url.pathname, '/market/stream', 'the bare /stream route no longer carries market data');
-  assert.ok(fetchCalls[0].startsWith('https://fapi.binance.com/fapi/v1/klines?'), fetchCalls[0]);
+  const klineCall = fetchCalls.find((u) => u.includes('/klines?'));
+  assert.ok(klineCall && klineCall.startsWith('https://fapi.binance.com/fapi/v1/klines?'), klineCall);
   assert.ok(sockets[0].streams.includes('btcusdt@markPrice'), 'perp needs the funding stream');
 });
 
@@ -612,6 +613,165 @@ await test('counterpart: same name, scaled contracts, and none', () => {
   assert.equal(counterpartSymbol('1000000MOGUSDT', perp, spot), null, 'MOG has no spot pair here');
   assert.equal(counterpartSymbol('BNBBTC', spot, perp), null);
   assert.equal(counterpartSymbol('BTCUSDC', spot, perp), null, 'a different quote is a different instrument');
+});
+
+/* ---------------------------------------------------- open interest */
+
+console.log('');
+console.log('open interest');
+
+/** A responder that answers OI snapshots from a script of values, and klines empty. */
+function oiResponder(values) {
+  let i = 0;
+  return (url) => {
+    if (!url.includes('/openInterest?')) return [];
+    const value = values[Math.min(i, values.length - 1)];
+    i += 1;
+    return { symbol: 'BTCUSDT', openInterest: String(value), time: now };
+  };
+}
+const oiCalls = () => fetchCalls.filter((u) => u.includes('/openInterest?')).length;
+
+await test('a perp subscription polls OI every 3s; spot never does', async () => {
+  const spot = new BinanceProvider({ logger: silent });
+  spot.subscribe('s', 'BTCUSDT', '1m', {});
+  await flush();
+  assert.equal(oiCalls(), 0, 'spot has no open interest');
+
+  const perp = new BinanceProvider({ logger: silent, market: 'perp' });
+  klineResponder = oiResponder([100, 101, 102]);
+  const got = [];
+  perp.subscribe('card', 'BTCUSDT', '1m', { onOI: (s) => got.push(s.value) });
+  await flush();
+  assert.equal(oiCalls(), 1, 'first poll is immediate');
+  advance(3000);
+  await flush();
+  advance(3000);
+  await flush();
+  assert.equal(oiCalls(), 3);
+  assert.deepEqual(got, [100, 101, 102]);
+  assert.ok(fetchCalls.find((u) => u.includes('/openInterest?')).startsWith('https://fapi.binance.com/fapi/v1/'));
+});
+
+await test('one poller per symbol, however many cards; it stops with the last', async () => {
+  const perp = new BinanceProvider({ logger: silent, market: 'perp' });
+  klineResponder = oiResponder([100]);
+  perp.subscribe('a', 'BTCUSDT', '1m', {});
+  perp.subscribe('a:htf', 'BTCUSDT', '4h', {});
+  perp.subscribe('b', 'BTCUSDT', '5m', {});
+  await flush();
+  assert.equal(oiCalls(), 1, 'three subscriptions, one request');
+
+  perp.unsubscribe('a');
+  perp.unsubscribe('a:htf');
+  advance(3000);
+  await flush();
+  assert.equal(oiCalls(), 2, 'still one holder left');
+
+  perp.unsubscribe('b');
+  const before = oiCalls();
+  advance(30_000);
+  await flush();
+  assert.equal(oiCalls(), before, 'nobody watching, nothing polled');
+});
+
+await test('an unchanged snapshot is not reported twice', async () => {
+  const perp = new BinanceProvider({ logger: silent, market: 'perp' });
+  const frozen = now;
+  klineResponder = (url) =>
+    url.includes('/openInterest?') ? { symbol: 'BTCUSDT', openInterest: '100', time: frozen } : [];
+  const got = [];
+  perp.subscribe('card', 'BTCUSDT', '1m', { onOI: (s) => got.push(s) });
+  await flush();
+  advance(3000);
+  await flush();
+  assert.equal(got.length, 1, 'same exchange timestamp = same reading');
+});
+
+await test('samples fold into one closed OHLC record per minute', async () => {
+  const perp = new BinanceProvider({ logger: silent, market: 'perp' });
+  const minutes = [];
+  perp.onOIMinute = (symbol, record) => minutes.push({ symbol, ...record });
+  // Start on a minute boundary so the arithmetic below is exact.
+  advance(60_000 - (now % 60_000));
+  klineResponder = oiResponder([100, 104, 98, 101, 200]);
+  perp.subscribe('card', 'BTCUSDT', '1m', {});
+  await flush();
+  for (let i = 0; i < 20; i++) {
+    advance(3000);
+    await flush();
+  }
+  assert.equal(minutes.length, 1, 'the first minute closes when a later sample arrives');
+  const [m] = minutes;
+  assert.equal(m.symbol, 'BTCUSDT');
+  assert.equal(m.time % 60, 0);
+  // 100, 104, 98, 101, then 200 for every remaining sample of the minute.
+  assert.deepEqual([m.open, m.high, m.low, m.close], [100, 200, 98, 200]);
+  assert.equal(m.closed, true);
+  assert.equal(m.volume, 20, 'volume counts the samples');
+});
+
+await test('OI history pages backwards through /futures/data, clamped to 30 days', async () => {
+  const perp = new BinanceProvider({ logger: silent, market: 'perp' });
+  // Behaves like the real endpoint: the NEWEST `limit` samples in [start, end].
+  const first = now - 50 * 3600_000 - ((now - 50 * 3600_000) % 300_000);
+  klineResponder = (url) => {
+    if (!url.includes('/openInterestHist?')) return [];
+    const q = new URL(url).searchParams;
+    const lo = Number(q.get('startTime'));
+    const hi = Number(q.get('endTime'));
+    const all = [];
+    for (let t = first; t <= now; t += 300_000) if (t >= lo && t <= hi) all.push(t);
+    return all.slice(-Number(q.get('limit'))).map((t) => ({
+      symbol: 'BTCUSDT',
+      sumOpenInterest: String(1000 + (t - first) / 300_000),
+      sumOpenInterestValue: '9e7',
+      timestamp: t,
+    }));
+  };
+  const rows = await perp.getOpenInterestHist('btcusdt', '5m', first, now);
+  const calls = fetchCalls.filter((u) => u.includes('/openInterestHist?'));
+  assert.ok(calls[0].startsWith('https://fapi.binance.com/futures/data/openInterestHist?'), calls[0]);
+  assert.equal(calls.length, 2, '50h of 5m is 601 samples: one full page, then the rest');
+  assert.equal(rows.length, 601, 'every sample, none lost between pages');
+  assert.equal(rows[0].time, first, 'oldest first');
+  assert.equal(rows[0].value, 1000);
+  assert.ok(rows.every((r, i) => i === 0 || r.time - rows[i - 1].time === 300_000), 'no gaps, no duplicates');
+
+  fetchCalls = [];
+  await perp.getOpenInterestHist('BTCUSDT', '5m', now - 90 * 86400_000, now);
+  const start = Number(new URL(fetchCalls[0]).searchParams.get('startTime'));
+  assert.ok(start > now - 30 * 86400_000, 'older than 30 days is an error on Binance');
+});
+
+const { oiPoints, bucketOI, historyRecords, OI_MAX_GAP_SEC } = await import('../renderer/open-interest.js');
+
+await test('bucketing: 1m OHLC passes through, 5m history steps across 1m bars', () => {
+  const T = 1_790_000_100 - (1_790_000_100 % 300);
+  const minute = { time: T, open: 10, high: 14, low: 9, close: 12 };
+  const [bar] = bucketOI(oiPoints([minute]), [T], 60);
+  assert.deepEqual(bar, { time: T, open: 10, high: 14, low: 9, close: 12 });
+
+  // Only 5m samples, at T and T+300: the minutes between hold the earlier one.
+  const pts = oiPoints([], historyRecords([{ time: T * 1000, value: 50 }, { time: (T + 300) * 1000, value: 60 }]));
+  const bars = bucketOI(pts, [T, T + 60, T + 120, T + 240, T + 300], 60);
+  assert.deepEqual(bars.map((b) => b.close), [50, 50, 50, 50, 60]);
+  assert.equal(bars[4].open, 50, 'a bar opens where the previous one closed');
+});
+
+await test('bucketing: coarse bars aggregate, and long gaps stay empty', () => {
+  const T = 1_790_006_400 - (1_790_006_400 % 3600);
+  const rows = [];
+  for (let i = 0; i <= 12; i++) rows.push({ time: (T + i * 300) * 1000, value: 100 + i });
+  const pts = oiPoints([], historyRecords(rows));
+  const [hour] = bucketOI(pts, [T], 3600);
+  assert.equal(hour.open, 100);
+  assert.equal(hour.close, 111, 'the sample at T+3600 belongs to the next hour');
+  assert.equal(hour.high, 111);
+
+  // Nothing for a day after the last sample: the next bars must not be invented.
+  const later = bucketOI(pts, [T + 3600, T + 3600 + OI_MAX_GAP_SEC + 60, T + 86400], 60);
+  assert.deepEqual(later.map((b) => b.time), [T + 3600], 'only the bar within the gap limit');
 });
 
 /* ------------------------------------------------------ volume profile */

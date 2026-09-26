@@ -34,6 +34,7 @@ export const MARKETS = Object.freeze({
     exchangeInfo: '/exchangeInfo?permissions=SPOT',
     symbolsCacheKey: 'stockcard.symbols.v1',
     funding: false,
+    openInterest: false,
   }),
   perp: Object.freeze({
     name: 'Binance USD-M',
@@ -42,8 +43,25 @@ export const MARKETS = Object.freeze({
     exchangeInfo: '/exchangeInfo',
     symbolsCacheKey: 'stockcard.symbols.perp.v1',
     funding: true,
+    openInterest: true,
+    // The trading-statistics endpoints (OI history) live outside /fapi/v1.
+    dataRest: 'https://fapi.binance.com/futures/data',
   }),
 });
+
+/**
+ * Open interest has no stream on Binance -- only a REST snapshot, which the
+ * exchange refreshes every few seconds (measured: 1.5-5s apart). 3s catches
+ * nearly every change for one request per symbol per 3s, far inside the
+ * request-weight budget.
+ */
+const OI_POLL_MS = 3000;
+/** After a failed poll, back off rather than hammer a network that is down. */
+const OI_RETRY_MS = 10_000;
+/** OI history goes back 30 days and no further; asking earlier is an error. */
+const OI_HISTORY_MS = 30 * 24 * 60 * 60 * 1000;
+const OI_HISTORY_PAGE = 500;
+const OI_PERIOD_MS = { '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000 };
 
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
@@ -177,6 +195,14 @@ export class BinanceProvider extends DataProvider {
     this.fundingCache = new Map();
     this.symbols = null;
 
+    /** symbol -> {refs, timer, last, minute}; one poller however many cards watch it. */
+    this.oiPolls = new Map();
+    /**
+     * Called with (symbol, record) as each minute of OI closes, record being a
+     * closed OHLC bar of the samples in that minute. The hub persists it.
+     */
+    this.onOIMinute = null;
+
     this.handleOnline = () => {
       if (this.status !== STATUS.LIVE && this.streamRefs.size > 0) {
         this.log('network back online, reconnecting immediately');
@@ -231,11 +257,11 @@ export class BinanceProvider extends DataProvider {
 
   /* ----------------------------------------------------------------- REST */
 
-  async fetchJson(path, { timeoutMs = 15000 } = {}) {
+  async fetchJson(path, { timeoutMs = 15000, base = this.config.rest } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`${this.config.rest}${path}`, { signal: controller.signal });
+      const res = await fetch(`${base}${path}`, { signal: controller.signal });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         throw new Error(`Binance ${res.status} ${path} ${body.slice(0, 160)}`);
@@ -317,6 +343,134 @@ export class BinanceProvider extends DataProvider {
     const funding = toFunding(upper, raw.markPrice, raw.lastFundingRate, raw.nextFundingTime);
     this.fundingCache.set(upper, funding);
     return funding;
+  }
+
+  /* ------------------------------------------------------ open interest */
+
+  /** The exchange's current OI snapshot: {symbol, time (ms), value (base asset)}. */
+  async getOpenInterest(symbol) {
+    if (!this.config.openInterest) return null;
+    const upper = symbol.toUpperCase();
+    const raw = await this.fetchJson(`/openInterest?symbol=${encodeURIComponent(upper)}`);
+    return { symbol: upper, time: Number(raw.time), value: Number(raw.openInterest) };
+  }
+
+  /**
+   * OI samples between two epoch-ms bounds, oldest first: [{time, value, valueUsd}].
+   *
+   * Each is the open interest *at* its timestamp, taken on the period
+   * boundary. 5m is the finest period Binance keeps, and only for 30 days;
+   * the start is clamped to that rather than letting the request fail.
+   */
+  async getOpenInterestHist(symbol, period, startMs, endMs) {
+    if (!this.config.openInterest) return [];
+    const step = OI_PERIOD_MS[period];
+    if (!step) throw new Error(`unsupported OI period: ${period}`);
+    const upper = symbol.toUpperCase();
+    // A minute of margin: "30 days ago" drifts while the request is in flight.
+    const start = Math.max(Math.floor(Number(startMs)), Date.now() - OI_HISTORY_MS + 60_000);
+    let end = Math.min(Math.floor(Number(endMs)), Date.now());
+    const pages = [];
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return [];
+
+    // Backwards, because that is how the endpoint pages: whatever the range,
+    // it answers with the *newest* `limit` samples in it (measured -- asking
+    // for 10 days returned only the last 41h). So take the newest page, then
+    // ask again ending just before its oldest row. 30 days of 5m is 18 pages;
+    // the guard stops a bad range spinning.
+    for (let pass = 0; pass < 24 && end > start; pass++) {
+      const rows = await this.fetchJson(
+        `/openInterestHist?symbol=${encodeURIComponent(upper)}&period=${period}` +
+          `&startTime=${start}&endTime=${end}&limit=${OI_HISTORY_PAGE}`,
+        { base: this.config.dataRest }
+      );
+      if (!Array.isArray(rows) || !rows.length) break;
+      pages.unshift(
+        rows
+          .map((row) => ({
+            time: Number(row.timestamp),
+            value: Number(row.sumOpenInterest),
+            valueUsd: Number(row.sumOpenInterestValue),
+          }))
+          .filter((r) => r.time >= start && r.time <= end)
+      );
+      if (rows.length < OI_HISTORY_PAGE) break;
+      end = Number(rows[0].timestamp) - 1;
+    }
+    return pages.flat().sort((a, b) => a.time - b.time);
+  }
+
+  /** Start (or join) the poller for a symbol. */
+  acquireOI(symbol) {
+    const entry = this.oiPolls.get(symbol);
+    if (entry) {
+      entry.refs += 1;
+      return;
+    }
+    const fresh = { refs: 1, timer: null, last: null, minute: null };
+    this.oiPolls.set(symbol, fresh);
+    this.pollOI(symbol, fresh);
+  }
+
+  releaseOI(symbol) {
+    const entry = this.oiPolls.get(symbol);
+    if (!entry) return;
+    entry.refs -= 1;
+    if (entry.refs > 0) return;
+    clearTimeout(entry.timer);
+    this.oiPolls.delete(symbol);
+  }
+
+  async pollOI(symbol, entry) {
+    let delay = OI_POLL_MS;
+    try {
+      const sample = await this.getOpenInterest(symbol);
+      // Released while the request was out: nobody is listening any more.
+      if (this.oiPolls.get(symbol) !== entry) return;
+      // The snapshot is only refreshed every few seconds; an unchanged
+      // timestamp is the same reading again, not a new one.
+      if (sample && Number.isFinite(sample.value) && (!entry.last || sample.time > entry.last.time)) {
+        entry.last = sample;
+        this.recordOIMinute(symbol, entry, sample);
+        for (const sub of this.subs.values()) {
+          if (sub.symbol === symbol && sub.handlers.onOI) sub.handlers.onOI(sample);
+        }
+      }
+    } catch {
+      delay = OI_RETRY_MS;
+    }
+    if (this.oiPolls.get(symbol) !== entry) return;
+    entry.timer = setTimeout(() => this.pollOI(symbol, entry), delay);
+  }
+
+  /**
+   * Fold a sample into the minute it falls in, and hand the previous minute
+   * over once a sample from a later one arrives. `volume` carries the sample
+   * count: it has no meaning for OI, and it says how much a minute is worth.
+   */
+  recordOIMinute(symbol, entry, sample) {
+    const minute = Math.floor(sample.time / 60_000) * 60;
+    const v = sample.value;
+    const open = entry.minute;
+    if (open && open.time !== minute) {
+      if (this.onOIMinute) {
+        try {
+          this.onOIMinute(symbol, { ...open, closed: true });
+        } catch (err) {
+          this.logger.error('[binance] OI minute sink threw', err);
+        }
+      }
+      entry.minute = null;
+    }
+    if (!entry.minute) {
+      entry.minute = { time: minute, open: v, high: v, low: v, close: v, volume: 1 };
+      return;
+    }
+    const m = entry.minute;
+    m.close = v;
+    if (v > m.high) m.high = v;
+    if (v < m.low) m.low = v;
+    m.volume += 1;
   }
 
   /* --------------------------------------------------------- symbol list */
@@ -430,6 +584,14 @@ export class BinanceProvider extends DataProvider {
     const cachedFunding = this.fundingCache.get(upper);
     if (cachedFunding && handlers.onFunding) handlers.onFunding(cachedFunding);
 
+    // Acquire before release, for the same reason as the streams above.
+    if (this.config.openInterest) {
+      this.acquireOI(upper);
+      if (previous) this.releaseOI(previous.symbol);
+      const lastOI = this.oiPolls.get(upper).last;
+      if (lastOI && handlers.onOI) handlers.onOI(lastOI);
+    }
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.connect();
       return;
@@ -443,6 +605,7 @@ export class BinanceProvider extends DataProvider {
     if (!sub) return;
     this.subs.delete(subId);
     this.cancelPendingTick(sub);
+    if (this.config.openInterest) this.releaseOI(sub.symbol);
 
     const removed = [];
     for (const stream of this.streamsFor(sub.symbol, sub.interval)) {
@@ -765,6 +928,8 @@ export class BinanceProvider extends DataProvider {
     window.removeEventListener('offline', this.handleOffline);
     for (const sub of this.subs.values()) this.cancelPendingTick(sub);
     this.subs.clear();
+    for (const entry of this.oiPolls.values()) clearTimeout(entry.timer);
+    this.oiPolls.clear();
     this.streamRefs.clear();
     this.disconnect(STATUS.IDLE);
     this.statusListeners.clear();

@@ -82,6 +82,7 @@ const api = {
     onBar: (cb) => on('datafeed:bar', cb),
     onTicker: (cb) => on('datafeed:ticker', cb),
     onFunding: (cb) => on('datafeed:funding', cb),
+    onOI: (cb) => on('datafeed:oi', cb),
     onStatus: (cb) => on('datafeed:status', cb),
     onReset: (cb) => on('datafeed:reset', cb),
   },
@@ -108,6 +109,8 @@ const hubApi = {
   onUnsubscribe: (cb) => on('hub:unsubscribe', cb),
   onReleaseOwner: (cb) => on('hub:release-owner', cb),
   emit: (ownerId, channel, payload) => ipcRenderer.send('hub:emit', { ownerId, channel, payload }),
+  writeBars: (market, symbol, interval, bars) =>
+    ipcRenderer.invoke('bars:write', { market, symbol, interval, bars }),
 };
 
 contextBridge.exposeInMainWorld('stockcard', api);

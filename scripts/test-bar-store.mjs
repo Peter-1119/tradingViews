@@ -88,6 +88,13 @@ t('perp bars live apart from spot bars of the same name', () => {
   assert.ok(fs.existsSync(path.join(DIR, 'SOLUSDT', '1m')), 'spot keeps the original layout');
 });
 
+t('open interest series chunk by month like 1m bars', () => {
+  const t0 = Date.UTC(2026, 11, 3) / 1000;
+  store.write('BTCUSDT', 'oi_1m', [bar(t0), bar(t0 + 60)], 'perp');
+  assert.deepEqual(store.chunkKeys('BTCUSDT', 'oi_1m', 'perp'), ['2026-12']);
+  assert.equal(store.read('BTCUSDT', '1m', t0, t0 + 60, 'perp').length, 0, 'OI must not leak into price bars');
+});
+
 t('stats and clear', () => {
   const s = store.stats();
   assert.ok(s.files >= 3 && s.bytes > 0, JSON.stringify(s));

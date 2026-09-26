@@ -33,6 +33,7 @@ export class RemoteProvider extends DataProvider {
     this.bridge.onBar(route('onBar', 'bar'));
     this.bridge.onTicker(route('onTicker', 'ticker'));
     this.bridge.onFunding(route('onFunding', 'funding'));
+    this.bridge.onOI(route('onOI', 'oi'));
 
     this.bridge.onStatus(({ market, status }) => {
       if (market !== this.market || this.status === status) return;
@@ -64,6 +65,11 @@ export class RemoteProvider extends DataProvider {
   /** @returns {Promise<{symbol, markPrice, fundingRate, nextFundingTime}|null>} null on spot */
   getFunding(symbol) {
     return this.call('getFunding', [symbol]);
+  }
+
+  /** Perpetuals only: [{time (ms), value, valueUsd}], 5m and up, 30 days deep. */
+  getOpenInterestHist(symbol, period, startMs, endMs) {
+    return this.call('getOpenInterestHist', [symbol, period, startMs, endMs]);
   }
 
   searchSymbols(query) {
