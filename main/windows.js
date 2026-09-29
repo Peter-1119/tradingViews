@@ -93,6 +93,31 @@ function traceWindow(win, label) {
   win.webContents.on('responsive', () => log('responsive'));
 }
 
+/**
+ * Clicking a pinned card can leave it *under* the window that had focus.
+ *
+ * Seen with VS Code maximized on the same monitor: the click activates the
+ * card and, in the same moment, VS Code lands above it in the z-order -- a
+ * non-topmost window above a topmost one. Every flag still reads right
+ * (visible, topmost, not minimized), so nothing in Electron notices; only the
+ * watchdog's moveTop, up to 3s later, put the card back. Do the same repair
+ * on activation, a few times over, since the reorder lands after it.
+ */
+const ACTIVATION_REPAIR_DELAYS_MS = [0, 120, 400, 1000];
+
+function keepOnTopWhenActivated(win) {
+  win.on('focus', () => {
+    if (!wantsOnTop(win)) return;
+    for (const delay of ACTIVATION_REPAIR_DELAYS_MS) {
+      setTimeout(() => {
+        if (state.quitting || state.allHidden || win.isDestroyed() || !win.isVisible()) return;
+        win.setAlwaysOnTop(true, 'floating');
+        win.moveTop();
+      }, delay);
+    }
+  });
+}
+
 /** Minimized or hidden while the app thinks it is showing: not on screen. */
 function isMissing(win) {
   return win.isMinimized() || !win.isVisible();
@@ -223,6 +248,7 @@ function createCardWindow(card) {
   win.setMenu(null);
   keepUnminimized(win);
   traceWindow(win, `card ${card.symbol}`);
+  keepOnTopWhenActivated(win);
   if (card.alwaysOnTop !== false) win.setAlwaysOnTop(true, 'floating');
   if (card.windowOpacity < 1) win.setOpacity(card.windowOpacity);
 
@@ -301,6 +327,7 @@ function createBoardWindow() {
 
   win.setMenu(null);
   keepUnminimized(win);
+  keepOnTopWhenActivated(win);
   win.setAlwaysOnTop(board.alwaysOnTop, board.alwaysOnTop ? 'floating' : 'normal');
   win.loadURL(url('board.html'));
 
