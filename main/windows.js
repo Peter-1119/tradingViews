@@ -556,6 +556,47 @@ function setAlwaysOnTopAll(flag) {
   broadcast('app:always-on-top', { alwaysOnTop: flag });
 }
 
+/* ------------------------------------------------------- alert flashing */
+
+const flashing = new Set();
+
+/**
+ * Flash the taskbar for an alert: the windows showing that symbol, or every
+ * card if none does (the toast says which symbol it was).
+ *
+ * Cards are skipTaskbar, and a window with no taskbar button has nothing to
+ * flash -- so each gets a button for as long as it flashes, and loses it again
+ * the moment the user attends to it.
+ */
+function flashFor({ symbol, market }) {
+  let targets;
+  if (getMode() === 'board') {
+    targets = state.board && !state.board.isDestroyed() ? [state.board] : [];
+  } else {
+    const showing = [...state.cards].filter(([id]) => {
+      const card = store.getCard(id);
+      return card && card.symbol === symbol && card.market === market;
+    });
+    targets = (showing.length ? showing : [...state.cards]).map(([, win]) => win);
+  }
+  for (const win of targets) {
+    if (!win || win.isDestroyed() || flashing.has(win)) continue;
+    flashing.add(win);
+    win.setSkipTaskbar(false);
+    win.flashFrame(true);
+    // Clicking a card activates it, which is the acknowledgement.
+    win.once('focus', () => stopFlash(win));
+  }
+}
+
+function stopFlash(win) {
+  if (!win || !flashing.has(win)) return;
+  flashing.delete(win);
+  if (win.isDestroyed()) return;
+  win.flashFrame(false);
+  win.setSkipTaskbar(true);
+}
+
 /* --------------------------------------------------------- click-through */
 
 function applyClickThroughTo(win, enabled) {
@@ -651,6 +692,8 @@ module.exports = {
   toggleClickThrough,
   isClickThrough,
   setIgnoreMouseEventsFor,
+  flashFor,
+  stopFlash,
   broadcast,
   sendToHub,
   sendToWebContents,

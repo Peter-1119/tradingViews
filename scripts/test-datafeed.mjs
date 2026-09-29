@@ -774,6 +774,65 @@ await test('bucketing: coarse bars aggregate, and long gaps stay empty', () => {
   assert.deepEqual(later.map((b) => b.time), [T + 3600], 'only the bar within the gap limit');
 });
 
+/* ----------------------------------------------------- price position */
+
+const { buildCdf, percentileOf, LevelTrigger } = await import('../renderer/position.js');
+
+console.log('');
+console.log('price position');
+
+await test('percentile is the share of volume traded below the price', () => {
+  // Two one-price bars: 30 at 100, 70 at 200. Rows span 100..200.
+  const bars = [
+    { high: 100, low: 100, volume: 30 },
+    { high: 200, low: 200, volume: 70 },
+    { high: 200, low: 100, volume: 0 },
+  ];
+  const cdf = buildCdf(bars, 10);
+  assert.equal(percentileOf(cdf, 99), 0, 'below the range');
+  assert.equal(percentileOf(cdf, 201), 1, 'above the range: a breakout reads 100%');
+  // Anything between the two clusters has exactly the lower one below it.
+  assert.ok(Math.abs(percentileOf(cdf, 150) - 0.3) < 1e-9, String(percentileOf(cdf, 150)));
+});
+
+await test('a two-peaked distribution needs no fitting', () => {
+  // Heavy nodes at 100 and 300, nothing in between: the middle of the range
+  // is the 50th percentile of volume, whatever a single Gaussian would say.
+  const bars = [];
+  for (let i = 0; i < 50; i++) bars.push({ high: 101, low: 99, volume: 1 });
+  for (let i = 0; i < 50; i++) bars.push({ high: 301, low: 299, volume: 1 });
+  const cdf = buildCdf(bars, 100);
+  assert.ok(Math.abs(percentileOf(cdf, 200) - 0.5) < 1e-9);
+  assert.ok(percentileOf(cdf, 101.5) > 0.49 && percentileOf(cdf, 298) < 0.51);
+});
+
+await test('trigger: each level once, re-armed only back at 50%', () => {
+  const t = new LevelTrigger([5, 10, 20, 80, 90, 95]);
+  const run = (seq) => seq.map((p) => t.update(p)).map((h) => (h ? `${h.side}${h.level}` : '-')).join(' ');
+  assert.equal(
+    run([0.5, 0.79, 0.81, 0.78, 0.82, 0.91, 0.6, 0.85, 0.5, 0.81]),
+    '- - high80 - - high90 - - - high80',
+    'wiggling at 80 alerts once; 60% is not enough to re-arm; 50% is'
+  );
+});
+
+await test('trigger: a jump reports only the furthest level, and priming is silent', () => {
+  const t = new LevelTrigger([5, 10, 20, 80, 90, 95]);
+  t.update(0.5);
+  assert.deepEqual(t.update(0.97), { side: 'high', level: 95 });
+  assert.equal(t.update(0.92), null, '80 and 90 were passed on the way, not skipped');
+
+  const launched = new LevelTrigger([5, 10, 20, 80, 90, 95]);
+  assert.equal(launched.update(0.93), null, 'already at 93% on launch: no burst of alerts');
+  assert.deepEqual(launched.update(0.96), { side: 'high', level: 95 }, 'but the next level still fires');
+});
+
+await test('trigger: only the levels asked for (4H at 5 and 95)', () => {
+  const t = new LevelTrigger([5, 95]);
+  const hits = [0.5, 0.85, 0.92, 0.96, 0.4, 0.15, 0.04].map((p) => t.update(p)).filter(Boolean);
+  assert.deepEqual(hits, [{ side: 'high', level: 95 }, { side: 'low', level: 5 }]);
+});
+
 /* ------------------------------------------------------ volume profile */
 
 const { buildProfile, sessionBounds, buildPeriodProfiles, PERIOD_4H } = await import('../renderer/volume-profile.js');

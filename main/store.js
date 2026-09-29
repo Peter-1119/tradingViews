@@ -19,6 +19,10 @@ const VP_MODES = ['off', 'session4h', 'visible', 'day'];
 /** Binance spot, or USD-M perpetuals. */
 const MARKETS = ['spot', 'perp'];
 
+/** Position-alert windows and the percentile levels each may alert on. */
+const ALERT_WINDOWS = ['4H', '24H', '72H'];
+const ALERT_LEVELS = [5, 10, 20, 80, 90, 95];
+
 const CARD_MIN_WIDTH = 220;
 const CARD_MIN_HEIGHT = 140;
 const CARD_DEFAULT_WIDTH = 340;
@@ -55,6 +59,20 @@ const DEFAULTS = {
    * right one.
    */
   watchlist: [],
+  /**
+   * Price-position alerts for watchlist symbols. 4H only at the extremes:
+   * measured, a 4h window alerts ~45 times a day per symbol at every level,
+   * and ~11 at 5/95 alone -- where a 4h breakout is the news.
+   */
+  alerts: {
+    toast: true,
+    flash: true,
+    levels: {
+      '4H': [5, 95],
+      '24H': [5, 10, 20, 80, 90, 95],
+      '72H': [5, 10, 20, 80, 90, 95],
+    },
+  },
   /**
    * Horizontal support/resistance levels, keyed by symbol -- deliberately not
    * by card, not by interval, and not by market: spot and perp BTCUSDT track
@@ -291,7 +309,28 @@ function getGlobalPrefs() {
     shortcuts: getShortcuts(),
     boardColumns: getBoard().columns,
     watchlist: getWatchlist(),
+    alerts: getAlerts(),
   };
+}
+
+function getAlerts() {
+  const raw = store.get('alerts') || {};
+  const levels = {};
+  for (const name of ALERT_WINDOWS) {
+    const list = raw.levels && Array.isArray(raw.levels[name]) ? raw.levels[name] : DEFAULTS.alerts.levels[name];
+    levels[name] = ALERT_LEVELS.filter((l) => list.includes(l));
+  }
+  return { toast: raw.toast !== false, flash: raw.flash !== false, levels };
+}
+
+function setAlerts(patch = {}) {
+  const current = getAlerts();
+  store.set('alerts', {
+    ...current,
+    ...patch,
+    levels: { ...current.levels, ...(patch.levels || {}) },
+  });
+  return getAlerts();
 }
 
 /**
@@ -552,6 +591,10 @@ module.exports = {
   getTimezone,
   getWatchlist,
   setWatchlist,
+  getAlerts,
+  setAlerts,
+  ALERT_WINDOWS,
+  ALERT_LEVELS,
   sanitizeWatchlist,
   normalizeBounds,
   defaultCardBounds,

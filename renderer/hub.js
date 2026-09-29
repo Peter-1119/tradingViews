@@ -15,6 +15,7 @@
  */
 
 import { BinanceProvider, MARKETS, counterpartSymbol } from './datafeed/binance.js';
+import { AlertMonitor } from './alert-monitor.js';
 
 const hub = window.stockcardHub;
 
@@ -113,6 +114,17 @@ hub.onReleaseOwner(({ ownerId, cardId }) => {
   }
 });
 
+/* ----------------------------------------------------- position alerts */
+
+const monitor = new AlertMonitor({
+  feedFor: feed,
+  onAlert: (alert) => hub.alert(alert),
+  onState: (state) => hub.alertState(state),
+});
+
+/** The watchlist and the alert levels, from main, whenever either changes. */
+hub.onWatch(({ entries, levels }) => monitor.setWatch(entries, levels));
+
 /* -------------------------------------------------------------- status */
 
 for (const [market, provider] of providers) {
@@ -122,6 +134,7 @@ for (const [market, provider] of providers) {
 }
 
 window.addEventListener('unload', () => {
+  monitor.destroy();
   for (const provider of providers.values()) provider.destroy();
 });
 

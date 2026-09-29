@@ -17,6 +17,11 @@ const windows = require('./windows');
 const tray = require('./tray');
 const shortcuts = require('./shortcuts');
 const barStore = require('./bar-store');
+const alerts = require('./alerts');
+
+// Toasts are attributed by AppUserModelID; the same id the installer uses,
+// so dev and packaged builds show up as the same app in Windows settings.
+app.setAppUserModelId('com.stockcard.desktop');
 
 // Must happen before `ready`.
 protocolSetup.registerScheme();
@@ -74,7 +79,20 @@ function hubRequest(market, method, args, timeoutMs = 20000) {
 ipcMain.on('hub:ready', () => {
   hubReady = true;
   flushHubQueue();
+  sendWatch();
 });
+
+/** Tell the hub what to monitor for position alerts, and at which levels. */
+function sendWatch() {
+  const entries = store.getWatchlist();
+  alerts.prune(entries);
+  sendHub('hub:watch', { entries, levels: store.getAlerts().levels });
+}
+
+ipcMain.on('hub:alert', (_event, alert) => alerts.fire(alert));
+ipcMain.on('hub:alert-state', (_event, state) => alerts.setState(state));
+ipcMain.handle('alerts:states', () => alerts.getStates());
+ipcMain.on('alerts:ack', (event) => windows.stopFlash(windows.windowFromEvent(event)));
 
 ipcMain.on('hub:response', (_event, { reqId, ok, data, error }) => {
   const pending = pendingHubRequests.get(reqId);
@@ -123,6 +141,8 @@ ipcMain.handle('prefs:set', (_event, patch = {}) => {
   if ('launchAtStartup' in patch) tray.setLaunchAtStartup(patch.launchAtStartup);
   if ('boardColumns' in patch) store.setBoard({ columns: patch.boardColumns });
   if ('watchlist' in patch) store.setWatchlist(patch.watchlist);
+  if ('alerts' in patch) store.setAlerts(patch.alerts);
+  if ('watchlist' in patch || 'alerts' in patch) sendWatch();
   const prefs = store.getGlobalPrefs();
   windows.broadcast('app:prefs', prefs);
   tray.refresh();

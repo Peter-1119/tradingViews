@@ -82,6 +82,51 @@ function toggle({ label, checked, onChange }) {
   };
 }
 
+/**
+ * Which levels alert, per window: a grid of on/off chips. Low side first,
+ * then high, the way the levels read on a price axis turned sideways.
+ */
+function alertGrid(levels, onChange) {
+  const WINDOW_NAMES = ['4H', '24H', '72H'];
+  const LEVELS = [5, 10, 20, 80, 90, 95];
+  let current = levels;
+  const chips = new Map();
+  const root = el(
+    'div.sc-alert-grid',
+    {},
+    WINDOW_NAMES.map((name) =>
+      el(
+        'div.sc-alert-grid__row',
+        {},
+        el('span.sc-alert-grid__label', { text: name }),
+        LEVELS.map((level) => {
+          const chip = el('button.sc-seg__btn.sc-alert-grid__chip', {
+            type: 'button',
+            text: `${level}`,
+            title: `${name} 碰到 ${level}% 時提醒`,
+            onclick: () => {
+              const list = current[name] || [];
+              const next = list.includes(level) ? list.filter((l) => l !== level) : [...list, level];
+              onChange({ ...current, [name]: next });
+            },
+          });
+          chips.set(`${name}:${level}`, chip);
+          return chip;
+        })
+      )
+    )
+  );
+  const setValue = (next) => {
+    current = next;
+    for (const [key, chip] of chips) {
+      const [name, level] = key.split(':');
+      chip.classList.toggle('is-active', (next[name] || []).includes(Number(level)));
+    }
+  };
+  setValue(levels);
+  return { root, setValue };
+}
+
 function row(label, control) {
   return el('div.sc-row', {}, el('div.sc-row__label', { text: label }), el('div.sc-row__control', {}, control));
 }
@@ -189,6 +234,18 @@ export class SettingsPanel {
       onChange: (accel) => onShortcut('toggleShow', accel),
     });
 
+    this.alertLevels = alertGrid(prefs.alerts.levels, (levels) => onPrefs({ alerts: { levels } }));
+    this.alertToast = toggle({
+      label: 'Windows 通知（玩遊戲時會被專注輔助收進通知中心）',
+      checked: prefs.alerts.toast,
+      onChange: (toast) => onPrefs({ alerts: { toast } }),
+    });
+    this.alertFlash = toggle({
+      label: '工作列閃爍（點一下卡片停止）',
+      checked: prefs.alerts.flash,
+      onChange: (flash) => onPrefs({ alerts: { flash } }),
+    });
+
     this.clickThroughAccel = new ShortcutInput({
       value: prefs.shortcuts.toggleClickThrough,
       onChange: (accel) => onShortcut('toggleClickThrough', accel),
@@ -225,6 +282,8 @@ export class SettingsPanel {
         el('div.sc-divider', { text: '全域設定' }),
         row('漲跌顏色', this.upDownSeg.root),
         row('時間顯示', this.timezoneSeg.root),
+        row('位置提醒（常用清單）', this.alertLevels.root),
+        el('div.sc-row.sc-row--stack', {}, this.alertToast.root, this.alertFlash.root),
         row('顯示/隱藏全部卡片', this.showAccel.root),
         row('切換滑鼠穿透', this.clickThroughAccel.root),
         el('div.sc-row.sc-row--stack', {}, this.startupToggle.root)
@@ -236,6 +295,9 @@ export class SettingsPanel {
   updatePrefs(prefs) {
     this.upDownSeg.setValue(prefs.upDownColor);
     this.timezoneSeg.setValue(prefs.timezone);
+    this.alertLevels.setValue(prefs.alerts.levels);
+    this.alertToast.setValue(prefs.alerts.toast);
+    this.alertFlash.setValue(prefs.alerts.flash);
     this.startupToggle.setValue(prefs.launchAtStartup);
     this.showAccel.setValue(prefs.shortcuts.toggleShow);
     this.clickThroughAccel.setValue(prefs.shortcuts.toggleClickThrough);

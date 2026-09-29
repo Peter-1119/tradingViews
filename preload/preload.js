@@ -95,6 +95,12 @@ const api = {
   onClickThrough: (cb) => on('app:click-through', cb),
   onAlwaysOnTop: (cb) => on('app:always-on-top', cb),
   onMode: (cb) => on('app:mode', cb),
+
+  /* ------------------------------------------------ position alerts */
+  alertStates: () => ipcRenderer.invoke('alerts:states'),
+  onAlertState: (cb) => on('alerts:state', cb),
+  onAlertFired: (cb) => on('alerts:fired', cb),
+  ackAlert: () => ipcRenderer.send('alerts:ack'),
 };
 
 /**
@@ -111,6 +117,9 @@ const hubApi = {
   emit: (ownerId, channel, payload) => ipcRenderer.send('hub:emit', { ownerId, channel, payload }),
   writeBars: (market, symbol, interval, bars) =>
     ipcRenderer.invoke('bars:write', { market, symbol, interval, bars }),
+  onWatch: (cb) => on('hub:watch', cb),
+  alert: (payload) => ipcRenderer.send('hub:alert', payload),
+  alertState: (payload) => ipcRenderer.send('hub:alert-state', payload),
 };
 
 contextBridge.exposeInMainWorld('stockcard', api);

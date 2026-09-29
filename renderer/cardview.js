@@ -14,6 +14,7 @@ import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchl
 import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
 import { oiPoints, bucketOI, historyRecords, OI_MAX_GAP_SEC } from './open-interest.js';
+import { WINDOWS as POSITION_WINDOWS } from './position.js';
 import {
   el,
   formatPrice,
@@ -263,6 +264,25 @@ export class CardView {
     this.noticeEl = el('div.card__notice', { hidden: true });
     this.chartEl.append(this.fundingEl, this.noticeEl);
 
+    // Where price sits in its 4H / 24H / 72H volume distribution. Watchlist
+    // symbols only: those are the ones the hub monitors. Always visible, unlike
+    // the rest of the chrome -- it is the thing to glance at before an entry.
+    this.positionCells = new Map();
+    this.positionEl = el(
+      'div.card__position',
+      { hidden: true, title: '目前價格在最近 4H / 24H / 72H 成交量分布中的位置（以下成交量佔比）' },
+      Object.keys(POSITION_WINDOWS).map((name) => {
+        const value = el('span.card__position-value', { text: '—' });
+        const cell = el('span.card__position-cell', {}, el('span.card__position-label', { text: name }), value);
+        this.positionCells.set(name, { cell, value });
+        return cell;
+      })
+    );
+    this.chartEl.append(this.positionEl);
+    /** The latest position state for this card's symbol, and an unacknowledged alert. */
+    this.position = null;
+    this.alerting = null;
+
     this.overlayText = el('div.card__overlay-text', { text: '載入中…' });
     this.retryBtn = el('button.sc-btn', {
       type: 'button',
@@ -339,6 +359,14 @@ export class CardView {
     this.setStatus(this.feed.getStatus());
     this.refreshCounterpart();
     this.fundingTimer = setInterval(() => this.renderFunding(), 1000);
+
+    this.offAlertState = window.stockcard.onAlertState((state) => this.applyPosition(state));
+    this.offAlertFired = window.stockcard.onAlertFired((alert) => this.applyAlert(alert));
+    this.loadPosition();
+    // Any press on the card acknowledges: clears the glow and stops the
+    // taskbar flash for this window.
+    this.onAcknowledge = () => this.acknowledgeAlert();
+    this.root.addEventListener('pointerdown', this.onAcknowledge, true);
 
     this.bindUndo();
     this.bindLevelInput();
@@ -855,6 +883,71 @@ export class CardView {
     const step = intervalToMs(this.card.interval) / 1000;
     const [record] = bucketOI(this.oiPoints.slice(k), [lastBar.time], step);
     if (record) this.chart.updateOI(record);
+  }
+
+  /* ------------------------------------------------------------ position */
+
+  /** A card opened mid-session asks for what the hub has already said. */
+  async loadPosition() {
+    const key = this.dataKey();
+    const states = await window.stockcard.alertStates();
+    if (this.destroyed || key !== this.dataKey()) return;
+    for (const state of states) this.applyPosition(state);
+  }
+
+  isMine(entry) {
+    return entry && entry.symbol === this.card.symbol && entry.market === this.card.market;
+  }
+
+  applyPosition(state) {
+    if (!this.isMine(state)) return;
+    this.position = state;
+    this.renderPosition();
+  }
+
+  applyAlert(alert) {
+    if (!this.isMine(alert)) return;
+    this.alerting = alert;
+    this.root.classList.add('is-alerting');
+    this.root.dataset.alertSide = alert.side;
+    this.renderPosition();
+  }
+
+  acknowledgeAlert() {
+    window.stockcard.ackAlert();
+    if (!this.alerting) return;
+    this.alerting = null;
+    this.root.classList.remove('is-alerting');
+    delete this.root.dataset.alertSide;
+    this.renderPosition();
+  }
+
+  /** Called up to 4x a second: only text and classes change, never the DOM. */
+  renderPosition() {
+    const watched = this.watchlistEntries().some((e) => sameEntry(e, this.currentEntry()));
+    const state = watched ? this.position : null;
+    this.positionEl.hidden = !state;
+    if (!state) return;
+    for (const [name, { cell, value }] of this.positionCells) {
+      const pct = state.pcts ? state.pcts[name] : null;
+      const shown = pct === null || pct === undefined ? '—' : Math.round(pct * 100);
+      const alert = this.alerting && this.alerting.window === name ? this.alerting : null;
+      value.textContent = alert ? `${shown} ${alert.side === 'high' ? '↑' : '↓'}${alert.level}` : String(shown);
+      const zone =
+        pct === null || pct === undefined
+          ? ''
+          : pct >= 0.95
+            ? 'hot'
+            : pct >= 0.8
+              ? 'high'
+              : pct <= 0.05
+                ? 'cold'
+                : pct <= 0.2
+                  ? 'low'
+                  : '';
+      if (cell.dataset.zone !== zone) cell.dataset.zone = zone;
+      cell.classList.toggle('is-alert', !!alert);
+    }
   }
 
   /* ------------------------------------------------------------------ undo */
@@ -1396,6 +1489,9 @@ export class CardView {
     if (this.offStatus) this.offStatus.forEach((off) => off());
     clearInterval(this.fundingTimer);
     clearTimeout(this.noticeTimer);
+    if (this.offAlertState) this.offAlertState();
+    if (this.offAlertFired) this.offAlertFired();
+    if (this.onAcknowledge) this.root.removeEventListener('pointerdown', this.onAcknowledge, true);
     if (this.offLevels) this.offLevels();
     if (this.onLevelDblClick) {
       this.chartEl.removeEventListener('dblclick', this.onLevelDblClick);
@@ -1738,6 +1834,7 @@ export class CardView {
     this.panel.updatePrefs(prefs);
     this.renderQuote();
     this.renderWatch();
+    this.renderPosition();
   }
 
   /* ------------------------------------------------------------ watchlist */
@@ -1784,7 +1881,7 @@ export class CardView {
       ? `把 ${entryLabel(current)} 從常用清單移除`
       : list.length >= WATCHLIST_MAX
         ? `常用清單已滿 (最多 ${WATCHLIST_MAX} 個)`
-        : `把 ${entryLabel(current)} 加入常用清單`;
+        : `把 ${entryLabel(current)} 加入常用清單（並監控 4H / 24H / 72H 位置）`;
     this.watchlist.setState(list, current);
   }
 
@@ -1837,6 +1934,12 @@ export class CardView {
       if (next.symbol !== prev.symbol || marketChanged) {
         this.refreshCounterpart();
         this.resetOI();
+        this.position = null;
+        this.alerting = null;
+        this.root.classList.remove('is-alerting');
+        delete this.root.dataset.alertSide;
+        this.renderPosition();
+        this.loadPosition();
       }
       // Levels belong to the symbol, so a symbol switch swaps the whole set.
       // A market switch that keeps the name keeps them too: BTCUSDT's lines
