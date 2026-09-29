@@ -109,6 +109,10 @@ async function main() {
   // Stop rendering while hidden but keep caching bars (spec 5).
   api.onVisibility(({ hidden }) => (hidden ? view.pause() : view.resume()));
   document.addEventListener('visibilitychange', () => {
+    // Chromium also sets this on its own when it decides the window is fully
+    // covered (native occlusion), and then stops painting it; logged so a
+    // trace can tell that apart from the window really being hidden.
+    console.log(`[page] visibility ${document.visibilityState}`);
     if (document.hidden) view.pause();
     else view.resume();
   });

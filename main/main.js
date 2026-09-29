@@ -400,7 +400,7 @@ ipcMain.on('datafeed:unsubscribe', (event, { subId, market } = {}) => {
 app.on('browser-window-created', (_event, win) => {
   const wcId = win.webContents.id;
 
-  if (windows.state.isDev) {
+  if (windows.state.isDev || windows.state.traceWindows) {
     // Surface renderer logs in the terminal; without this a failed module
     // import in a frameless transparent window is completely silent.
     win.webContents.on('console-message', (...args) => {

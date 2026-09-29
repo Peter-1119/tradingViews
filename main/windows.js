@@ -28,6 +28,8 @@ const state = {
   // card, and those handlers must not start work the process will not survive.
   quitting: false,
   isDev: process.argv.includes('--dev'),
+  /** `--trace-windows`: log every window event, to diagnose a card that vanishes. */
+  traceWindows: process.argv.includes('--trace-windows') || process.env.STOCKCARD_TRACE === '1',
   openDevTools: process.argv.includes('--devtools'),
 };
 
@@ -65,6 +67,30 @@ function keepUnminimized(win) {
       if (!win.isDestroyed() && win.isMinimized()) win.showInactive();
     });
   });
+}
+
+/**
+ * Diagnostic trail for "the card vanished": which of the ways a window can
+ * leave the screen actually happened, in order. Off unless asked for.
+ */
+function traceWindow(win, label) {
+  if (!state.traceWindows) return;
+  const t0 = Date.now();
+  const log = (what) => {
+    if (win.isDestroyed()) return;
+    const b = win.getBounds();
+    console.log(
+      `[trace ${label} +${Date.now() - t0}ms] ${what}  visible=${win.isVisible()} minimized=${win.isMinimized()} ` +
+        `onTop=${win.isAlwaysOnTop()} focused=${win.isFocused()} opacity=${win.getOpacity()} ` +
+        `bounds=${b.x},${b.y} ${b.width}x${b.height}`
+    );
+  };
+  for (const name of ['focus', 'blur', 'show', 'hide', 'minimize', 'restore', 'moved', 'resized', 'always-on-top-changed']) {
+    win.on(name, (_e, extra) => log(extra === undefined ? name : `${name} ${extra}`));
+  }
+  win.webContents.on('render-process-gone', (_e, details) => log(`render-process-gone ${details.reason}`));
+  win.webContents.on('unresponsive', () => log('unresponsive'));
+  win.webContents.on('responsive', () => log('responsive'));
 }
 
 /** Minimized or hidden while the app thinks it is showing: not on screen. */
@@ -196,6 +222,7 @@ function createCardWindow(card) {
 
   win.setMenu(null);
   keepUnminimized(win);
+  traceWindow(win, `card ${card.symbol}`);
   if (card.alwaysOnTop !== false) win.setAlwaysOnTop(true, 'floating');
   if (card.windowOpacity < 1) win.setOpacity(card.windowOpacity);
 
@@ -424,7 +451,10 @@ function reassertAlwaysOnTop() {
   if (state.quitting || state.allHidden) return;
   for (const win of contentWindows()) {
     // Backstop for a minimize the 'minimize' event did not undo.
-    if (win.isMinimized()) win.showInactive();
+    if (win.isMinimized()) {
+      console.log('[visibility] watchdog found a minimized card; restoring it');
+      win.showInactive();
+    }
     // Ask the store, not the window. When Windows strips the topmost flag --
     // starting a game does it -- `isAlwaysOnTop()` answers false too, so
     // asking the window skipped exactly the cards this exists to repair.
@@ -433,6 +463,7 @@ function reassertAlwaysOnTop() {
     // setAlwaysOnTop repairs the flag in the rarer case Windows really did drop
     // it; moveTop repairs the ordering *within* the band, which is the common
     // one. Neither subsumes the other.
+    if (state.traceWindows) console.log('[trace watchdog] re-asserting on-top + moveTop');
     win.setAlwaysOnTop(true, 'floating');
     win.moveTop();
   }
