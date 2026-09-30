@@ -647,10 +647,21 @@ export class CardChart {
     // records and re-attach them to the replacement.
     const levels = [...this.levels.values()].map((entry) => entry.level);
 
+    // Sub-panes first. The library drops a pane as soon as its last series
+    // goes, so removing the price series while volume / OI still stood below
+    // shifted them up into pane 0 -- and the new price series then landed in
+    // the OI pane, on OI's scale: a price of 2,670 against an axis running to
+    // 2.3M, flat along the bottom. Clear them, swap the price series in the
+    // (now empty) top pane, and rebuild them underneath from the data held.
+    if (this.volumeSeries) this.chart.removeSeries(this.volumeSeries);
+    if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
+    this.volumeSeries = null;
+    this.oiSeries = null;
     this.chart.removeSeries(this.priceSeries);
     this.levels.clear();
     this.createPriceSeries();
     this.render();
+    this.syncSubPanes();
     this.setLevels(levels);
 
     // Preserve the viewport so the switch does not feel like a reload.
