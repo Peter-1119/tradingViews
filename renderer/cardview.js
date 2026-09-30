@@ -65,6 +65,8 @@ const OI_HISTORY_SEC = 30 * 24 * 3600 - 120;
 const OI_MINUTES_SEC = 3 * 24 * 3600;
 /** Live samples kept in memory, so a reload does not lose the current minute. */
 const OI_LIVE_KEEP_SEC = 2 * 3600;
+/** Head, tail and holes fetched per load; the rest wait for the next one. */
+const OI_MAX_FETCH_RANGES = 8;
 
 export class CardView {
   /**
@@ -104,6 +106,8 @@ export class CardView {
     /** Open interest points {t, v} behind the OI pane, and this session's live ones. */
     this.oiPoints = [];
     this.oiLive = [];
+    /** Cache holes already asked of the exchange this session; see backfillOIHistory. */
+    this.oiHolesTried = new Set();
     this.oiSeq = 0;
     /** {key, promise} -- the other market's name for this symbol, being looked up. */
     this.counterpartJob = null;
@@ -845,19 +849,47 @@ export class CardView {
   }
 
   /**
-   * Fetch the 5m history the cache is missing and store it. Usually that is
-   * only the tail since the last visit -- so as long as the app is opened at
-   * least once every 30 days, the cache keeps growing past the exchange's
-   * own 30-day window.
+   * Fetch the 5m history the cache is missing and store it: the head, the
+   * tail since the last visit, and any hole in between -- as long as it is
+   * still inside the exchange's 30 days. So as long as the app is opened at
+   * least once every 30 days, the cache keeps growing past that window.
+   *
+   * Holes used to be left alone: only the tail after the newest cached
+   * sample was fetched. But the range asked about is the chart's, not the
+   * cache's -- open a 1m chart the next morning and it covers only the last
+   * ~8h, fetches just that, and the evening before is never asked for again
+   * once older samples sit on both sides of it. The OI line then ran flat
+   * across the missing hours.
    */
   async backfillOIHistory(symbol, from, now, cached) {
     const want = Math.max(from, now - OI_HISTORY_SEC);
-    const headMissing = !cached.length || cached[0].time > want + 300;
-    const start = headMissing ? want : cached[cached.length - 1].time + 1;
-    // Samples land on 5m boundaries, a few minutes late; nothing new yet.
-    if (now - start < 300) return [];
-    const rows = await this.feed.getOpenInterestHist(symbol, '5m', start * 1000, now * 1000);
-    const records = historyRecords(rows);
+    const have = cached.filter((r) => r.time >= want);
+    const ranges = [];
+    if (!have.length) {
+      ranges.push([want, now]);
+    } else {
+      if (have[0].time > want + 300) ranges.push([want, have[0].time - 1]);
+      for (let i = 1; i < have.length; i++) {
+        const a = have[i - 1].time;
+        const b = have[i].time;
+        if (b - a <= OI_MAX_GAP_SEC) continue;
+        // A hole the exchange itself has would otherwise be asked for again on
+        // every load; one try per session is enough.
+        const key = `${symbol}:${a}:${b}`;
+        if (this.oiHolesTried.has(key)) continue;
+        this.oiHolesTried.add(key);
+        ranges.push([a + 1, b - 1]);
+      }
+      ranges.push([have[have.length - 1].time + 1, now]);
+    }
+
+    const records = [];
+    for (const [start, end] of ranges.slice(0, OI_MAX_FETCH_RANGES)) {
+      // Samples land on 5m boundaries, a few minutes late; nothing new yet.
+      if (end - start < 300) continue;
+      const rows = await this.feed.getOpenInterestHist(symbol, '5m', start * 1000, end * 1000);
+      records.push(...historyRecords(rows));
+    }
     if (records.length) window.stockcard.writeBars('perp', symbol, 'oi_5m', records);
     return records;
   }

@@ -469,7 +469,7 @@ export class CardChart {
         scaleMargins: { top: 0.2, bottom: 0.1 },
         borderVisible: false,
       });
-      this.oiSeries.setData(this.oiData.map((r) => ({ time: r.time, value: r.close })));
+      this.oiSeries.setData(this.oiSeriesData());
     }
     this.layoutPanes();
   }
@@ -627,7 +627,7 @@ export class CardChart {
       this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
     }
     if (this.oiSeries) {
-      this.oiSeries.setData(this.oiData.map((r) => ({ time: r.time, value: r.close })));
+      this.oiSeries.setData(this.oiSeriesData());
     }
   }
 
@@ -1025,7 +1025,29 @@ export class CardChart {
       this.dirtyWhilePaused = true;
       return;
     }
-    this.oiSeries.setData(this.oiData.map((r) => ({ time: r.time, value: r.close })));
+    this.oiSeries.setData(this.oiSeriesData());
+  }
+
+  /**
+   * The OI records as line points, with a whitespace point on every bar in
+   * between that has none. A line series joins whatever points it is given,
+   * so a stretch with no measurement drew as a flat line -- reading as "OI
+   * did not move" when the truth was "nobody measured it".
+   */
+  oiSeriesData() {
+    const records = this.oiData;
+    if (!records.length) return [];
+    const byTime = new Map(records.map((r) => [r.time, r.close]));
+    const first = records[0].time;
+    const last = records[records.length - 1].time;
+    const out = [];
+    for (const bar of this.bars) {
+      if (bar.time < first) continue;
+      if (bar.time > last) break;
+      const value = byTime.get(bar.time);
+      out.push(value === undefined ? { time: bar.time } : { time: bar.time, value });
+    }
+    return out;
   }
 
   /** The live bar's OI moved. Same rules as update(): same bar replaces, newer appends. */
