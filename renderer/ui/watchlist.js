@@ -34,14 +34,18 @@ export class WatchlistMenu {
    *   onRemove: (entry: {symbol, market}) => void,
    *   onAdd: () => void,
    *   onSearch: () => void,
+   *   onToggleAlert: (entry: {symbol, market, alert}) => void,
    * }} options
    */
-  constructor({ feedFor, onPick, onRemove, onAdd, onSearch }) {
+  constructor({ feedFor, onPick, onRemove, onAdd, onSearch, onToggleAlert }) {
     this.feedFor = feedFor;
     this.onPick = onPick;
     this.onRemove = onRemove;
     this.onAdd = onAdd;
     this.onSearch = onSearch;
+    this.onToggleAlert = onToggleAlert;
+    /** The tray's master switch: a symbol alerts only when this and its own bell are on. */
+    this.alertsOn = true;
     this.list = [];
     this.current = null;
     /** "market:symbol" -> {last, changePercent}; kept across opens so rows never flash empty. */
@@ -75,9 +79,10 @@ export class WatchlistMenu {
     this.anchor = node;
   }
 
-  setState(list, current) {
+  setState(list, current, alertsOn = true) {
     this.list = list;
     this.current = current;
+    this.alertsOn = alertsOn;
     if (this.isOpen) this.render();
   }
 
@@ -129,6 +134,21 @@ export class WatchlistMenu {
           this.onRemove(entry);
         },
       });
+      const on = entry.alert !== false;
+      const bell = el('button.card__watch-bell', {
+        type: 'button',
+        class: on && this.alertsOn ? 'is-on' : '',
+        title: !this.alertsOn
+          ? `位置提醒總開關已關閉（系統匣右鍵開啟）${on ? '' : '；這個幣種也已關閉'}`
+          : on
+            ? '位置提醒：開（點一下關閉這個幣種）'
+            : '位置提醒：關（點一下開啟這個幣種）',
+        text: on ? '🔔' : '🔕',
+        onclick: (event) => {
+          event.stopPropagation();
+          this.onToggleAlert({ ...entry, alert: !on });
+        },
+      });
       return el(
         'div.card__watch-row',
         {
@@ -149,6 +169,7 @@ export class WatchlistMenu {
         ),
         el('span.card__watch-price', { text: t ? formatPrice(t.last) : '' }),
         change,
+        bell,
         remove
       );
     });

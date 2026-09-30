@@ -40,9 +40,27 @@ function describe(alert) {
   };
 }
 
+/**
+ * Muting is decided here, not in the hub: the hub keeps measuring and keeps
+ * marking levels as fired either way, so turning a symbol (or everything)
+ * back on does not unload a backlog -- it alerts on the next fresh excursion.
+ */
+function isMuted(alert, settings) {
+  if (!settings.enabled) return 'all alerts off';
+  const entry = store.getWatchlist().find((e) => e.symbol === alert.symbol && e.market === alert.market);
+  if (entry && entry.alert === false) return 'symbol muted';
+  return null;
+}
+
 function fire(alert) {
   const settings = store.getAlerts();
-  console.log(`[alerts] ${alert.market}:${alert.symbol} ${alert.window} ${alert.side} ${alert.level}% at ${alert.price}`);
+  const line = `[alerts] ${alert.market}:${alert.symbol} ${alert.window} ${alert.side} ${alert.level}% at ${alert.price}`;
+  const muted = isMuted(alert, settings);
+  if (muted) {
+    console.log(`${line} (not delivered: ${muted})`);
+    return;
+  }
+  console.log(line);
   windows.broadcast('alerts:fired', alert);
 
   if (settings.toast && Notification.isSupported()) {

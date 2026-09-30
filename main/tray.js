@@ -25,6 +25,47 @@ function setLaunchAtStartup(enabled) {
   return !!enabled;
 }
 
+/** Pref changes made here still have to reach every card, as a settings edit would. */
+function prefsChanged() {
+  windows.broadcast('app:prefs', store.getGlobalPrefs());
+  refresh();
+}
+
+/**
+ * Position alerts: a master switch, and one per watchlist symbol. A symbol
+ * alerts only when both are on; muted ones still show their figures.
+ */
+function alertMenu(prefs) {
+  const master = prefs.alerts.enabled;
+  const list = store.getWatchlist();
+  return [
+    {
+      label: '位置提醒',
+      type: 'checkbox',
+      checked: master,
+      click: (item) => {
+        store.setAlerts({ enabled: item.checked });
+        prefsChanged();
+      },
+    },
+    {
+      label: '提醒的幣種',
+      enabled: list.length > 0,
+      submenu: list.map((entry) => ({
+        label: `${entry.symbol}${entry.market === 'perp' ? ' 永續' : ''}${master ? '' : '（總開關關閉中）'}`,
+        type: 'checkbox',
+        checked: entry.alert !== false,
+        click: (item) => {
+          const same = (e) => e.symbol === entry.symbol && e.market === entry.market;
+          const next = store.getWatchlist().map((e) => (same(e) ? { ...e, alert: item.checked } : e));
+          store.setWatchlist(next);
+          prefsChanged();
+        },
+      })),
+    },
+  ];
+}
+
 function buildMenu() {
   const mode = windows.getMode();
   const hidden = windows.isHidden();
@@ -104,6 +145,9 @@ function buildMenu() {
         refresh();
       },
     },
+    { type: 'separator' },
+    ...alertMenu(prefs),
+    { type: 'separator' },
     {
       label: '滑鼠穿透',
       type: 'checkbox',

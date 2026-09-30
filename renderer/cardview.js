@@ -154,6 +154,8 @@ export class CardView {
       onPick: (entry) => this.switchTo(entry),
       onRemove: (entry) => this.setWatchlist(this.watchlistEntries().filter((e) => !sameEntry(e, entry))),
       onAdd: () => this.toggleWatch(),
+      onToggleAlert: (entry) =>
+        this.setWatchlist(this.watchlistEntries().map((e) => (sameEntry(e, entry) ? { ...e, alert: entry.alert } : e))),
       onSearch: () => this.panel.open(),
     });
     this.watchlist.setAnchor(this.symbolEl);
@@ -1955,7 +1957,7 @@ export class CardView {
       : list.length >= WATCHLIST_MAX
         ? `常用清單已滿 (最多 ${WATCHLIST_MAX} 個)`
         : `把 ${entryLabel(current)} 加入常用清單（並監控 4H / 24H / 72H 位置）`;
-    this.watchlist.setState(list, current);
+    this.watchlist.setState(list, current, !this.prefs.alerts || this.prefs.alerts.enabled !== false);
   }
 
   /**

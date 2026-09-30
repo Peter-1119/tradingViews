@@ -65,6 +65,8 @@ const DEFAULTS = {
    * and ~11 at 5/95 alone -- where a 4h breakout is the news.
    */
   alerts: {
+    /** Master switch, from the tray. Off: nothing is delivered for any symbol. */
+    enabled: true,
     toast: true,
     flash: true,
     levels: {
@@ -320,7 +322,7 @@ function getAlerts() {
     const list = raw.levels && Array.isArray(raw.levels[name]) ? raw.levels[name] : DEFAULTS.alerts.levels[name];
     levels[name] = ALERT_LEVELS.filter((l) => list.includes(l));
   }
-  return { toast: raw.toast !== false, flash: raw.flash !== false, levels };
+  return { enabled: raw.enabled !== false, toast: raw.toast !== false, flash: raw.flash !== false, levels };
 }
 
 function setAlerts(patch = {}) {
@@ -346,7 +348,8 @@ function sanitizeWatchlist(raw) {
     const market = pickMarket(entry.market);
     if (!/^[A-Z0-9]{2,30}$/.test(symbol)) continue;
     if (out.some((e) => e.symbol === symbol && e.market === market)) continue;
-    out.push({ symbol, market });
+    // Per-symbol alert switch; on unless turned off, so older lists keep alerting.
+    out.push({ symbol, market, alert: entry.alert !== false });
     if (out.length >= WATCHLIST_MAX) break;
   }
   return out;
