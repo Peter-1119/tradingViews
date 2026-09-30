@@ -1142,13 +1142,15 @@ export class CardView {
             { time: minT, price: maxP },
             { time: maxT, price: maxP },
           ][hit.corner];
-          this.draggingRect = { id: hit.id, mode: 'corner', fixed, orig, next: null };
+          // The corner being dragged, as it was: what Shift locks one axis to.
+          const grab = { time: fixed.time === minT ? maxT : minT, price: fixed.price === minP ? maxP : minP };
+          this.draggingRect = { id: hit.id, mode: 'corner', fixed, grab, orig, next: null };
         } else {
           // No magnet on the reference point: it only measures the offset, and
           // snapping it would make the zone jump the moment it is grabbed.
           const start = this.chart.anchorAt(x, y);
           if (!start) return;
-          this.draggingRect = { id: hit.id, mode: 'move', start, orig, next: null };
+          this.draggingRect = { id: hit.id, mode: 'move', start, startX: x, startY: y, orig, next: null };
         }
         prim().setActive(hit.id);
         this.chart.setInteractionEnabled(false);
@@ -1177,20 +1179,8 @@ export class CardView {
         return;
       }
       if (this.draggingRect) {
-        const d = this.draggingRect;
-        if (d.mode === 'corner') {
-          const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
-          if (!anchor) return;
-          d.next = { a: { ...d.fixed }, b: anchor };
-        } else {
-          const now = this.chart.anchorAt(x, y);
-          if (!now) return;
-          const dt = now.time - d.start.time;
-          const dp = now.price - d.start.price;
-          const shift = (p) => ({ time: Math.round(p.time + dt), price: Number((p.price + dp).toFixed(this.chart.precision)) });
-          d.next = { a: shift(d.orig.a), b: shift(d.orig.b) };
-        }
-        prim().setDraft({ id: d.id, ...d.next });
+        this.rectPointer = { x, y, ctrlKey: event.ctrlKey };
+        this.updateRectDrag(x, y, event.ctrlKey, event.shiftKey);
         return;
       }
       // Hover feedback -- but never while another tool is mid-gesture.
@@ -1221,6 +1211,7 @@ export class CardView {
       if (this.draggingRect) {
         const d = this.draggingRect;
         this.draggingRect = null;
+        this.rectPointer = null;
         this.chart.setInteractionEnabled(true);
         // The first click of a double-click arrives here without moving; not
         // an edit, and must not cost an undo step.
@@ -1248,10 +1239,58 @@ export class CardView {
       if (rect) this.pushUndo({ kind: 'rect-remove', id: rect.id, a: { ...rect.a }, b: { ...rect.b } });
     };
 
+    // Pressing or releasing Shift mid-drag applies straight away, without
+    // waiting for the pointer to move.
+    this.onRectShift = (event) => {
+      if (event.key !== 'Shift' || !this.draggingRect || !this.rectPointer) return;
+      const p = this.rectPointer;
+      this.updateRectDrag(p.x, p.y, p.ctrlKey, event.type === 'keydown');
+    };
+
     el.addEventListener('mousedown', this.onRectDown, true);
     el.addEventListener('dblclick', this.onRectDblClick, true);
     window.addEventListener('mousemove', this.onRectMove);
     window.addEventListener('mouseup', this.onRectUp);
+    window.addEventListener('keydown', this.onRectShift);
+    window.addEventListener('keyup', this.onRectShift);
+  }
+
+  /**
+   * One step of a rectangle drag, pointer at (x, y) in chart coordinates.
+   *
+   * Shift locks the drag to one axis, whichever the pointer has moved further
+   * along: a corner then stretches only the time span or only the price span,
+   * and a move slides only sideways or only up and down. So widening a zone no
+   * longer means re-placing its corner by eye to keep the other edge where it
+   * was. (Shift at *mousedown* is still the measure tool; the lock only
+   * applies once a drag has started.)
+   */
+  updateRectDrag(x, y, ctrlKey, shiftKey) {
+    const d = this.draggingRect;
+    if (!d || !this.chart) return;
+    if (d.mode === 'corner') {
+      const anchor = this.chart.anchorAt(x, y, { magnet: ctrlKey });
+      if (!anchor) return;
+      let b = anchor;
+      if (shiftKey) {
+        const from = this.chart.anchorToPixel(d.grab);
+        const horizontal = !from || Math.abs(x - from.x) >= Math.abs(y - from.y);
+        b = horizontal ? { time: anchor.time, price: d.grab.price } : { time: d.grab.time, price: anchor.price };
+      }
+      d.next = { a: { ...d.fixed }, b };
+    } else {
+      const now = this.chart.anchorAt(x, y);
+      if (!now) return;
+      let dt = now.time - d.start.time;
+      let dp = now.price - d.start.price;
+      if (shiftKey) {
+        if (Math.abs(x - d.startX) >= Math.abs(y - d.startY)) dp = 0;
+        else dt = 0;
+      }
+      const move = (p) => ({ time: Math.round(p.time + dt), price: Number((p.price + dp).toFixed(this.chart.precision)) });
+      d.next = { a: move(d.orig.a), b: move(d.orig.b) };
+    }
+    this.chart.rects.setDraft({ id: d.id, ...d.next });
   }
 
   /* ------------------------------------------------------------------ fibs */
@@ -1524,6 +1563,8 @@ export class CardView {
       this.chartEl.removeEventListener('dblclick', this.onRectDblClick, true);
       window.removeEventListener('mousemove', this.onRectMove);
       window.removeEventListener('mouseup', this.onRectUp);
+      window.removeEventListener('keydown', this.onRectShift);
+      window.removeEventListener('keyup', this.onRectShift);
     }
     if (this.onUndoKey) window.removeEventListener('keydown', this.onUndoKey);
     if (this.onResetKey) window.removeEventListener('keydown', this.onResetKey);
