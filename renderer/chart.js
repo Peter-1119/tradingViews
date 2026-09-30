@@ -22,6 +22,7 @@ import { RectPrimitive } from './rect-primitive.js';
 import { FibPrimitive } from './fib-primitive.js';
 import { formatCompact } from './util.js';
 import { MeasurePrimitive } from './measure-primitive.js';
+import { ExtremesPrimitive } from './extremes-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -327,6 +328,8 @@ export class CardChart {
     this.rects = new RectPrimitive(this);
     this.fibLayer = new FibPrimitive(this);
     this.measureLayer = new MeasurePrimitive(this);
+    /** The on-screen high and low, tagged with their prices. */
+    this.extremes = new ExtremesPrimitive(this);
 
     this.createPriceSeries();
     this.syncSubPanes();
@@ -416,6 +419,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.rects);
     this.priceSeries.attachPrimitive(this.fibLayer);
     this.priceSeries.attachPrimitive(this.measureLayer);
+    this.priceSeries.attachPrimitive(this.extremes);
     this.priceSeries.attachPrimitive(this.viewportWatcher);
   }
 
