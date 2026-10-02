@@ -394,6 +394,7 @@ export class CardView {
     this.toolbar.setToggled('htf', this.card.showHtf);
     if (this.card.showHtf) this.setHtfEnabled(true);
     this.renderRail();
+    if (this.card.showOpens) this.loadOpens();
     this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.chart.setLevels(levels);
@@ -421,6 +422,10 @@ export class CardView {
       const next = !this.card.showHtf;
       this.toolbar.setToggled('htf', next);
       window.stockcard.updateCard(this.card.id, { showHtf: next });
+      return;
+    }
+    if (id === 'opens') {
+      this.onPatch({ showOpens: !this.card.showOpens });
       return;
     }
     // Sub-panes, the same switches as in the settings panel, one click away.
@@ -796,6 +801,7 @@ export class CardView {
 
   /** The rail's sub-pane switches follow the card; OI exists only on perp. */
   renderRail() {
+    this.toolbar.setToggled('opens', this.card.showOpens);
     this.toolbar.setToggled('volume', this.card.showVolume);
     this.toolbar.setToggled('oi', this.card.showOI);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
@@ -917,6 +923,41 @@ export class CardView {
     const step = intervalToMs(this.card.interval) / 1000;
     const [record] = bucketOI(this.oiPoints.slice(k), [lastBar.time], step);
     if (record) this.chart.updateOI(record);
+  }
+
+  /* --------------------------------------------------------------- opens */
+
+  /**
+   * The current daily, weekly and monthly open: the first price of the
+   * exchange's own 1d / 1w / 1M candle, so the boundaries are Binance's --
+   * 00:00 UTC, Monday for the week, the 1st for the month. Fetched again just
+   * after each UTC midnight, the only moment any of them can change.
+   */
+  async loadOpens() {
+    clearTimeout(this.opensTimer);
+    if (!this.chart || !this.card.showOpens) {
+      if (this.chart) this.chart.setOpens([], false);
+      return;
+    }
+    const key = this.dataKey();
+    const feed = this.feed;
+    const symbol = this.card.symbol;
+    try {
+      const [day, week, month] = await Promise.all(
+        ['1d', '1w', '1M'].map((interval) => feed.getHistory(symbol, interval, 2))
+      );
+      if (this.destroyed || key !== this.dataKey() || !this.card.showOpens) return;
+      const current = (bars, k) => {
+        const bar = bars[bars.length - 1];
+        return bar ? { key: k, time: bar.time, price: bar.open } : null;
+      };
+      const opens = [current(day, 'D'), current(week, 'W'), current(month, 'M')].filter(Boolean);
+      this.chart.setOpens(opens, true);
+    } catch (err) {
+      console.error('[card] opens failed', err);
+    }
+    const msToMidnight = 86_400_000 - (Date.now() % 86_400_000);
+    this.opensTimer = setTimeout(() => this.loadOpens(), msToMidnight + 5000);
   }
 
   /* ------------------------------------------------------------ position */
@@ -1562,6 +1603,7 @@ export class CardView {
     if (this.offStatus) this.offStatus.forEach((off) => off());
     clearInterval(this.fundingTimer);
     clearTimeout(this.noticeTimer);
+    clearTimeout(this.opensTimer);
     if (this.offAlertState) this.offAlertState();
     if (this.offAlertFired) this.offAlertFired();
     if (this.onAcknowledge) this.root.removeEventListener('pointerdown', this.onAcknowledge, true);
@@ -1987,6 +2029,11 @@ export class CardView {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
       if (next.volumeProfile !== prev.volumeProfile) this.applyVolumeProfile(next.volumeProfile);
+      // A symbol or market change reloads opens below. An interval change does
+      // not -- the opens are the same on every interval -- so it must not stop
+      // a toggle that arrives in the same patch from loading them.
+      const identityChanged = next.symbol !== prev.symbol || marketChanged;
+      if (next.showOpens !== prev.showOpens && !identityChanged) this.loadOpens();
       if (next.showOI !== prev.showOI || marketChanged) {
         this.chart.setOIVisible(this.oiApplies());
         // A symbol or market change reloads it with the bars, below.
@@ -2009,6 +2056,8 @@ export class CardView {
       if (next.symbol !== prev.symbol || marketChanged) {
         this.refreshCounterpart();
         this.resetOI();
+        this.chart.setOpens([], false);
+        if (this.card.showOpens) this.loadOpens();
         this.position = null;
         this.alerting = null;
         this.root.classList.remove('is-alerting');

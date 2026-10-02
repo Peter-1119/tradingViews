@@ -28,6 +28,10 @@ const ICONS = {
   vp: '<path d="M12.5 2.5h-5"/><path d="M12.5 5h-9"/><path d="M12.5 7.5h-11"/><path d="M12.5 10h-7"/><path d="M12.5 12.5h-4"/>',
   htf: '<rect x="1.5" y="4" width="4.5" height="6" rx="1"/><path d="M3.75 1.5v2.5M3.75 10v2.5"/>'
     + '<rect x="8" y="5.5" width="4.5" height="5" rx="1"/><path d="M10.25 3v2.5M10.25 10.5v2"/>',
+  // Three rays to the right edge, starting later as the period gets shorter:
+  // month, week, day.
+  opens: '<path d="M1.5 3.5h11"/><path d="M1.5 2v3"/><path d="M5 7h7.5"/><path d="M5 5.5v3"/>'
+    + '<path d="M8.5 10.5h4"/><path d="M8.5 9v3"/>',
   // Vertical bars from a baseline -- the volume pane itself, and unlike the
   // horizontal bars of the volume *profile* above.
   volume: '<path d="M1.5 12.5h11"/><path d="M3.5 10.5V8" stroke-width="2.2"/>'
@@ -61,6 +65,12 @@ export const TOOLS = [
     id: 'htf',
     label: '4H 疊圖',
     hint: '把最近 10 根 4 小時 K 棒疊在小週期圖上，未收盤的那根會跟著跳',
+    toggle: true,
+  },
+  {
+    id: 'opens',
+    label: '開盤價',
+    hint: '日開 / 週開 / 月開（UTC 00:00，交易所 K 棒的邊界）',
     toggle: true,
   },
   { id: 'volume', label: '成交量', hint: '成交量副圖', toggle: true },
