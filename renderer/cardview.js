@@ -654,11 +654,28 @@ export class CardView {
     this.loadingMore = true;
     const seq = this.loadSeq;
     try {
-      let older = await window.stockcard.readBars(market, symbol, interval, from, to);
-      if (!older.length) {
-        older = await feed.getRange(symbol, interval, from * 1000, to * 1000);
-        const keep = older.filter((b) => b.closed);
-        if (keep.length) window.stockcard.writeBars(market, symbol, interval, keep);
+      /*
+       * The cache only holds what was fetched while the app was running, so
+       * holes in it are normal -- the app was closed overnight, a symbol went
+       * unwatched for a day. What must not happen is trusting a page that is
+       * only partly cached: that drew a 38h blank on ZEC perp 5m, where the
+       * cache had the first few hours of the page and the exchange had all of
+       * it. So a page short of its full count goes to the network, and what
+       * comes back is written over the hole, which heals it for good.
+       */
+      const expected = Math.floor((to - from) / step) + 1;
+      const cached = await window.stockcard.readBars(market, symbol, interval, from, to);
+      let older = cached;
+      if (cached.length < expected) {
+        try {
+          const fresh = await feed.getRange(symbol, interval, from * 1000, to * 1000);
+          const keep = fresh.filter((b) => b.closed);
+          if (keep.length) window.stockcard.writeBars(market, symbol, interval, keep);
+          if (fresh.length) older = fresh;
+        } catch (err) {
+          // Offline: what the cache has beats nothing.
+          if (!cached.length) throw err;
+        }
       }
       // The card may have changed symbol or interval while this was in flight.
       if (this.destroyed || seq !== this.loadSeq) return;
