@@ -17,6 +17,7 @@
  */
 
 import { el } from '../util.js';
+import { anchorLabel } from '../sessions.js';
 
 /** 14x14 viewBox, 1.5px stroke -- legible at the size the card can spare. */
 const ICONS = {
@@ -32,6 +33,9 @@ const ICONS = {
   // month, week, day.
   opens: '<path d="M1.5 3.5h11"/><path d="M1.5 2v3"/><path d="M5 7h7.5"/><path d="M5 5.5v3"/>'
     + '<path d="M8.5 10.5h4"/><path d="M8.5 9v3"/>',
+  // A high and a low, dashed, with the range between them.
+  hilo: '<path d="M1.5 2.5h11" stroke-dasharray="2 1.6"/><path d="M1.5 11.5h11" stroke-dasharray="2 1.6"/>'
+    + '<path d="M7 4.5v5"/><path d="M5.5 6l1.5-1.5L8.5 6"/>',
   // Vertical bars from a baseline -- the volume pane itself, and unlike the
   // horizontal bars of the volume *profile* above.
   volume: '<path d="M1.5 12.5h11"/><path d="M3.5 10.5V8" stroke-width="2.2"/>'
@@ -70,8 +74,26 @@ export const TOOLS = [
   {
     id: 'opens',
     label: '開盤價',
-    hint: '日開 / 週開 / 月開（UTC 00:00，交易所 K 棒的邊界）',
+    hint: '日開 / 週開 / 月開（點一下選分界時區）',
     toggle: true,
+    // Also where the day starts for the highs and lows below.
+    // Labels are functions: the local time of each changes with daylight saving.
+    menu: [
+      { value: 'off', label: '關閉' },
+      ...['utc', 'ny', 'nyse', 'london', 'lse'].map((value) => ({ value, label: () => anchorLabel(value) })),
+    ],
+  },
+  {
+    id: 'hilo',
+    label: '高低點',
+    hint: '日 / 週 / 月的高低點（分界時區跟開盤價相同）',
+    toggle: true,
+    menu: [
+      { value: 'off', label: '關閉' },
+      { value: 'prev', label: '前一期（前日／週／月）' },
+      { value: 'current', label: '本期至今' },
+      { value: 'both', label: '兩者' },
+    ],
   },
   { id: 'volume', label: '成交量', hint: '成交量副圖', toggle: true },
   // Hidden on spot cards: there is no open interest to show.
@@ -138,7 +160,7 @@ export class Toolbar {
       tool.menu.map((option) => {
         const item = el('button.card__rail-menu-item', {
           type: 'button',
-          text: option.label,
+          text: typeof option.label === 'function' ? option.label() : option.label,
           onclick: () => {
             this.closeMenu();
             this.onSelect(tool.id, option.value);
@@ -148,7 +170,12 @@ export class Toolbar {
         return item;
       })
     );
-    return { root, items };
+    const refresh = () => {
+      for (const option of tool.menu) {
+        if (typeof option.label === 'function') items.get(option.value).textContent = option.label();
+      }
+    };
+    return { root, items, refresh };
   }
 
   toggleMenu(id) {
@@ -159,6 +186,7 @@ export class Toolbar {
     this.closeMenu();
     const menu = this.menus.get(id);
     const button = this.buttons.get(id);
+    menu.refresh();
     menu.root.hidden = false;
     this.openMenuId = id;
     this.root.classList.add('is-menu-open');

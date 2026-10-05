@@ -833,6 +833,127 @@ await test('trigger: only the levels asked for (4H at 5 and 95)', () => {
   assert.deepEqual(hits, [{ side: 'high', level: 95 }, { side: 'low', level: 5 }]);
 });
 
+/* --------------------------------------------- period boundaries & levels */
+
+const { periodStart, periodLevels, updateCurrentExtremes } = await import('../renderer/sessions.js');
+
+console.log('');
+console.log('period boundaries');
+
+const iso = (ms) => new Date(ms).toISOString().slice(0, 16);
+const at = (s) => Date.parse(s);
+
+await test('day starts at local midnight, through daylight saving', () => {
+  assert.equal(iso(periodStart('D', 'utc', at('2026-10-05T12:00Z'))), '2026-10-05T00:00');
+  // New York: EDT (UTC-4) until 2026-11-01, then EST (UTC-5).
+  assert.equal(iso(periodStart('D', 'ny', at('2026-10-05T12:00Z'))), '2026-10-05T04:00');
+  assert.equal(iso(periodStart('D', 'ny', at('2026-11-02T12:00Z'))), '2026-11-02T05:00');
+  assert.equal(iso(periodStart('D', 'ny', at('2026-11-01T12:00Z'))), '2026-11-01T04:00', 'the switch day began in EDT');
+  // Still the previous New York day at 03:00 UTC.
+  assert.equal(iso(periodStart('D', 'ny', at('2026-10-05T03:00Z'))), '2026-10-04T04:00');
+  // London: BST (UTC+1) until 2026-10-25, then GMT.
+  assert.equal(iso(periodStart('D', 'london', at('2026-10-05T12:00Z'))), '2026-10-04T23:00');
+  assert.equal(iso(periodStart('D', 'london', at('2026-10-26T12:00Z'))), '2026-10-26T00:00');
+  // Already the next London day at 23:30 UTC in summer.
+  assert.equal(iso(periodStart('D', 'london', at('2026-10-05T23:30Z'))), '2026-10-05T23:00');
+});
+
+await test('weeks start Monday, months the 1st; shifts step whole periods', () => {
+  assert.equal(iso(periodStart('W', 'ny', at('2026-10-07T12:00Z'))), '2026-10-05T04:00', 'Wednesday -> Monday');
+  assert.equal(iso(periodStart('W', 'ny', at('2026-10-05T03:00Z'))), '2026-09-28T04:00', 'Sunday night NY is last week');
+  assert.equal(iso(periodStart('W', 'ny', at('2026-11-04T12:00Z'))), '2026-11-02T05:00', 'first week after the switch');
+  assert.equal(iso(periodStart('W', 'ny', at('2026-11-04T12:00Z'), -1)), '2026-10-26T04:00', 'previous week, before it');
+  assert.equal(iso(periodStart('M', 'ny', at('2026-11-15T12:00Z'))), '2026-11-01T04:00');
+  assert.equal(iso(periodStart('M', 'ny', at('2026-11-15T12:00Z'), -1)), '2026-10-01T04:00');
+  assert.equal(iso(periodStart('M', 'london', at('2026-11-15T12:00Z'))), '2026-11-01T00:00');
+  assert.equal(iso(periodStart('M', 'utc', at('2026-01-10T00:00Z'), -1)), '2025-12-01T00:00', 'across a year');
+  assert.equal(iso(periodStart('D', 'utc', at('2026-03-01T05:00Z'), -1)), '2026-02-28T00:00');
+});
+
+await test('stock-market opens: 09:30 New York, 08:00 London, through daylight saving', () => {
+  // US open, EDT: 13:30 UTC (21:30 Taipei). Before it, the session is still yesterday's.
+  assert.equal(iso(periodStart('D', 'nyse', at('2026-10-05T14:00Z'))), '2026-10-05T13:30');
+  assert.equal(iso(periodStart('D', 'nyse', at('2026-10-05T12:00Z'))), '2026-10-04T13:30');
+  // EST from 11/1: 14:30 UTC (22:30 Taipei).
+  assert.equal(iso(periodStart('D', 'nyse', at('2026-11-09T15:00Z'))), '2026-11-09T14:30');
+  // Weekends count: a Saturday has its own 09:30.
+  assert.equal(iso(periodStart('D', 'nyse', at('2026-10-10T15:00Z'))), '2026-10-10T13:30');
+  // Monday before the open is still last week; the 1st before the open, last month.
+  assert.equal(iso(periodStart('W', 'nyse', at('2026-10-05T12:00Z'))), '2026-09-28T13:30');
+  assert.equal(iso(periodStart('W', 'nyse', at('2026-10-05T14:00Z'))), '2026-10-05T13:30');
+  assert.equal(iso(periodStart('M', 'nyse', at('2026-11-01T12:00Z'))), '2026-10-01T13:30');
+  assert.equal(iso(periodStart('M', 'nyse', at('2026-11-01T15:00Z'))), '2026-11-01T14:30', 'the 1st, in EST');
+  // London open: 07:00 UTC in BST (15:00 Taipei), 08:00 UTC in GMT (16:00 Taipei).
+  assert.equal(iso(periodStart('D', 'lse', at('2026-10-05T09:00Z'))), '2026-10-05T07:00');
+  assert.equal(iso(periodStart('D', 'lse', at('2026-10-05T06:00Z'))), '2026-10-04T07:00');
+  assert.equal(iso(periodStart('D', 'lse', at('2026-10-28T09:00Z'))), '2026-10-28T08:00', 'UK already on GMT');
+  // The week between the two switches: London at 08:00 UTC, New York still 13:30.
+  assert.equal(iso(periodStart('D', 'nyse', at('2026-10-28T15:00Z'))), '2026-10-28T13:30');
+});
+
+await test('levels at the US open come from 30m bars', () => {
+  const t0 = at('2026-09-01T00:00Z') / 1000;
+  const now = at('2026-10-07T15:10Z');
+  const bars = [];
+  for (let t = t0, i = 0; t * 1000 <= now; t += 1800, i++) {
+    bars.push({ time: t, open: i, high: i + 0.5, low: i - 0.5, close: i + 0.2 });
+  }
+  const levels = periodLevels(bars, { anchor: 'nyse', opens: true, previous: true, now });
+  const by = Object.fromEntries(levels.map((l) => [l.id, l]));
+  const half = (s) => (at(s) / 1000 - t0) / 1800;
+  assert.equal(by['D-open'].price, half('2026-10-07T13:30Z'));
+  assert.equal(by['D-open'].label, '日開 美股');
+  assert.equal(by['D-prevLow'].price, half('2026-10-06T13:30Z') - 0.5, 'yesterday from its 09:30');
+  assert.equal(by['D-prevHigh'].price, half('2026-10-07T13:00Z') + 0.5, 'to the last half hour before this open');
+});
+
+await test('levels: open at the boundary, previous and current extremes', () => {
+  // Hourly bars from 2026-09-01 to 2026-10-07 12:00Z; price = hours since start.
+  const t0 = at('2026-09-01T00:00Z') / 1000;
+  const now = at('2026-10-07T12:30Z');
+  const bars = [];
+  for (let t = t0, i = 0; t * 1000 <= now; t += 3600, i++) {
+    bars.push({ time: t, open: i, high: i + 0.5, low: i - 0.5, close: i + 0.2 });
+  }
+  const levels = periodLevels(bars, { anchor: 'ny', opens: true, previous: true, current: true, now });
+  const by = Object.fromEntries(levels.map((l) => [l.id, l]));
+  const hour = (s) => (at(s) / 1000 - t0) / 3600;
+
+  assert.equal(by['D-open'].price, hour('2026-10-07T04:00Z'), 'NY midnight, not UTC midnight');
+  assert.equal(by['D-open'].label, '日開 紐');
+  assert.equal(by['D-prevHigh'].price, hour('2026-10-07T03:00Z') + 0.5, 'last hour of the previous NY day');
+  assert.equal(by['D-prevLow'].price, hour('2026-10-06T04:00Z') - 0.5, 'first hour of it');
+  assert.equal(by['D-high'].price, bars[bars.length - 1].high);
+  assert.equal(by['W-open'].price, hour('2026-10-05T04:00Z'));
+  assert.equal(by['M-open'].price, hour('2026-10-01T04:00Z'));
+  assert.equal(by['M-prevLow'].price, hour('2026-09-01T04:00Z') - 0.5, 'September in New York starts at 04:00 UTC');
+  assert.equal(by['M-prevLow'].time, at('2026-09-01T04:00Z') / 1000, 'and the line starts where the low was made');
+
+  const only = periodLevels(bars, { anchor: 'utc', periods: ['W'], opens: true, now });
+  assert.deepEqual(only.map((l) => l.id), ['W-open']);
+  assert.equal(only[0].label, '週開', 'UTC needs no tag');
+});
+
+await test('a previous period not fully loaded is left out, not understated', () => {
+  const now = at('2026-10-07T12:00Z');
+  const bars = [{ time: at('2026-10-06T12:00Z') / 1000, open: 1, high: 2, low: 0, close: 1 }];
+  const levels = periodLevels(bars, { anchor: 'utc', previous: true, opens: false, now });
+  assert.ok(!levels.some((l) => l.id === 'D-prevHigh'), 'only half of yesterday is here');
+});
+
+await test('live bars move the current high and low, and only those', () => {
+  const levels = [
+    { id: 'D-high', kind: 'high', price: 100, time: 1 },
+    { id: 'D-low', kind: 'low', price: 90, time: 1 },
+    { id: 'D-prevHigh', kind: 'prevHigh', price: 105, time: 0 },
+  ];
+  assert.equal(updateCurrentExtremes(levels, { time: 2, high: 99, low: 91 }), null, 'nothing new');
+  const next = updateCurrentExtremes(levels, { time: 3, high: 110, low: 95 });
+  assert.equal(next[0].price, 110);
+  assert.equal(next[0].time, 3);
+  assert.equal(next[2].price, 105, 'yesterday is history');
+});
+
 /* ------------------------------------------------------ volume profile */
 
 const { buildProfile, sessionBounds, buildPeriodProfiles, PERIOD_4H } = await import('../renderer/volume-profile.js');

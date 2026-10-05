@@ -195,6 +195,15 @@ function sanitizeCard(raw, index = 0) {
     showOI: card.showOI === true,
     // Daily / weekly / monthly open rays.
     showOpens: card.showOpens === true,
+    // Where the day, week and month start for opens and highs/lows: UTC (the
+    // exchange's candles), New York or London midnight, or the New York
+    // (09:30) or London (08:00) stock market open.
+    levelAnchor: pick(card.levelAnchor, ['utc', 'ny', 'nyse', 'london', 'lse'], 'utc'),
+    // Highs and lows: of the previous period, the current one so far, or both.
+    hilo: pick(card.hilo, ['off', 'prev', 'current', 'both'], 'off'),
+    levelPeriods: Array.isArray(card.levelPeriods)
+      ? ['D', 'W', 'M'].filter((p) => card.levelPeriods.includes(p))
+      : ['D', 'W', 'M'],
     alwaysOnTop: card.alwaysOnTop !== false,
     bounds: normalizeBounds(card.bounds || defaultCardBounds(index)),
   };

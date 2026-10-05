@@ -97,6 +97,8 @@ export const INTERVAL_MS = Object.freeze({
   '1m': 60_000,
   '5m': 5 * 60_000,
   '15m': 15 * 60_000,
+  // Not a card interval; the 09:30 New York open needs half-hour bars.
+  '30m': 30 * 60_000,
   '1h': 60 * 60_000,
   '4h': 4 * 60 * 60_000,
   '1d': 24 * 60 * 60_000,

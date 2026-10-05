@@ -169,6 +169,33 @@ export class SettingsPanel {
       onMarket(market)
     );
 
+    this.anchorSeg = segmented(
+      ['utc', 'ny', 'nyse', 'london', 'lse'],
+      { utc: 'UTC', ny: '紐約 0點', nyse: '美股開盤', london: '倫敦 0點', lse: '英股開盤' },
+      card.levelAnchor,
+      (levelAnchor) => onPatch({ levelAnchor })
+    );
+    // Which periods the opens and highs/lows are drawn for; several may be on.
+    this.periodChips = new Map();
+    this.periodRow = el(
+      'div.sc-seg',
+      {},
+      [['D', '日'], ['W', '週'], ['M', '月']].map(([period, text]) => {
+        const chip = el('button.sc-seg__btn', {
+          type: 'button',
+          text,
+          onclick: () => {
+            const list = this.card.levelPeriods || [];
+            const next = list.includes(period) ? list.filter((p) => p !== period) : [...list, period];
+            onPatch({ levelPeriods: next });
+          },
+        });
+        this.periodChips.set(period, chip);
+        return chip;
+      })
+    );
+    this.syncPeriods(card.levelPeriods);
+
     this.intervalSeg = segmented(intervals, INTERVAL_LABELS, card.interval, (interval) =>
       onPatch({ interval })
     );
@@ -270,6 +297,8 @@ export class SettingsPanel {
         row('交易對', this.symbolSearch.root),
         row('週期', this.intervalSeg.root),
         row('圖型', this.typeSeg.root),
+        row('開盤價／高低點的分界', this.anchorSeg.root),
+        row('開盤價／高低點的週期', this.periodRow),
         row('卡片透明度', this.cardOpacity.root),
         showWindowOpacity ? row('整體透明度', this.windowOpacity.root) : null,
         el(
@@ -321,6 +350,10 @@ export class SettingsPanel {
     else this.open();
   }
 
+  syncPeriods(periods = []) {
+    for (const [period, chip] of this.periodChips) chip.classList.toggle('is-active', periods.includes(period));
+  }
+
   /** Re-sync every control after an external change to the card. */
   update(card) {
     this.card = card;
@@ -328,6 +361,8 @@ export class SettingsPanel {
       this.symbolSearch.input.value = card.symbol;
     }
     this.marketSeg.setValue(card.market);
+    this.anchorSeg.setValue(card.levelAnchor);
+    this.syncPeriods(card.levelPeriods);
     this.intervalSeg.setValue(card.interval);
     this.typeSeg.setValue(card.chartType);
     this.cardOpacity.setValue(Math.round(card.cardOpacity * 100));

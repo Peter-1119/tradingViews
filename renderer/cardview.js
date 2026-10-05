@@ -15,6 +15,7 @@ import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './v
 import { intervalToMs } from './datafeed/provider.js';
 import { oiPoints, bucketOI, historyRecords, OI_MAX_GAP_SEC } from './open-interest.js';
 import { WINDOWS as POSITION_WINDOWS } from './position.js';
+import { periodStart, periodLevels, updateCurrentExtremes, barsIntervalFor } from './sessions.js';
 import {
   el,
   formatPrice,
@@ -394,7 +395,9 @@ export class CardView {
     this.toolbar.setToggled('htf', this.card.showHtf);
     if (this.card.showHtf) this.setHtfEnabled(true);
     this.renderRail();
-    if (this.card.showOpens) this.loadOpens();
+    this.periodLevelsData = [];
+    this.periodLevelsSeq = 0;
+    if (this.levelsWanted()) this.loadPeriodLevels();
     this.offLevels = window.stockcard.onLevelsChanged(({ symbol, levels }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.chart.setLevels(levels);
@@ -425,7 +428,13 @@ export class CardView {
       return;
     }
     if (id === 'opens') {
-      this.onPatch({ showOpens: !this.card.showOpens });
+      // A boundary choice turns the opens on; 'off' keeps the boundary for the
+      // highs and lows, which share it.
+      this.onPatch(value === 'off' ? { showOpens: false } : { showOpens: true, levelAnchor: value });
+      return;
+    }
+    if (id === 'hilo') {
+      this.onPatch({ hilo: value });
       return;
     }
     // Sub-panes, the same switches as in the settings panel, one click away.
@@ -818,7 +827,8 @@ export class CardView {
 
   /** The rail's sub-pane switches follow the card; OI exists only on perp. */
   renderRail() {
-    this.toolbar.setToggled('opens', this.card.showOpens);
+    this.toolbar.setMenuValue('opens', this.card.showOpens ? this.card.levelAnchor : 'off');
+    this.toolbar.setMenuValue('hilo', this.card.hilo);
     this.toolbar.setToggled('volume', this.card.showVolume);
     this.toolbar.setToggled('oi', this.card.showOI);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
@@ -942,39 +952,51 @@ export class CardView {
     if (record) this.chart.updateOI(record);
   }
 
-  /* --------------------------------------------------------------- opens */
+  /* -------------------------------------------------------- period levels */
+
+  levelsWanted() {
+    return this.card.showOpens || (this.card.hilo && this.card.hilo !== 'off');
+  }
 
   /**
-   * The current daily, weekly and monthly open: the first price of the
-   * exchange's own 1d / 1w / 1M candle, so the boundaries are Binance's --
-   * 00:00 UTC, Monday for the week, the 1st for the month. Fetched again just
-   * after each UTC midnight, the only moment any of them can change.
+   * Opens and highs/lows of the day, week and month, in the card's chosen
+   * clock (sessions.js). Built from bars back to the start of the previous
+   * month, at the resolution that lands exactly on the anchor's boundaries,
+   * and fetched again just after the next day boundary, the
+   * soonest any of them can roll over. Current highs and lows also move live,
+   * in subscribe().
    */
-  async loadOpens() {
-    clearTimeout(this.opensTimer);
-    if (!this.chart || !this.card.showOpens) {
-      if (this.chart) this.chart.setOpens([], false);
+  async loadPeriodLevels() {
+    clearTimeout(this.levelsTimer);
+    if (!this.chart) return;
+    const seq = ++this.periodLevelsSeq;
+    if (!this.levelsWanted()) {
+      this.periodLevelsData = [];
+      this.chart.setPeriodLevels([]);
       return;
     }
     const key = this.dataKey();
     const feed = this.feed;
-    const symbol = this.card.symbol;
+    const { symbol, levelAnchor: anchor, hilo, levelPeriods, showOpens } = this.card;
+    const now = Date.now();
     try {
-      const [day, week, month] = await Promise.all(
-        ['1d', '1w', '1M'].map((interval) => feed.getHistory(symbol, interval, 2))
-      );
-      if (this.destroyed || key !== this.dataKey() || !this.card.showOpens) return;
-      const current = (bars, k) => {
-        const bar = bars[bars.length - 1];
-        return bar ? { key: k, time: bar.time, price: bar.open } : null;
-      };
-      const opens = [current(day, 'D'), current(week, 'W'), current(month, 'M')].filter(Boolean);
-      this.chart.setOpens(opens, true);
+      // 30m for the 09:30 New York open, 1h for every other boundary.
+      const bars = await feed.getRange(symbol, barsIntervalFor(anchor), periodStart('M', anchor, now, -1), now);
+      if (this.destroyed || key !== this.dataKey() || seq !== this.periodLevelsSeq) return;
+      this.periodLevelsData = periodLevels(bars, {
+        anchor,
+        periods: levelPeriods,
+        opens: showOpens,
+        previous: hilo === 'prev' || hilo === 'both',
+        current: hilo === 'current' || hilo === 'both',
+        now,
+      });
+      this.chart.setPeriodLevels(this.periodLevelsData);
     } catch (err) {
-      console.error('[card] opens failed', err);
+      console.error('[card] period levels failed', err);
     }
-    const msToMidnight = 86_400_000 - (Date.now() % 86_400_000);
-    this.opensTimer = setTimeout(() => this.loadOpens(), msToMidnight + 5000);
+    const nextDay = periodStart('D', anchor, Date.now(), 1);
+    this.levelsTimer = setTimeout(() => this.loadPeriodLevels(), Math.max(1000, nextDay - Date.now() + 5000));
   }
 
   /* ------------------------------------------------------------ position */
@@ -1620,7 +1642,7 @@ export class CardView {
     if (this.offStatus) this.offStatus.forEach((off) => off());
     clearInterval(this.fundingTimer);
     clearTimeout(this.noticeTimer);
-    clearTimeout(this.opensTimer);
+    clearTimeout(this.levelsTimer);
     if (this.offAlertState) this.offAlertState();
     if (this.offAlertFired) this.offAlertFired();
     if (this.onAcknowledge) this.root.removeEventListener('pointerdown', this.onAcknowledge, true);
@@ -1756,6 +1778,13 @@ export class CardView {
         this.chart.update(bar);
         this.lastBar = bar;
         this.renderQuote();
+        if (this.periodLevelsData && this.periodLevelsData.length) {
+          const moved = updateCurrentExtremes(this.periodLevelsData, bar);
+          if (moved) {
+            this.periodLevelsData = moved;
+            this.chart.setPeriodLevels(moved);
+          }
+        }
       },
       onTicker: (ticker) => {
         if (this.destroyed) return;
@@ -2050,7 +2079,12 @@ export class CardView {
       // not -- the opens are the same on every interval -- so it must not stop
       // a toggle that arrives in the same patch from loading them.
       const identityChanged = next.symbol !== prev.symbol || marketChanged;
-      if (next.showOpens !== prev.showOpens && !identityChanged) this.loadOpens();
+      const levelsChanged =
+        next.showOpens !== prev.showOpens ||
+        next.levelAnchor !== prev.levelAnchor ||
+        next.hilo !== prev.hilo ||
+        String(next.levelPeriods) !== String(prev.levelPeriods);
+      if (levelsChanged && !identityChanged) this.loadPeriodLevels();
       if (next.showOI !== prev.showOI || marketChanged) {
         this.chart.setOIVisible(this.oiApplies());
         // A symbol or market change reloads it with the bars, below.
@@ -2073,8 +2107,9 @@ export class CardView {
       if (next.symbol !== prev.symbol || marketChanged) {
         this.refreshCounterpart();
         this.resetOI();
-        this.chart.setOpens([], false);
-        if (this.card.showOpens) this.loadOpens();
+        this.periodLevelsData = [];
+        this.chart.setPeriodLevels([]);
+        if (this.levelsWanted()) this.loadPeriodLevels();
         this.position = null;
         this.alerting = null;
         this.root.classList.remove('is-alerting');
