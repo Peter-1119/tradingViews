@@ -169,5 +169,37 @@ t('higher leverage, smaller position ceiling', () => {
   assert.equal(r.maxNotionalAt(undefined, 10), Infinity, 'brackets not loaded yet: no false refusal');
 });
 
+/* ------------------------------------------------------------ reduce-only */
+
+t('reduce-only: 100% is the exact position, with no remainder', () => {
+  assert.equal(r.reduceQuantity({ positionAmt: -0.237, pct: 100, price: 80000 }, BTC).qty, '0.237', 'a short closes in full');
+  assert.equal(r.reduceQuantity({ positionAmt: 0.01, pct: 100, price: 80000, market: true }, BTC).qty, '0.010', 'market step too');
+});
+
+t('reduce-only: half of an odd position floors to the step, never above it', () => {
+  const half = r.reduceQuantity({ positionAmt: 0.237, pct: 50, price: 80000 }, BTC);
+  assert.equal(half.qty, '0.118', '0.1185 floors to the 0.001 step');
+  const quarter = r.reduceQuantity({ positionAmt: 0.01, pct: 25, price: 80000 }, BTC);
+  assert.equal(quarter.qty, '0.002');
+});
+
+t('reduce-only: a notional larger than the position is refused, not trimmed', () => {
+  const res = r.reduceQuantity({ positionAmt: 0.01, notional: 2000, price: 80000 }, BTC);
+  assert.ok(/超過目前倉位/.test(res.error), res.error);
+  const ok = r.reduceQuantity({ positionAmt: 0.01, notional: 400, price: 80000 }, BTC);
+  assert.equal(ok.qty, '0.005');
+});
+
+t('reduce-only: no position, no order', () => {
+  assert.ok(/沒有倉位/.test(r.reduceQuantity({ positionAmt: 0, pct: 100, price: 80000 }, BTC).error));
+});
+
+t('reduce-only orders are exempt from the minimum notional (Binance -4164)', () => {
+  // 0.001 BTC at 80,000 is 80 USDT, under BTC's 100 USDT minimum.
+  const order = { side: 'SELL', type: 'MARKET', qty: '0.001', refPrice: 80000 };
+  assert.ok(r.validateOrder(order, BTC).some((e) => /名目價值至少/.test(e)), 'a normal order is held to it');
+  assert.ok(!r.validateOrder({ ...order, reduceOnly: true }, BTC).some((e) => /名目價值至少/.test(e)), 'a reduce-only one is not');
+});
+
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);

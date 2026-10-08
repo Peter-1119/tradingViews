@@ -112,7 +112,7 @@ function quantityForNotional(notional, price, rules, { market = false } = {}) {
  * `refPrice` is the price notional is judged at: the limit price, or the
  * current price for a market order (which is what Binance checks against).
  */
-function validateOrder({ side, type, price, qty, refPrice, tp, sl, markPrice }, rules) {
+function validateOrder({ side, type, price, qty, refPrice, tp, sl, markPrice, reduceOnly = false }, rules) {
   const errors = [];
   const isBuy = side === 'BUY';
   const q = Number(qty);
@@ -123,7 +123,10 @@ function validateOrder({ side, type, price, qty, refPrice, tp, sl, markPrice }, 
   else {
     if (q < minQty) errors.push(`數量低於最小下單量 ${minQty}`);
     if (q > maxQty) errors.push(`數量超過單筆上限 ${maxQty}`);
-    if (rules.minNotional && q * refPrice < rules.minNotional - 1e-9) {
+    // Reduce-only orders are exempt: Binance's own -4164 reads "Order's
+    // notional must be no smaller than 5.0 (unless you choose reduce only)",
+    // which is what lets a dust-sized remainder be closed at all.
+    if (!reduceOnly && rules.minNotional && q * refPrice < rules.minNotional - 1e-9) {
       errors.push(`名目價值至少 ${rules.minNotional} USDT`);
     }
   }
@@ -161,6 +164,29 @@ function bracketFor(brackets, notional) {
     if (notional >= b.notionalFloor && notional < b.notionalCap) return b;
   }
   return sorted[sorted.length - 1];
+}
+
+/**
+ * A reduce-only order's quantity: a share of the open position, or what a
+ * notional buys at a price -- and never more than the position. 100% is the
+ * position's exact size, not a notional converted back, which would floor
+ * and leave a remainder behind.
+ *
+ * @returns {{qty: string, qtyNum: number, notional: number} | {error: string}}
+ */
+function reduceQuantity({ positionAmt, pct, notional, price, market = false }, rules) {
+  const size = Math.abs(Number(positionAmt));
+  if (!(size > 0)) return { error: '目前沒有倉位，不能下只減倉單' };
+  let qty;
+  if (pct > 0) {
+    qty = roundQty((size * Math.min(100, pct)) / 100, rules, { market });
+  } else {
+    const q = quantityForNotional(notional, price, rules, { market });
+    qty = q ? q.qty : null;
+  }
+  if (qty === null || !(Number(qty) > 0)) return { error: '數量太小，四捨五入後是 0' };
+  if (Number(qty) > size + 1e-12) return { error: `超過目前倉位 ${size}，要全部平倉請按 100%` };
+  return { qty, qtyNum: Number(qty), notional: Number(qty) * price };
 }
 
 /**
@@ -246,6 +272,7 @@ module.exports = {
   bracketFor,
   maxLeverage,
   maxNotionalAt,
+  reduceQuantity,
   positionAfter,
   estimateLiquidation,
   pnlAt,

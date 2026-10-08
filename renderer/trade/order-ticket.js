@@ -10,6 +10,11 @@
  *
  * Sending takes two presses: the first turns the button into a summary
  * ("確認做多 0.005 BTC @ 84,213.4") with a 3s fuse; the second sends.
+ *
+ * 只減倉 (reduce-only) turns it into a closing ticket: the side that closes
+ * the position, sized as a share of it (100% is its exact size), no margin,
+ * no TP/SL. Binance exempts these from the minimum notional, so a remainder
+ * too small to trade can still be closed.
  */
 
 import { el } from '../util.js';
@@ -17,6 +22,8 @@ import { el } from '../util.js';
 const ARM_MS = 3000;
 const PREVIEW_DEBOUNCE_MS = 120;
 const PCTS = [10, 25, 50, 100];
+/** Shares of the position, when reduce-only. */
+const REDUCE_PCTS = [25, 50, 75, 100];
 
 function fmt(n, digits = 2) {
   if (n === null || n === undefined || !Number.isFinite(Number(n))) return '—';
@@ -66,6 +73,9 @@ export class OrderTicket {
     this.tpsl = false;
     this.tp = '';
     this.sl = '';
+    this.reduceOnly = false;
+    /** The share of the position picked with a button; null once a notional is typed. */
+    this.reducePct = null;
     /** This symbol's leverage on Binance, and its ceiling; null until known. */
     this.leverage = null;
     this.maxLeverage = null;
@@ -132,15 +142,24 @@ export class OrderTicket {
     );
     this.marketHint = el('div.tk-field.tk-field--hint', { hidden: true, text: '以市價立即成交' });
 
-    this.notionalInput = numberInput({ placeholder: '名目價值', onInput: (v) => this.update({ notional: v }) });
+    this.notionalInput = numberInput({ placeholder: '名目價值', onInput: (v) => this.update({ notional: v, reducePct: null }) });
     this.notionalInput.title = '名目價值（倉位總值），保證金 = 名目價值 ÷ 槓桿';
-    this.pctBtns = PCTS.map((pct) =>
+    // Same four buttons either way; their meaning (and labels) change with
+    // reduce-only: a share of buying power, or a share of the position.
+    this.pctBtns = PCTS.map((_, i) =>
       el('button.tk-pct', {
         type: 'button',
-        text: `${pct}%`,
-        title: `可用保證金 × 槓桿的 ${pct}%`,
-        onclick: () => this.setPercent(pct),
+        onclick: () => this.setPercent(this.reduceOnly ? REDUCE_PCTS[i] : PCTS[i]),
       })
+    );
+
+    this.reduceToggle = el('input', { type: 'checkbox' });
+    this.reduceToggle.addEventListener('change', () => this.setReduceOnly(this.reduceToggle.checked));
+    this.reduceRow = el(
+      'label.tk-check',
+      { title: '只減少現有倉位，不會開新倉或反手。不需要保證金，也不受最小下單金額限制。' },
+      this.reduceToggle,
+      el('span', { text: '只減倉' })
     );
     this.qtyEl = el('div.tk-sub');
 
@@ -193,19 +212,20 @@ export class OrderTicket {
         ),
         el('div.tk-pcts', {}, this.pctBtns),
         this.qtyEl,
-        el(
+        this.reduceRow,
+        (this.tpslBox = el(
           'div.tk-tpsl',
           {},
           el('label.tk-check', {}, this.tpslToggle, el('span', { text: '止盈 / 止損' })),
           this.tpslBody
-        ),
-        el(
+        )),
+        (this.liqBox = el(
           'div.tk-liq',
           { title: '成交後的預估強平價（全倉，依目前錢包餘額估算）' },
           el('span.tk-liq__label', { text: '預估強平' }),
           el('span.tk-liq__long', {}, '多 ', this.liqLong),
           el('span.tk-liq__short', {}, '空 ', this.liqShort)
-        ),
+        )),
         this.errorEl
       ),
       // Outside the scrolling body: on a short card the fields scroll, the
@@ -252,6 +272,9 @@ export class OrderTicket {
       this.sl = '';
       this.tpInput.value = '';
       this.slInput.value = '';
+      this.reduceOnly = false;
+      this.reducePct = null;
+      this.reduceToggle.checked = false;
     }
     this.root.hidden = false;
     if (price > 0) {
@@ -370,7 +393,29 @@ export class OrderTicket {
     this.setPrice(price);
   }
 
+  setReduceOnly(on) {
+    this.reduceOnly = !!on;
+    this.reduceToggle.checked = this.reduceOnly;
+    // The amount meant buying power a moment ago; it means nothing now.
+    this.reducePct = null;
+    this.notional = '';
+    this.notionalInput.value = '';
+    this.update({});
+  }
+
   setPercent(pct) {
+    if (this.reduceOnly) {
+      // Sized in the main process from the live position; shown here as the
+      // notional it comes to, at the ticket's price.
+      const pos = this.hooks.getPosition && this.hooks.getPosition();
+      const { last } = this.hooks.getMarket();
+      const at = this.type === 'LIMIT' && Number(this.price) > 0 ? Number(this.price) : last;
+      if (!pos || !pos.amt || !(at > 0)) return;
+      this.notional = String(Math.round(Math.abs(pos.amt) * at * (pct / 100) * 100) / 100);
+      this.notionalInput.value = this.notional;
+      this.update({ reducePct: pct });
+      return;
+    }
     const max = this.available * (this.leverage || 1);
     if (!(max > 0)) return;
     // A hair under 100%: fees and the mark/last gap would otherwise make a
@@ -398,8 +443,10 @@ export class OrderTicket {
       type: this.type,
       price: this.type === 'LIMIT' ? Number(this.price) : undefined,
       notional: Number(this.notional),
-      tp: this.tpsl && Number(this.tp) > 0 ? Number(this.tp) : null,
-      sl: this.tpsl && Number(this.sl) > 0 ? Number(this.sl) : null,
+      tp: !this.reduceOnly && this.tpsl && Number(this.tp) > 0 ? Number(this.tp) : null,
+      sl: !this.reduceOnly && this.tpsl && Number(this.sl) > 0 ? Number(this.sl) : null,
+      reduceOnly: this.reduceOnly,
+      reducePct: this.reduceOnly ? this.reducePct : null,
       lastPrice: last,
       markPrice: mark,
     };
@@ -428,8 +475,8 @@ export class OrderTicket {
     const price = this.type === 'LIMIT' ? Number(this.price) : last;
     this.hooks.onDraft({
       price: price > 0 ? price : null,
-      tp: this.tpsl && Number(this.tp) > 0 ? Number(this.tp) : null,
-      sl: this.tpsl && Number(this.sl) > 0 ? Number(this.sl) : null,
+      tp: !this.reduceOnly && this.tpsl && Number(this.tp) > 0 ? Number(this.tp) : null,
+      sl: !this.reduceOnly && this.tpsl && Number(this.sl) > 0 ? Number(this.sl) : null,
       armed: this.armed,
       liq: this.armed && this.previews[this.armed] ? this.previews[this.armed].liq : null,
     });
@@ -445,12 +492,26 @@ export class OrderTicket {
     this.marketHint.hidden = this.type !== 'MARKET';
     this.tpslBody.hidden = !this.tpsl;
     this.tpslToggle.checked = this.tpsl;
+    this.tpslBox.hidden = this.reduceOnly;
+    this.liqBox.hidden = this.reduceOnly;
+    this.root.classList.toggle('is-reduce-only', this.reduceOnly);
+    this.pctBtns.forEach((b, i) => {
+      const pct = this.reduceOnly ? REDUCE_PCTS[i] : PCTS[i];
+      b.textContent = `${pct}%`;
+      b.title = this.reduceOnly ? `目前倉位的 ${pct}%${pct === 100 ? '（全部平倉）' : ''}` : `可用保證金 × 槓桿的 ${pct}%`;
+      b.classList.toggle('is-active', this.reduceOnly && this.reducePct === pct);
+    });
 
     const buy = this.previews.BUY;
     const sell = this.previews.SELL;
     const any = buy || sell;
     const avail = `可用 ${fmt(this.available)}`;
-    if (any && any.qty !== undefined) {
+    if (this.reduceOnly) {
+      const pos = this.hooks.getPosition && this.hooks.getPosition();
+      const size = pos && pos.amt ? `${pos.amt > 0 ? '多' : '空'} ${Math.abs(pos.amt)} ${this.baseAsset}` : '沒有倉位';
+      const ok = (buy && !buy.errors.length && buy) || (sell && !sell.errors.length && sell);
+      this.qtyEl.textContent = ok ? `≈ ${ok.qty} ${this.baseAsset} · 倉位 ${size} · 不需保證金` : `只減倉 · 倉位 ${size}`;
+    } else if (any && any.qty !== undefined) {
       this.qtyEl.textContent = `≈ ${any.qty} ${this.baseAsset} · 保證金 ${fmt(any.margin)} · ${avail}`;
     } else {
       this.qtyEl.textContent = `名目價值 USDT · ${avail}`;
@@ -484,9 +545,18 @@ export class OrderTicket {
     this.errorEl.hidden = !message;
     this.errorEl.textContent = message || '';
 
+    // Reduce-only: the button that cannot close anything says why, rather
+    // than reading as if there were a position on that side.
+    const pos = this.reduceOnly && this.hooks.getPosition ? this.hooks.getPosition() : null;
+    const reduceVerb = (side) => {
+      const closesLong = side === 'SELL';
+      const has = pos && pos.amt && (closesLong ? pos.amt > 0 : pos.amt < 0);
+      if (closesLong) return has ? '平多（賣出）' : '無多倉';
+      return has ? '平空（買入）' : '無空倉';
+    };
     const label = (side) => {
       const p = this.previews[side];
-      const verb = side === 'BUY' ? '做多' : '做空';
+      const verb = this.reduceOnly ? reduceVerb(side) : side === 'BUY' ? '做多' : '做空';
       if (this.armed !== side) return verb;
       const at = this.type === 'MARKET' ? '市價' : `@ ${p ? p.price : this.price}`;
       return `確認${verb} ${p ? p.qty : ''} ${this.baseAsset} ${at}`;

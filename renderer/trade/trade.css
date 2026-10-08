@@ -408,6 +408,12 @@
   white-space: nowrap;
 }
 
+/* These set display, which would otherwise override [hidden] (reduce-only hides both). */
+.tk-tpsl[hidden],
+.tk-liq[hidden] {
+  display: none;
+}
+
 /* The leverage chip opens the per-symbol leverage editor. */
 .tk-chip--btn {
   border: 0;

@@ -500,23 +500,47 @@ async function preview(req) {
   const snap = state.snapshots.get(symbol) || {};
   const side = req.side === 'SELL' ? 'SELL' : 'BUY';
   const market = req.type === 'MARKET';
+  const reduceOnly = req.reduceOnly === true;
   const markPrice = Number(req.markPrice) || (snap.position && snap.position.mark) || 0;
   const refPrice = market ? Number(req.lastPrice) || markPrice : Number(req.price);
   const price = market ? null : rules.roundPrice(Number(req.price), r);
-  const q = rules.quantityForNotional(Number(req.notional), market ? refPrice : Number(price), r, { market });
+  const at = market ? refPrice : Number(price);
+  let q;
+  const reduceErrors = [];
+  if (reduceOnly) {
+    // Only ever against the position: the side that closes it, and no more
+    // than its size. TP/SL make no sense on an order that only closes.
+    const pos = snap.position;
+    const r2 = rules.reduceQuantity(
+      { positionAmt: pos ? pos.amt : 0, pct: Number(req.reducePct) || 0, notional: Number(req.notional), price: at, market },
+      r
+    );
+    if (r2.error) reduceErrors.push(r2.error);
+    else q = r2;
+    if (pos && pos.amt !== 0) {
+      const closing = pos.amt > 0 ? 'SELL' : 'BUY';
+      if (side !== closing) reduceErrors.unshift(`持${pos.amt > 0 ? '多' : '空'}倉時，只減倉只能${closing === 'SELL' ? '賣出' : '買入'}`);
+    }
+  } else {
+    q = rules.quantityForNotional(Number(req.notional), at, r, { market });
+  }
   const qty = q ? q.qty : '0';
   if (state.client && state.connection === 'ready') await ensureSymbolMeta(symbol);
   const leverage = (state.symbolConfig.get(symbol) || {}).leverage || config().leverage;
-  const tp = req.tp ? Number(rules.roundPrice(Number(req.tp), r)) : null;
-  const sl = req.sl ? Number(rules.roundPrice(Number(req.sl), r)) : null;
-  const errors = rules.validateOrder({ side, type: market ? 'MARKET' : 'LIMIT', price, qty, refPrice, tp, sl, markPrice }, r);
+  const tp = !reduceOnly && req.tp ? Number(rules.roundPrice(Number(req.tp), r)) : null;
+  const sl = !reduceOnly && req.sl ? Number(rules.roundPrice(Number(req.sl), r)) : null;
+  const errors = [
+    ...reduceErrors,
+    ...rules.validateOrder({ side, type: market ? 'MARKET' : 'LIMIT', price, qty, refPrice, tp, sl, markPrice, reduceOnly }, r),
+  ];
 
   const account = state.account ? summarizeAccount(state.account) : null;
   const notional = q ? q.notional : 0;
-  const margin = notional / leverage;
+  // Closing frees margin rather than using it, and cannot grow the position.
+  const margin = reduceOnly ? 0 : notional / leverage;
   if (account && margin > account.availableBalance + 1e-9) errors.push('可用保證金不足');
   // The bracket ceiling: say so here rather than let Binance refuse the order.
-  if (q) {
+  if (q && !reduceOnly) {
     const after = rules.positionAfter(snap.position, side, q.qtyNum, refPrice);
     const cap = rules.maxNotionalAt(state.brackets.get(symbol), leverage);
     if (Math.abs(after.amt) * refPrice > cap) {
@@ -525,7 +549,7 @@ async function preview(req) {
   }
 
   let liq = null;
-  if (q && state.account) {
+  if (q && state.account && !reduceOnly) {
     const after = rules.positionAfter(snap.position, side, q.qtyNum, refPrice);
     const others = (state.account.positions || []).filter((p) => p.symbol !== symbol);
     liq = rules.estimateLiquidation({
@@ -553,6 +577,8 @@ async function preview(req) {
     sl: outcome(sl),
     errors,
     baseAsset: r.baseAsset,
+    reduceOnly,
+    positionSize: snap.position ? Math.abs(snap.position.amt) : 0,
   };
 }
 
@@ -565,6 +591,10 @@ async function placeOrder(req) {
     await prepareSymbol(symbol);
     const r = rulesFor(symbol);
     const market = req.type === 'MARKET';
+    const reduceOnly = req.reduceOnly === true;
+    // A reduce-only order is sized against the position: check the one the
+    // exchange has now, not the one a snapshot saw seconds ago.
+    if (reduceOnly) await refreshSymbol(symbol);
     const lastPrice = market ? await state.client.lastPrice(symbol) : null;
     const markPrice = await state.client.markPrice(symbol);
     const p = await preview({ ...req, symbol, lastPrice, markPrice });
@@ -578,10 +608,11 @@ async function placeOrder(req) {
       newClientOrderId: `sc_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
     };
     if (!market) Object.assign(params, { price: p.price, timeInForce: 'GTC' });
+    if (reduceOnly) params.reduceOnly = 'true';
 
     const order = await state.client.newOrder(params);
-    const side = p.side === 'BUY' ? '做多' : '做空';
-    const hasBracket = req.tp || req.sl;
+    const side = reduceOnly ? (p.side === 'BUY' ? '只減倉買入' : '只減倉賣出') : p.side === 'BUY' ? '做多' : '做空';
+    const hasBracket = !reduceOnly && (req.tp || req.sl);
     if (market) {
       notice('fill', `${symbol} 市價${side} ${order.executedQty || p.qty} 已送出${order.avgPrice ? `，均價 ${order.avgPrice}` : ''}`, symbol);
       if (hasBracket) {

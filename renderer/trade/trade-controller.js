@@ -70,6 +70,7 @@ export class TradeController {
         this.renderLines();
       },
       getMarket: () => ({ last: this.lastPrice(), mark: this.mark || 0 }),
+      getPosition: () => (this.snapshot && this.snapshot.position) || null,
     });
     this.bar = new PositionBar({
       onClose: () => this.closePosition(),
