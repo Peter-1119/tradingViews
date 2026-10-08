@@ -24,6 +24,7 @@ import { PeriodLevelsPrimitive } from './period-levels-primitive.js';
 import { formatCompact } from './util.js';
 import { MeasurePrimitive } from './measure-primitive.js';
 import { ExtremesPrimitive } from './extremes-primitive.js';
+import { TradePrimitive } from './trade/trade-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -332,6 +333,7 @@ export class CardChart {
     this.periodLevels = new PeriodLevelsPrimitive(this);
     /** The on-screen high and low, tagged with their prices. */
     this.extremes = new ExtremesPrimitive(this);
+    this.tradeLayer = new TradePrimitive(this);
 
     this.createPriceSeries();
     this.syncSubPanes();
@@ -423,6 +425,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.measureLayer);
     this.priceSeries.attachPrimitive(this.periodLevels);
     this.priceSeries.attachPrimitive(this.extremes);
+    this.priceSeries.attachPrimitive(this.tradeLayer);
     this.priceSeries.attachPrimitive(this.viewportWatcher);
   }
 

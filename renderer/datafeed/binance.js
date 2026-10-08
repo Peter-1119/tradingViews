@@ -153,9 +153,12 @@ function aggTradeStream(symbol) {
   return `${symbol.toLowerCase()}@aggTrade`;
 }
 
-/** Mark price and funding, every 3s. Perpetuals only. */
+/**
+ * Mark price and funding, every second (the 3s default made a position's
+ * PnL visibly lag the candles). Perpetuals only.
+ */
 function markPriceStream(symbol) {
-  return `${symbol.toLowerCase()}@markPrice`;
+  return `${symbol.toLowerCase()}@markPrice@1s`;
 }
 
 /** Binance premiumIndex / markPriceUpdate -> our Funding. */

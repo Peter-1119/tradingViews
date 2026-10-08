@@ -519,7 +519,7 @@ await test('perp talks to the futures hosts, on the /market stream route', async
   assert.equal(url.pathname, '/market/stream', 'the bare /stream route no longer carries market data');
   const klineCall = fetchCalls.find((u) => u.includes('/klines?'));
   assert.ok(klineCall && klineCall.startsWith('https://fapi.binance.com/fapi/v1/klines?'), klineCall);
-  assert.ok(sockets[0].streams.includes('btcusdt@markPrice'), 'perp needs the funding stream');
+  assert.ok(sockets[0].streams.includes('btcusdt@markPrice@1s'), 'perp needs the 1s mark price / funding stream');
 });
 
 await test('spot does not subscribe to a funding stream it cannot have', async () => {
@@ -536,7 +536,7 @@ await test('markPriceUpdate reaches onFunding, and a late subscriber gets it at 
   provider.subscribe('card', 'BTCUSDT', '1m', { onFunding: (f) => got.push(f) });
   sockets[0].open();
   sockets[0].emit({
-    stream: 'btcusdt@markPrice',
+    stream: 'btcusdt@markPrice@1s',
     data: { e: 'markPriceUpdate', s: 'BTCUSDT', p: '84238.8', r: '0.00001462', T: 1790265600000 },
   });
 

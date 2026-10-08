@@ -9,6 +9,7 @@
 import { el, clamp, INTERVAL_LABELS, CHART_TYPE_LABELS, MARKET_LABELS } from '../util.js';
 import { SymbolSearch } from './symbol-search.js';
 import { ShortcutInput } from './shortcut-input.js';
+import { TradeSettings } from './trade-settings.js';
 
 const UP_DOWN_LABELS = { greenUp: '綠漲紅跌', redUp: '紅漲綠跌' };
 /**
@@ -278,6 +279,8 @@ export class SettingsPanel {
       onChange: (accel) => onShortcut('toggleClickThrough', accel),
     });
 
+    this.trade = new TradeSettings();
+
     this.root = el(
       'div.sc-panel',
       { hidden: true },
@@ -315,7 +318,8 @@ export class SettingsPanel {
         el('div.sc-row.sc-row--stack', {}, this.alertToast.root, this.alertFlash.root),
         row('顯示/隱藏全部卡片', this.showAccel.root),
         row('切換滑鼠穿透', this.clickThroughAccel.root),
-        el('div.sc-row.sc-row--stack', {}, this.startupToggle.root)
+        el('div.sc-row.sc-row--stack', {}, this.startupToggle.root),
+        this.trade.root
       )
     );
   }

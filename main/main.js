@@ -18,6 +18,7 @@ const tray = require('./tray');
 const shortcuts = require('./shortcuts');
 const barStore = require('./bar-store');
 const alerts = require('./alerts');
+const trading = require('./trading/service');
 
 // Toasts are attributed by AppUserModelID; the same id the installer uses,
 // so dev and packaged builds show up as the same app in Windows settings.
@@ -415,6 +416,38 @@ ipcMain.on('datafeed:unsubscribe', (event, { subId, market } = {}) => {
   sendHub('hub:unsubscribe', { subId, market: store.pickMarket(market), ownerId: event.sender.id });
 });
 
+/* -------------------------------------------------------- IPC: trading */
+
+/*
+ * Every trading call answers {ok, data} or {ok: false, error}. A thrown error
+ * would reach the renderer as "Error invoking remote method 'trading:place':
+ * Error: ..." -- the user should read why an order failed, not that.
+ */
+function tradingHandle(channel, fn) {
+  ipcMain.handle(channel, async (event, payload = {}) => {
+    try {
+      return { ok: true, data: await fn(event, payload) };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+}
+
+tradingHandle('trading:status', () => trading.status());
+tradingHandle('trading:watch', (event, { symbol, owner }) => trading.watch(event.sender, symbol, owner));
+tradingHandle('trading:unwatch', (event, { owner }) => trading.unwatch(event.sender, owner));
+tradingHandle('trading:preview', (_e, req) => trading.preview(req));
+tradingHandle('trading:place', (_e, req) => trading.placeOrder(req));
+tradingHandle('trading:cancel', (_e, req) => trading.cancel(req));
+tradingHandle('trading:close', (_e, req) => trading.closePosition(req));
+tradingHandle('trading:tpsl', (_e, req) => trading.setTpsl(req));
+tradingHandle('trading:set-env', (_e, { env, confirmLive }) => trading.setEnv(env, { confirmLive }));
+tradingHandle('trading:set-keys', (_e, { env, apiKey, secret }) => trading.setCredentials(env, apiKey, secret));
+tradingHandle('trading:clear-keys', (_e, { env }) => trading.clearCredentials(env));
+tradingHandle('trading:set-leverage', (_e, { leverage }) => trading.setLeverage(leverage));
+tradingHandle('trading:one-way', () => trading.setOneWay());
+tradingHandle('trading:test', () => trading.test());
+
 /* ------------------------------------------------------------ lifecycle */
 
 app.on('browser-window-created', (_event, win) => {
@@ -496,6 +529,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  trading.shutdown();
   windows.shutdown();
   shortcuts.unregisterAll();
   tray.destroy();

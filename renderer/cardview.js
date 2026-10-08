@@ -9,6 +9,7 @@
 
 import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
+import { TradeController } from './trade/trade-controller.js';
 import { Toolbar } from './ui/toolbar.js';
 import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchlist.js';
 import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
@@ -378,6 +379,8 @@ export class CardView {
     this.bindUndo();
     this.bindLevelInput();
     this.bindFibInput();
+    // Order entry, positions and orders on the chart -- perpetual cards only.
+    this.trade = new TradeController(this);
     this.offFibs = window.stockcard.onFibsChanged(({ symbol, fibs }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.fibs = fibs;
@@ -1687,6 +1690,7 @@ export class CardView {
     if (this.onActivate) this.root.removeEventListener('pointerdown', this.onActivate, true);
     if (lastActive === this) lastActive = null;
     if (this.offRangeChange) this.offRangeChange();
+    if (this.trade) this.trade.destroy();
     this.feed.unsubscribe(this.card.id);
     this.feed.unsubscribe(`${this.card.id}:htf`);
     if (this.chart) this.chart.destroy();
@@ -1808,6 +1812,7 @@ export class CardView {
   applyFunding(funding) {
     this.funding = funding && this.card.market === 'perp' ? funding : null;
     this.renderFunding();
+    if (this.trade && this.funding) this.trade.setMark(this.funding.markPrice);
   }
 
   /**
@@ -2099,6 +2104,7 @@ export class CardView {
     this.renderIdentity();
     this.renderRail();
     this.panel.update(next);
+    if (this.trade && (next.symbol !== prev.symbol || marketChanged)) this.trade.sync();
 
     if (symbolChanged) {
       this.ticker = null;

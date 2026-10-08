@@ -96,6 +96,29 @@ const api = {
   onAlwaysOnTop: (cb) => on('app:always-on-top', cb),
   onMode: (cb) => on('app:mode', cb),
 
+  /* ---------------------------------------------------------- trading */
+  // Intents only: the main process validates and rounds every order, and the
+  // API secret never crosses this bridge -- it can be set, never read back.
+  trading: {
+    status: () => ipcRenderer.invoke('trading:status'),
+    watch: (symbol, owner) => ipcRenderer.invoke('trading:watch', { symbol, owner }),
+    unwatch: (owner) => ipcRenderer.invoke('trading:unwatch', { owner }),
+    preview: (req) => ipcRenderer.invoke('trading:preview', req),
+    place: (req) => ipcRenderer.invoke('trading:place', req),
+    cancel: (req) => ipcRenderer.invoke('trading:cancel', req),
+    close: (symbol) => ipcRenderer.invoke('trading:close', { symbol }),
+    setTpsl: (req) => ipcRenderer.invoke('trading:tpsl', req),
+    setEnv: (env, confirmLive = false) => ipcRenderer.invoke('trading:set-env', { env, confirmLive }),
+    setKeys: (env, apiKey, secret) => ipcRenderer.invoke('trading:set-keys', { env, apiKey, secret }),
+    clearKeys: (env) => ipcRenderer.invoke('trading:clear-keys', { env }),
+    setLeverage: (leverage) => ipcRenderer.invoke('trading:set-leverage', { leverage }),
+    setOneWay: () => ipcRenderer.invoke('trading:one-way'),
+    test: () => ipcRenderer.invoke('trading:test'),
+    onStatus: (cb) => on('trading:status', cb),
+    onSnapshot: (cb) => on('trading:snapshot', cb),
+    onNotice: (cb) => on('trading:notice', cb),
+  },
+
   /* ------------------------------------------------ position alerts */
   alertStates: () => ipcRenderer.invoke('alerts:states'),
   onAlertState: (cb) => on('alerts:state', cb),
