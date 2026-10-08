@@ -113,7 +113,9 @@ const api = {
     // Opens a file dialog in the main process; the private key never comes back.
     setKeyFile: (env, apiKey) => ipcRenderer.invoke('trading:set-key-file', { env, apiKey }),
     clearKeys: (env) => ipcRenderer.invoke('trading:clear-keys', { env }),
-    setLeverage: (leverage) => ipcRenderer.invoke('trading:set-leverage', { leverage }),
+    // Per symbol, on Binance: its current leverage and ceiling, and a change.
+    getLeverage: (symbol) => ipcRenderer.invoke('trading:leverage', { symbol }),
+    setLeverage: (symbol, leverage) => ipcRenderer.invoke('trading:set-leverage', { symbol, leverage }),
     setOneWay: () => ipcRenderer.invoke('trading:one-way'),
     test: () => ipcRenderer.invoke('trading:test'),
     onStatus: (cb) => on('trading:status', cb),

@@ -55,6 +55,7 @@ export class TradeController {
       onPreview: (req) => api().preview(req),
       onSubmit: (req) => this.submit(req),
       onClose: () => this.closeTicket(),
+      onLeverage: (symbol, leverage) => this.setLeverage(symbol, leverage),
       onDraft: (draft) => {
         this.draft = draft;
         this.renderLines();
@@ -154,7 +155,7 @@ export class TradeController {
   applyStatus(status) {
     this.status = status;
     const acc = status.account;
-    this.ticket.setAccount({ leverage: status.leverage, available: acc ? acc.availableBalance : 0, env: status.env });
+    this.ticket.setAccount({ available: acc ? acc.availableBalance : 0, env: status.env });
     if (!this.enabled) {
       this.closeTicket();
       this.closeEditor();
@@ -324,13 +325,35 @@ export class TradeController {
       symbol: this.symbol,
       baseAsset: rules ? rules.baseAsset : '',
       price: price > 0 ? Number(this.view.chart.formatPrice(price)) : this.lastPrice(),
-      leverage: this.status.leverage,
+      // From the last snapshot; refreshed from Binance just below.
+      leverage: this.snapshot ? this.snapshot.leverage : null,
+      maxLeverage: this.snapshot ? this.snapshot.maxLeverage : null,
       available: acc ? acc.availableBalance : 0,
       env: this.status.env,
     });
     this.view.root.classList.add('is-ticket-open');
     this.renderPlus();
     this.renderLines();
+    // Ask Binance for the symbol's leverage as it stands now -- it may have
+    // been changed on the website or the phone since the last snapshot.
+    const symbol = this.symbol;
+    api()
+      .getLeverage(symbol)
+      .then((res) => {
+        if (res && res.ok && symbol === this.symbol) this.ticket.setLeverageInfo(res.data);
+      });
+  }
+
+  /** The ticket's leverage editor: change it on Binance, then show what Binance says. */
+  async setLeverage(symbol, leverage) {
+    const res = await api().setLeverage(symbol, leverage);
+    if (!res || !res.ok) {
+      this.applyNotice({ level: 'error', text: res ? res.error : '槓桿調整失敗', symbol });
+      return false;
+    }
+    if (symbol === this.symbol) this.ticket.setLeverageInfo(res.data);
+    this.applyNotice({ level: 'fill', text: `${symbol} 槓桿已改為 ${res.data.leverage}x`, symbol });
+    return true;
   }
 
   closeTicket() {

@@ -66,7 +66,10 @@ export class OrderTicket {
     this.tpsl = false;
     this.tp = '';
     this.sl = '';
-    this.leverage = 10;
+    /** This symbol's leverage on Binance, and its ceiling; null until known. */
+    this.leverage = null;
+    this.maxLeverage = null;
+    this.levOpen = false;
     this.available = 0;
     this.previews = { BUY: null, SELL: null };
     this.armed = null;
@@ -79,7 +82,27 @@ export class OrderTicket {
 
   build() {
     this.titleEl = el('span.tk-title');
-    this.levEl = el('span.tk-chip', { title: '槓桿與保證金模式（在設定 → 交易修改）' });
+    this.levEl = el('button.tk-chip.tk-chip--btn', {
+      type: 'button',
+      title: '這個幣種的槓桿（點一下調整，直接改在幣安帳戶上）',
+      onclick: () => this.toggleLeverage(),
+    });
+    // Inline editor under the head: a number, quick picks, and apply.
+    this.levInput = numberInput({ placeholder: '槓桿', onInput: () => this.renderLeverage() });
+    this.levInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.applyLeverage();
+    });
+    this.levQuick = el('div.tk-pcts');
+    this.levApply = el('button.tk-input__btn', { type: 'button', text: '套用', onclick: () => this.applyLeverage() });
+    this.levHint = el('div.tk-sub');
+    this.levBox = el(
+      'div.tk-field.tk-lev',
+      { hidden: true },
+      el('div.tk-field__label', { text: '槓桿（只影響這個幣種）' }),
+      el('div.tk-input', {}, this.levInput, this.levApply),
+      this.levQuick,
+      this.levHint
+    );
     this.envEl = el('span.tk-chip.tk-chip--env', { hidden: true, text: '測試網' });
 
     this.typeBtns = ['LIMIT', 'MARKET'].map((type) =>
@@ -154,6 +177,7 @@ export class OrderTicket {
         this.envEl,
         el('button.tk-close', { type: 'button', title: '關閉 (Esc)', text: '✕', onclick: () => this.hooks.onClose() })
       ),
+      this.levBox,
       el('div.tk-seg', {}, this.typeBtns),
       el(
         'div.tk-body',
@@ -216,11 +240,11 @@ export class OrderTicket {
     return !this.root.hidden;
   }
 
-  open({ symbol, baseAsset, price, leverage, available, env }) {
+  open({ symbol, baseAsset, price, leverage, maxLeverage, available, env }) {
     const switched = symbol !== this.symbol;
     this.symbol = symbol;
     this.baseAsset = baseAsset || symbol.replace(/USDT$|USDC$/, '');
-    this.leverage = leverage;
+    if (switched || leverage) this.setLeverageInfo({ leverage, max: maxLeverage });
     this.available = available || 0;
     this.envEl.hidden = env !== 'testnet';
     if (switched) {
@@ -247,11 +271,73 @@ export class OrderTicket {
     this.hooks.onDraft(null);
   }
 
-  setAccount({ leverage, available, env }) {
-    if (leverage) this.leverage = leverage;
+  setAccount({ available, env }) {
     if (Number.isFinite(available)) this.available = available;
     if (env) this.envEl.hidden = env !== 'testnet';
     if (this.isOpen) this.render();
+  }
+
+  /* ------------------------------------------------------------ leverage */
+
+  /** From Binance, via the controller: {leverage, max}. */
+  setLeverageInfo({ leverage, max } = {}) {
+    this.leverage = leverage || null;
+    this.maxLeverage = max || null;
+    if (this.isOpen) this.render();
+  }
+
+  toggleLeverage() {
+    this.levOpen = !this.levOpen;
+    this.levBox.hidden = !this.levOpen;
+    if (this.levOpen) {
+      this.levInput.value = this.leverage ? String(this.leverage) : '';
+      this.renderLeverage();
+      this.levInput.focus();
+      this.levInput.select();
+    }
+  }
+
+  /** Quick picks that exist for this symbol, capped at its maximum. */
+  renderLeverage() {
+    const max = this.maxLeverage || 125;
+    const picks = [...new Set([1, 3, 5, 10, 20, 50, 100, max].filter((n) => n <= max))];
+    this.levQuick.replaceChildren(
+      ...picks.map((n) =>
+        el('button.tk-pct', {
+          type: 'button',
+          text: n === max ? `${n}x 最高` : `${n}x`,
+          class: String(n) === this.levInput.value ? 'is-active' : '',
+          onclick: () => {
+            this.levInput.value = String(n);
+            this.renderLeverage();
+          },
+        })
+      )
+    );
+    const want = Math.round(Number(this.levInput.value));
+    const bad = !Number.isFinite(want) || want < 1 || want > max;
+    this.levApply.disabled = bad || want === this.leverage || this.levBusy;
+    this.levHint.textContent = bad
+      ? `這個幣種的槓桿可以設 1～${max}x`
+      : `改在幣安帳戶上，${this.symbol} 之後的所有單都用 ${want}x。倉位越大，可用的最高槓桿越低。`;
+  }
+
+  async applyLeverage() {
+    const want = Math.round(Number(this.levInput.value));
+    if (this.levApply.disabled) return;
+    this.levBusy = true;
+    this.levApply.textContent = '套用中…';
+    this.renderLeverage();
+    const ok = await this.hooks.onLeverage(this.symbol, want);
+    this.levBusy = false;
+    this.levApply.textContent = '套用';
+    if (ok) {
+      this.levOpen = false;
+      this.levBox.hidden = true;
+      this.update({});
+    } else {
+      this.renderLeverage();
+    }
   }
 
   setType(type, { silent = false } = {}) {
@@ -273,7 +359,7 @@ export class OrderTicket {
   }
 
   setPercent(pct) {
-    const max = this.available * this.leverage;
+    const max = this.available * (this.leverage || 1);
     if (!(max > 0)) return;
     // A hair under 100%: fees and the mark/last gap would otherwise make a
     // "100%" order fail for insufficient margin.
@@ -341,7 +427,7 @@ export class OrderTicket {
 
   render() {
     this.titleEl.textContent = this.symbol;
-    this.levEl.textContent = `全倉 ${this.leverage}x`;
+    this.levEl.textContent = this.leverage ? `全倉 ${this.leverage}x ▾` : '全倉 …x';
     this.typeBtns.forEach((b, i) => b.classList.toggle('is-active', ['LIMIT', 'MARKET'][i] === this.type));
     this.priceRow.hidden = this.type !== 'LIMIT';
     this.marketHint.hidden = this.type !== 'MARKET';

@@ -10,8 +10,13 @@
  * order is validated and rounded here, against the exchange's own filters,
  * no matter what the renderer computed.
  *
- * The account runs cross margin in one-way mode (the user's choice). Leverage
- * is one global setting, applied to a symbol the first time it is traded.
+ * The account runs cross margin in one-way mode (the user's choice).
+ *
+ * Leverage is per symbol, and Binance is the record of it: the ticket shows
+ * the symbol's current leverage as the exchange has it (symbolConfig), and a
+ * change is written straight back (POST /leverage). Nothing here overrides it
+ * at order time -- what the ticket shows is what the order uses. Each symbol's
+ * ceiling comes from its leverage brackets, and falls as the position grows.
  *
  * Testnet first: the default environment is Binance's demo exchange, and
  * switching to live needs an explicit confirmation in the settings.
@@ -334,7 +339,7 @@ async function refreshSymbol(symbol) {
           notional: Math.abs(Number(row.notional)),
           initialMargin: Number(row.initialMargin) || 0,
           maintMargin: Number(row.maintMargin) || 0,
-          leverage: cfg.leverage || config().leverage,
+          leverage: cfg.leverage || null,
           marginType: cfg.marginType || 'CROSSED',
         }
       : null;
@@ -360,7 +365,8 @@ async function refreshSymbol(symbol) {
       sl: algoList.find((a) => a.kind === 'sl') || null,
       algos: algoList,
       pending: pendingFor(symbol),
-      leverage: config().leverage,
+      leverage: cfg.leverage || null,
+      maxLeverage: rules.maxLeverage(state.brackets.get(symbol)),
       rules: state.rules.get(symbol),
     };
     state.snapshots.set(symbol, snap);
@@ -424,10 +430,9 @@ async function ready() {
   if (!state.oneWay) throw new Error('帳戶是雙向持倉模式，請先在設定 → 交易切換為單向持倉');
 }
 
-/** Leverage and cross margin, set on a symbol before its first order. */
+/** Cross margin, set on a symbol before its first order. Leverage is left as the user set it. */
 async function prepareSymbol(symbol) {
   await ensureSymbolMeta(symbol);
-  const want = config().leverage;
   const cfg = state.symbolConfig.get(symbol) || {};
   if (cfg.marginType && cfg.marginType !== 'CROSSED') {
     try {
@@ -437,11 +442,44 @@ async function prepareSymbol(symbol) {
       if (err.code !== -4046) notice('warn', `無法切換為全倉，將沿用逐倉：${friendly(err)}`, symbol);
     }
   }
-  if (cfg.leverage !== want) {
-    const res = await state.client.setLeverage(symbol, want);
-    cfg.leverage = Number(res.leverage) || want;
-  }
   state.symbolConfig.set(symbol, cfg);
+}
+
+/** The symbol's leverage as Binance has it, and how far it can go. */
+async function getLeverage(symbol) {
+  await ready();
+  const sym = String(symbol || '').toUpperCase();
+  rulesFor(sym);
+  await ensureSymbolMeta(sym);
+  return leverageInfo(sym);
+}
+
+function leverageInfo(symbol) {
+  const brackets = state.brackets.get(symbol);
+  const leverage = (state.symbolConfig.get(symbol) || {}).leverage || null;
+  return {
+    symbol,
+    leverage,
+    max: rules.maxLeverage(brackets),
+    maxNotional: leverage ? rules.maxNotionalAt(brackets, leverage) : null,
+  };
+}
+
+/** Change one symbol's leverage on Binance. */
+async function setSymbolLeverage(symbol, value) {
+  await ready();
+  const sym = String(symbol || '').toUpperCase();
+  rulesFor(sym);
+  await ensureSymbolMeta(sym);
+  const max = rules.maxLeverage(state.brackets.get(sym)) || LEVERAGE_MAX;
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n) || n < LEVERAGE_MIN || n > max) throw new Error(`${sym} 的槓桿要在 1～${max}x 之間`);
+  const res = await state.client.setLeverage(sym, n);
+  const cfg = state.symbolConfig.get(sym) || {};
+  cfg.leverage = Number(res.leverage) || n;
+  state.symbolConfig.set(sym, cfg);
+  queueRefresh(sym);
+  return leverageInfo(sym);
 }
 
 function rulesFor(symbol) {
@@ -467,7 +505,8 @@ async function preview(req) {
   const price = market ? null : rules.roundPrice(Number(req.price), r);
   const q = rules.quantityForNotional(Number(req.notional), market ? refPrice : Number(price), r, { market });
   const qty = q ? q.qty : '0';
-  const leverage = config().leverage;
+  if (state.client && state.connection === 'ready') await ensureSymbolMeta(symbol);
+  const leverage = (state.symbolConfig.get(symbol) || {}).leverage || config().leverage;
   const tp = req.tp ? Number(rules.roundPrice(Number(req.tp), r)) : null;
   const sl = req.sl ? Number(rules.roundPrice(Number(req.sl), r)) : null;
   const errors = rules.validateOrder({ side, type: market ? 'MARKET' : 'LIMIT', price, qty, refPrice, tp, sl, markPrice }, r);
@@ -476,6 +515,14 @@ async function preview(req) {
   const notional = q ? q.notional : 0;
   const margin = notional / leverage;
   if (account && margin > account.availableBalance + 1e-9) errors.push('可用保證金不足');
+  // The bracket ceiling: say so here rather than let Binance refuse the order.
+  if (q) {
+    const after = rules.positionAfter(snap.position, side, q.qtyNum, refPrice);
+    const cap = rules.maxNotionalAt(state.brackets.get(symbol), leverage);
+    if (Math.abs(after.amt) * refPrice > cap) {
+      errors.push(`${leverage}x 時這個幣種的倉位上限是 ${Math.floor(cap).toLocaleString()} USDT，請降低槓桿或金額`);
+    }
+  }
 
   let liq = null;
   if (q && state.account) {
@@ -716,28 +763,6 @@ function clearCredentials(env) {
   return status();
 }
 
-async function setLeverage(value) {
-  const leverage = clampLeverage(value);
-  saveConfig({ leverage });
-  // Applied lazily, on each symbol's next order -- but a symbol with an open
-  // position should show the new number now, so apply it to those.
-  for (const [symbol, snap] of state.snapshots) {
-    if (snap.position && state.client) {
-      try {
-        const res = await state.client.setLeverage(symbol, leverage);
-        const cfg = state.symbolConfig.get(symbol) || {};
-        cfg.leverage = Number(res.leverage) || leverage;
-        state.symbolConfig.set(symbol, cfg);
-      } catch (err) {
-        notice('warn', `${symbol} 槓桿調整失敗：${friendly(err)}`, symbol);
-      }
-      queueRefresh(symbol);
-    }
-  }
-  broadcastStatus();
-  return status();
-}
-
 async function setOneWay() {
   if (!(await connect())) throw new Error(state.error || '尚未連線');
   try {
@@ -807,7 +832,8 @@ module.exports = {
   setCredentials,
   setPrivateKey,
   clearCredentials,
-  setLeverage,
+  getLeverage,
+  setSymbolLeverage,
   setOneWay,
   test,
   shutdown,

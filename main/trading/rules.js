@@ -164,6 +164,27 @@ function bracketFor(brackets, notional) {
 }
 
 /**
+ * The highest leverage a symbol allows at all: its first bracket's. Altcoins
+ * stop far below BTC's 125x, which is why one global leverage cannot work.
+ */
+function maxLeverage(brackets) {
+  if (!Array.isArray(brackets) || !brackets.length) return null;
+  return Math.max(...brackets.map((b) => Number(b.initialLeverage) || 0)) || null;
+}
+
+/**
+ * The largest position (notional, USDT) a leverage allows: the top cap of the
+ * brackets that still permit it. Higher leverage, smaller ceiling -- 125x on
+ * BTC holds only the first bracket.
+ */
+function maxNotionalAt(brackets, leverage) {
+  if (!Array.isArray(brackets) || !brackets.length) return Infinity;
+  const allowed = brackets.filter((b) => Number(b.initialLeverage) >= leverage);
+  if (!allowed.length) return 0;
+  return Math.max(...allowed.map((b) => Number(b.notionalCap) || 0));
+}
+
+/**
  * The net one-way position after an order fills: signed amount and entry.
  * Adding averages the entry; reducing keeps it; flipping starts a new one at
  * the order's price -- the same bookkeeping Binance does.
@@ -223,6 +244,8 @@ module.exports = {
   quantityForNotional,
   validateOrder,
   bracketFor,
+  maxLeverage,
+  maxNotionalAt,
   positionAfter,
   estimateLiquidation,
   pnlAt,

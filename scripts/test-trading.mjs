@@ -136,5 +136,38 @@ t('HMAC keys still sign as before', () => {
   assert.equal(makeSigner({ secret: 'abc' })('x=1'), r.sign('x=1', 'abc'), 'keys saved before types existed are HMAC');
 });
 
+/* ------------------------------------------------------ per-symbol leverage */
+
+// Shaped like BTCUSDT's brackets: the higher the leverage, the lower the cap.
+const BTC_BRACKETS = [
+  { bracket: 1, initialLeverage: 125, notionalFloor: 0, notionalCap: 300000 },
+  { bracket: 2, initialLeverage: 100, notionalFloor: 300000, notionalCap: 800000 },
+  { bracket: 3, initialLeverage: 75, notionalFloor: 800000, notionalCap: 3000000 },
+  { bracket: 4, initialLeverage: 50, notionalFloor: 3000000, notionalCap: 12000000 },
+  { bracket: 5, initialLeverage: 1, notionalFloor: 12000000, notionalCap: 50000000 },
+];
+// An altcoin that stops at 20x.
+const ALT_BRACKETS = [
+  { bracket: 1, initialLeverage: 20, notionalFloor: 0, notionalCap: 5000 },
+  { bracket: 2, initialLeverage: 10, notionalFloor: 5000, notionalCap: 25000 },
+  { bracket: 3, initialLeverage: 5, notionalFloor: 25000, notionalCap: 100000 },
+];
+
+t('max leverage is the first bracket, and differs by symbol', () => {
+  assert.equal(r.maxLeverage(BTC_BRACKETS), 125);
+  assert.equal(r.maxLeverage(ALT_BRACKETS), 20, 'one global 50x would have been refused here');
+  assert.equal(r.maxLeverage([]), null);
+});
+
+t('higher leverage, smaller position ceiling', () => {
+  assert.equal(r.maxNotionalAt(BTC_BRACKETS, 125), 300000);
+  assert.equal(r.maxNotionalAt(BTC_BRACKETS, 80), 800000, 'between brackets: the 100x bracket still allows 80x');
+  assert.equal(r.maxNotionalAt(BTC_BRACKETS, 75), 3000000);
+  assert.equal(r.maxNotionalAt(BTC_BRACKETS, 1), 50000000);
+  assert.equal(r.maxNotionalAt(ALT_BRACKETS, 20), 5000);
+  assert.equal(r.maxNotionalAt(ALT_BRACKETS, 25), 0, 'above the symbol maximum: nothing');
+  assert.equal(r.maxNotionalAt(undefined, 10), Infinity, 'brackets not loaded yet: no false refusal');
+});
+
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);

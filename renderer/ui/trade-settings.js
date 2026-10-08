@@ -86,9 +86,9 @@ export class TradeSettings {
       this.helpLink
     );
 
-    this.levInput = el('input.sc-search__input.ts-lev', { type: 'text', inputmode: 'numeric' });
-    this.levBtn = el('button.sc-btn', { type: 'button', text: '套用', onclick: () => this.saveLeverage() });
-    this.levRow = el('div.ts-inline', {}, this.levInput, el('span.ts-unit', { text: 'x　全倉・單向持倉' }), this.levBtn);
+    this.levRow = el('div.ts-help', {
+      text: '每個幣種各自設定：在下單票標題的「全倉 Nx」調整，直接存在你的幣安帳戶（網頁、手機看到的都一樣）。保證金模式為全倉、單向持倉。',
+    });
 
     this.oneWayBtn = el('button.sc-btn', { type: 'button', text: '切換為單向持倉', onclick: () => this.run(() => api().setOneWay()) });
     this.oneWayBox = el(
@@ -110,7 +110,7 @@ export class TradeSettings {
       row('環境', el('div.sc-seg', {}, [...this.envBtns.values()]), this.liveBox),
       this.statusRow,
       row('API Key', this.keySaved, this.keyForm, this.help),
-      row('槓桿（每個幣種第一次下單時套用）', this.levRow),
+      row('槓桿', this.levRow),
       this.oneWayBox,
       this.error
     );
@@ -179,7 +179,7 @@ export class TradeSettings {
     this.statusText.textContent = text;
     this.retryBtn.hidden = !key.configured;
 
-    if (document.activeElement !== this.levInput) this.levInput.value = String(s.leverage);
+
     this.oneWayBox.hidden = s.oneWay !== false;
   }
 
@@ -239,9 +239,6 @@ export class TradeSettings {
     this.run(() => api().clearKeys(this.status.env));
   }
 
-  saveLeverage() {
-    this.run(() => api().setLeverage(Number(this.levInput.value)));
-  }
 
   openHelp(event) {
     event.preventDefault();

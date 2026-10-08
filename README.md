@@ -150,7 +150,9 @@ npm run dist      # 打包成 Windows 安裝檔 + 免安裝版 -> release/
    - **System generated（HMAC）**：貼上 API Key 與 Secret Key →「儲存並連線」。
 
    幣安永續合約 REST 的文件只列出 HMAC 和 RSA，但 **Ed25519 已用正式帳戶實測可用**（唯讀查詢，簽名驗證通過）。產生 Ed25519 金鑰：`openssl genpkey -algorithm ed25519 -out stockcard-private.pem`，公鑰：`openssl pkey -in stockcard-private.pem -pubout -out stockcard-public.pem`，把公鑰檔整個（含 BEGIN / END 兩行）貼到幣安。
-3. 槓桿是全域設定，每個幣種第一次下單時套用。保證金模式固定為**全倉**、持倉模式為**單向**；如果帳戶是雙向持倉，設定裡會出現切換按鈕。
+3. **槓桿依幣種各自設定**：點下單票標題的「全倉 Nx ▾」，填數字或點快選（只列出這個幣種允許的倍數，最右邊是它的最高槓桿）→「套用」。保證金模式固定為**全倉**、持倉模式為**單向**；如果帳戶是雙向持倉，設定裡會出現切換按鈕。
+
+**槓桿記錄在幣安帳戶上，不在本機**：每個幣種的槓桿本來就是幣安依幣種保存的（`GET /fapi/v1/symbolConfig` 讀、`POST /fapi/v1/leverage` 寫），所以在 App、網頁、手機看到的是同一個數字。每次打開下單票都向幣安重新讀一次，送單時**不會**被改掉 —— 下單票上看到幾倍就是幾倍。每個幣種的最高槓桿不同（BTC 125x，很多小幣 20x 或更低），而且**倉位越大可用的最高槓桿越低**（`GET /fapi/v1/leverageBracket` 的分層）；預估倉位超過目前槓桿允許的名目價值時，下單票會先說明，不會等幣安拒絕。
 
 金鑰（HMAC 的 Secret，或自行產生的私鑰）用 Windows 的 DPAPI 加密存在 `userData/trading-credentials.bin`，只有主程序讀得到，畫面端只看得到末四碼與金鑰類型。所有下單都在主程序依交易所規則（最小跳動、數量步長、最小名目價值）重新驗證、取整後才送出。
 

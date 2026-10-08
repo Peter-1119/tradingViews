@@ -466,7 +466,8 @@ tradingHandle('trading:set-key-file', async (event, { env, apiKey }) => {
   return trading.setPrivateKey(env, apiKey, fs.readFileSync(file, 'utf8'));
 });
 tradingHandle('trading:clear-keys', (_e, { env }) => trading.clearCredentials(env));
-tradingHandle('trading:set-leverage', (_e, { leverage }) => trading.setLeverage(leverage));
+tradingHandle('trading:leverage', (_e, { symbol }) => trading.getLeverage(symbol));
+tradingHandle('trading:set-leverage', (_e, { symbol, leverage }) => trading.setSymbolLeverage(symbol, leverage));
 tradingHandle('trading:one-way', () => trading.setOneWay());
 tradingHandle('trading:test', () => trading.test());
 

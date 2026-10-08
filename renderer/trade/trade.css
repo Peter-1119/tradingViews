@@ -402,6 +402,24 @@
   white-space: nowrap;
 }
 
+/* The leverage chip opens the per-symbol leverage editor. */
+.tk-chip--btn {
+  border: 0;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.tk-chip--btn:hover {
+  background: rgba(79, 143, 247, 0.28);
+  color: var(--ink);
+}
+
+.tk-pct.is-active {
+  border-color: rgba(79, 143, 247, 0.8);
+  color: var(--ink);
+}
+
 .tk-chip--env {
   background: rgba(240, 160, 60, 0.18);
   color: #f6c27a;
