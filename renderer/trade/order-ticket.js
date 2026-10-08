@@ -352,6 +352,18 @@ export class OrderTicket {
     if (!silent) this.update({});
   }
 
+  /** A draft line dragged on the chart: the price, the TP or the SL. */
+  setFromChart(which, price) {
+    if (which === 'price') {
+      this.retarget(price);
+      return;
+    }
+    this.tpsl = true;
+    this[which] = String(price);
+    (which === 'tp' ? this.tpInput : this.slInput).value = this[which];
+    this.update({});
+  }
+
   /** Re-anchor the limit price to a new click on the chart while open. */
   retarget(price) {
     this.setType('LIMIT', { silent: true });

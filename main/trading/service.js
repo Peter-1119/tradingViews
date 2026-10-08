@@ -623,24 +623,44 @@ async function placeTpsl(symbol, direction, { tp, sl }) {
     ['sl', sl, 'STOP_MARKET'],
   ]) {
     if (value === undefined) continue;
-    for (const a of existing.filter((x) => x.kind === kind)) {
+    const label = kind === 'tp' ? '止盈' : '止損';
+    const old = existing.filter((x) => x.kind === kind);
+    // Binance has no way to amend a conditional order, so a new price means
+    // cancel and re-place -- cancel first, because a second close-position
+    // order in the same direction is refused while the first stands.
+    for (const a of old) {
       await state.client.cancelAlgoOrder(a.id).catch(() => {});
     }
     if (value === null) continue;
-    try {
-      await state.client.newAlgoOrder({
+    const place = (trigger) =>
+      state.client.newAlgoOrder({
         symbol,
         side: closeSide,
         type,
-        triggerPrice: rules.roundPrice(Number(value), r),
+        triggerPrice: rules.roundPrice(Number(trigger), r),
         closePosition: 'true',
         workingType: 'MARK_PRICE',
         priceProtect: 'true',
         clientAlgoId: `sc_${kind}_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
       });
+    try {
+      await place(value);
       results.push(kind);
     } catch (err) {
-      notice('error', `${kind === 'tp' ? '止盈' : '止損'}設定失敗：${friendly(err)}`, symbol);
+      // The old one is already gone. Leaving the position without a stop
+      // because the *new* price was refused (it would have triggered at once,
+      // say) is the worst outcome on offer, so put the old one back.
+      const previous = old[0] && old[0].trigger;
+      if (!previous) {
+        notice('error', `${label}設定失敗：${friendly(err)}`, symbol);
+        continue;
+      }
+      try {
+        await place(previous);
+        notice('error', `${label}調整失敗：${friendly(err)}。已恢復為原本的 ${previous}`, symbol);
+      } catch (restoreErr) {
+        notice('error', `${label}調整失敗，而且無法恢復原本的 ${previous}：${friendly(restoreErr)}。這個倉位目前沒有${label}，請立刻檢查！`, symbol);
+      }
     }
   }
   if (results.length) {
@@ -669,6 +689,65 @@ async function setTpsl(req) {
   } finally {
     queueRefresh(symbol, 200);
   }
+  return { ok: true };
+}
+
+/**
+ * A working limit order dragged to a new price: modified in place. Refused if
+ * the new price is through the market -- a buy above or a sell below the
+ * last trade would fill on the spot as a taker, which a drag should not do.
+ */
+async function modifyOrderPrice(req) {
+  await ready();
+  const symbol = String(req.symbol || '').toUpperCase();
+  const r = rulesFor(symbol);
+  const orders = await state.client.openOrders(symbol);
+  const order = (orders || []).find((o) => String(o.orderId) === String(req.orderId));
+  if (!order) throw new Error('找不到這筆委託（可能已經成交或取消）');
+  if (order.type !== 'LIMIT') throw new Error('只有限價委託可以拖曳改價');
+  const price = rules.roundPrice(Number(req.price), r);
+  if (!(Number(price) > 0)) throw new Error('價格不正確');
+  const last = Number(await state.client.lastPrice(symbol));
+  if (last > 0 && (order.side === 'BUY' ? Number(price) >= last : Number(price) <= last)) {
+    throw new Error('拖過目前價格會立刻成交；要立刻成交請用下單票的市價單');
+  }
+  try {
+    await state.client.modifyOrder({ symbol, orderId: order.orderId, side: order.side, quantity: order.origQty, price });
+  } catch (err) {
+    throw new Error(friendly(err));
+  } finally {
+    queueRefresh(symbol, 150);
+  }
+  notice('info', `${symbol} 限價${order.side === 'BUY' ? '買' : '賣'}已改到 ${price}`, symbol);
+  return { ok: true, price };
+}
+
+/**
+ * The TP or SL waiting for a limit order to fill: only stored here, so a drag
+ * just rewrites it -- checked against the order's own price and side, since
+ * that is where the position will start.
+ */
+async function updatePending(req) {
+  await ready();
+  const symbol = String(req.symbol || '').toUpperCase();
+  const r = rulesFor(symbol);
+  const id = String(req.orderId);
+  const record = (config().pending[state.env] || {})[id];
+  if (!record) throw new Error('找不到這筆委託的止盈止損');
+  const order = ((await state.client.openOrders(symbol)) || []).find((o) => String(o.orderId) === id);
+  if (!order) throw new Error('找不到這筆委託（可能已經成交或取消）');
+  const entry = Number(order.price);
+  const long = order.side === 'BUY';
+  const next = { ...record };
+  for (const kind of ['tp', 'sl']) {
+    if (req[kind] === undefined) continue;
+    const value = Number(rules.roundPrice(Number(req[kind]), r));
+    const wrong = kind === 'tp' ? (long ? value <= entry : value >= entry) : long ? value >= entry : value <= entry;
+    if (wrong) throw new Error(`${kind === 'tp' ? '止盈' : '止損'}要放在委託價的${kind === 'tp' ? '獲利' : '虧損'}方向`);
+    next[kind] = value;
+  }
+  setPending(id, next);
+  queueRefresh(symbol, 50);
   return { ok: true };
 }
 
@@ -828,6 +907,8 @@ module.exports = {
   cancel,
   closePosition,
   setTpsl,
+  modifyOrderPrice,
+  updatePending,
   setEnv,
   setCredentials,
   setPrivateKey,

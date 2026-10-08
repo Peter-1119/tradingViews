@@ -12,7 +12,10 @@
  *   - ＋ opens the order ticket at that price;
  *   - the position, its liquidation price, working limit orders and TP/SL are
  *     lines on the chart with labels that cancel on ×, and the position strip
- *     along the bottom carries the live PnL and the close button.
+ *     along the bottom carries the live PnL and the close button;
+ *   - a limit order's, a TP/SL's or the ticket's draft label can be dragged to
+ *     a new price (the label, not the line: lines share the chart with levels
+ *     and panning, and grabbing one by accident would move a real order).
  */
 
 import { el } from '../util.js';
@@ -22,6 +25,8 @@ import { PositionBar } from './position-bar.js';
 const api = () => window.stockcard.trading;
 
 const CLICK_SLOP_PX = 4;
+/** A drag shorter than this is a click, and sends nothing. */
+const DRAG_SLOP_PX = 3;
 const CLICK_MAX_MS = 350;
 // Long enough for the second click of a double-click to cancel the lock.
 const LOCK_DELAY_MS = 230;
@@ -44,6 +49,10 @@ export class TradeController {
     this.view = view;
     this.status = null;
     this.snapshot = null;
+    /** {id, meta, startY, startPrice, price, moved, problem} while a label is dragged. */
+    this.drag = null;
+    /** {id, price} after a drag is sent, until the exchange's answer arrives. */
+    this.saving = null;
     this.mark = null;
     this.hoverY = null;
     this.lock = null; // {price}
@@ -170,6 +179,8 @@ export class TradeController {
     if (!snap || snap.symbol !== this.symbol) return;
     if (this.status && snap.env !== this.status.env) return;
     this.snapshot = snap;
+    // The exchange has answered: draw what it says, not what was dragged.
+    if (this.saving && this.saving.sent) this.saving = null;
     if (snap.position && !this.mark) this.mark = snap.position.mark;
     this.bar.set(this.enabled ? snap : null);
     if (this.editor.isOpen && !snap.position) this.closeEditor();
@@ -269,8 +280,19 @@ export class TradeController {
   }
 
   bindKeys() {
+    this.onDragMove = (event) => this.dragMove(event);
+    this.onDragUp = () => this.dragEnd();
+    window.addEventListener('mousemove', this.onDragMove);
+    window.addEventListener('mouseup', this.onDragUp);
+
     this.onKey = (event) => {
       if (event.key !== 'Escape') return;
+      // A drag in progress takes Escape first: put things back, send nothing.
+      if (this.drag) {
+        this.cancelDrag();
+        event.stopPropagation();
+        return;
+      }
       if (this.ticket.isOpen || this.editor.isOpen) return; // they handle their own
       if (this.lock) {
         this.lock = null;
@@ -503,6 +525,7 @@ export class TradeController {
         dash: [6, 4],
         axis: true,
         label: { text: kind === 'tp' ? '止盈' : '止損', value, color: COLORS[kind], cancel: { kind: 'algo', id: a.id } },
+        drag: pos ? { kind: 'algo', which: kind } : null,
       });
     }
     for (const o of (snap && snap.orders) || []) {
@@ -518,11 +541,13 @@ export class TradeController {
           color: buy ? COLORS.long : COLORS.short,
           cancel: { kind: 'order', id: o.id },
         },
+        drag: { kind: 'order', orderId: o.id, side: o.side },
       });
       const pend = (snap.pending || []).find((p) => p.orderId === o.id);
       if (pend) {
-        if (pend.tp) items.push({ id: `pend-tp:${o.id}`, price: pend.tp, color: COLORS.tp, dash: [2, 4], alpha: 0.6, label: { text: '止盈・成交後', color: COLORS.tp, faint: true } });
-        if (pend.sl) items.push({ id: `pend-sl:${o.id}`, price: pend.sl, color: COLORS.sl, dash: [2, 4], alpha: 0.6, label: { text: '止損・成交後', color: COLORS.sl, faint: true } });
+        const meta = (which) => ({ kind: 'pending', which, orderId: o.id, side: o.side, entry: o.price });
+        if (pend.tp) items.push({ id: `pend-tp:${o.id}`, price: pend.tp, color: COLORS.tp, dash: [2, 4], alpha: 0.6, label: { text: '止盈・成交後', color: COLORS.tp, faint: true }, drag: meta('tp') });
+        if (pend.sl) items.push({ id: `pend-sl:${o.id}`, price: pend.sl, color: COLORS.sl, dash: [2, 4], alpha: 0.6, label: { text: '止損・成交後', color: COLORS.sl, faint: true }, drag: meta('sl') });
       }
     }
     if (this.lock && !this.ticket.isOpen) {
@@ -530,12 +555,183 @@ export class TradeController {
     }
     const d = this.draft;
     if (d && this.ticket.isOpen) {
-      if (d.price) items.push({ id: 'draft', price: d.price, color: COLORS.draft, dash: [4, 3], axis: true, label: { text: '下單價', color: COLORS.draft, faint: true } });
-      if (d.tp) items.push({ id: 'draft-tp', price: d.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止盈', color: COLORS.tp, faint: true } });
-      if (d.sl) items.push({ id: 'draft-sl', price: d.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止損', color: COLORS.sl, faint: true } });
+      if (d.price) items.push({ id: 'draft', price: d.price, color: COLORS.draft, dash: [4, 3], axis: true, label: { text: '下單價', color: COLORS.draft, faint: true }, drag: { kind: 'draft', which: 'price' } });
+      if (d.tp) items.push({ id: 'draft-tp', price: d.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止盈', color: COLORS.tp, faint: true }, drag: { kind: 'draft', which: 'tp' } });
+      if (d.sl) items.push({ id: 'draft-sl', price: d.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止損', color: COLORS.sl, faint: true }, drag: { kind: 'draft', which: 'sl' } });
       if (d.liq) items.push({ id: 'draft-liq', price: d.liq, color: COLORS.liq, dash: [5, 4], alpha: 0.8, label: { text: '預估強平', color: COLORS.liq, faint: true } });
     }
-    return items;
+    return items.map((it) => this.withDrag(it));
+  }
+
+  /* ------------------------------------------------------------------- drag */
+
+  /** Draw a dragged (or just-sent) item at its new price, saying what it will do. */
+  withDrag(it) {
+    const fmt = (p) => this.view.chart.formatPrice(p);
+    const d = this.drag && this.drag.moved && this.drag.id === it.id ? this.drag : null;
+    const s = !d && this.saving && this.saving.id === it.id ? this.saving : null;
+    if (!d && !s) return it;
+    const price = (d || s).price;
+    const label = { ...it.label, cancel: null };
+    if (s) {
+      label.value = `${fmt(price)} 更新中…`;
+      label.faint = true;
+    } else if (d.problem) {
+      label.value = d.problem;
+      label.tone = 'down';
+    } else {
+      label.value = `→ ${fmt(price)}${this.dragOutcome(d.meta, price)}`;
+      label.tone = '';
+    }
+    return { ...it, price, label, alpha: s ? 0.6 : it.alpha };
+  }
+
+  /** For a TP/SL on an open position: what it would make or lose there. */
+  dragOutcome(meta, price) {
+    const pos = this.snapshot && this.snapshot.position;
+    if (meta.kind !== 'algo' || !pos) return '';
+    const pnl = (price - pos.entry) * pos.amt;
+    return `（${pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)}）`;
+  }
+
+  /** Why a price would be refused, checked live so the label can say so. */
+  dragProblem(meta, price) {
+    if (meta.kind === 'order') {
+      const last = this.lastPrice();
+      if (last > 0 && (meta.side === 'BUY' ? price >= last : price <= last)) return '會立刻成交';
+    }
+    if (meta.kind === 'algo') {
+      const pos = this.snapshot && this.snapshot.position;
+      if (!pos) return '已經沒有倉位';
+      const mark = this.mark || pos.mark;
+      const long = pos.amt > 0;
+      const wrong = meta.which === 'tp' ? (long ? price <= mark : price >= mark) : long ? price >= mark : price <= mark;
+      if (wrong) return '會立刻觸發';
+    }
+    if (meta.kind === 'pending') {
+      const long = meta.side === 'BUY';
+      const wrong = meta.which === 'tp' ? (long ? price <= meta.entry : price >= meta.entry) : long ? price >= meta.entry : price <= meta.entry;
+      if (wrong) return meta.which === 'tp' ? '要在委託價的獲利方向' : '要在委託價的虧損方向';
+    }
+    return '';
+  }
+
+  /**
+   * The drag works in *offsets from the line*, not in absolute positions:
+   * where the line really is when the drag starts, plus how far the pointer
+   * has moved. Where on the label it was grabbed, or a label a frame behind
+   * its line, cannot then turn into a price nobody aimed at.
+   */
+  startDrag(item, event) {
+    if (this.drag || this.saving) return;
+    const lineY = this.view.chart.priceToY(item.price);
+    if (lineY === null) return;
+    this.drag = {
+      id: item.id,
+      meta: item.drag,
+      startY: event.clientY,
+      startLineY: lineY,
+      startPrice: item.price,
+      price: item.price,
+      moved: false,
+      problem: '',
+    };
+    this.view.chart.setInteractionEnabled(false);
+  }
+
+  /**
+   * The price scale must not have moved during the drag -- an autoscale on a
+   * new high, say. If it did, the pixel the pointer let go at no longer means
+   * the price shown, and nothing is sent.
+   */
+  scaleHeld(d) {
+    const nowY = this.view.chart.priceToY(d.startPrice);
+    return nowY !== null && Math.abs(nowY - d.startLineY) <= 4;
+  }
+
+  dragMove(event) {
+    const d = this.drag;
+    if (!d) return;
+    if (!d.moved && Math.abs(event.clientY - d.startY) < DRAG_SLOP_PX) return;
+    d.moved = true;
+    const chart = this.view.chart;
+    const rect = this.view.chartEl.getBoundingClientRect();
+    const y = d.startLineY + (event.clientY - d.startY);
+    let paneHeight = Infinity;
+    try {
+      paneHeight = chart.chart.panes()[0].getHeight();
+    } catch {
+      /* mid-teardown */
+    }
+    if (y < 0 || y > paneHeight) {
+      d.problem = '超出圖表範圍';
+      this.renderLines();
+      return;
+    }
+    // Ctrl magnets to OHLC, the same as everywhere else on the chart.
+    const price = chart.priceAt(event.clientX - rect.left, y, { magnet: event.ctrlKey });
+    if (price === null) return;
+    d.price = Number(chart.formatPrice(price));
+    d.problem = this.dragProblem(d.meta, d.price);
+    // The ticket's own lines move its fields as they go: that is the point.
+    if (d.meta.kind === 'draft') this.ticket.setFromChart(d.meta.which, d.price);
+    else this.renderLines();
+  }
+
+  cancelDrag() {
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    this.view.chart.setInteractionEnabled(true);
+    if (d.meta.kind === 'draft' && d.moved) this.ticket.setFromChart(d.meta.which, d.startPrice);
+    this.renderLines();
+  }
+
+  async dragEnd() {
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    this.view.chart.setInteractionEnabled(true);
+    if (!d.moved || d.price === d.startPrice) {
+      this.renderLines();
+      return;
+    }
+    if (d.meta.kind === 'draft') return; // already applied, live
+    if (d.problem) {
+      this.applyNotice({ level: 'warn', text: `沒有變更：${d.problem}`, symbol: this.symbol });
+      this.renderLines();
+      return;
+    }
+    if (!this.scaleHeld(d)) {
+      this.applyNotice({ level: 'warn', text: '沒有變更：拖曳期間圖表的價格刻度變了，請再拖一次', symbol: this.symbol });
+      this.renderLines();
+      return;
+    }
+    const symbol = this.symbol;
+    this.saving = { id: d.id, price: d.price, sent: false };
+    this.renderLines();
+    const m = d.meta;
+    let res;
+    if (m.kind === 'order') res = await api().modifyOrder({ symbol, orderId: m.orderId, price: d.price });
+    else if (m.kind === 'algo') res = await api().setTpsl({ symbol, [m.which]: d.price });
+    else if (m.kind === 'pending') res = await api().updatePending({ symbol, orderId: m.orderId, [m.which]: d.price });
+    if (!res || !res.ok) {
+      this.saving = null;
+      this.applyNotice({ level: 'error', text: res ? res.error : '更新失敗', symbol });
+      this.renderLines();
+      return;
+    }
+    // Hold the new position until the next snapshot confirms it, rather than
+    // flashing back to the old price for the round trip -- but not forever.
+    if (this.saving && this.saving.id === d.id) {
+      this.saving.sent = true;
+      setTimeout(() => {
+        if (this.saving && this.saving.id === d.id) {
+          this.saving = null;
+          this.renderLines();
+        }
+      }, 4000);
+    }
   }
 
   renderLines() {
@@ -599,6 +795,13 @@ export class TradeController {
     const x = el('button.tr-label__x', { type: 'button', title: '取消', text: '✕', hidden: true });
     const root = el('div.tr-label', {}, text, value, x);
     let cancel = null;
+    let item = null;
+    root.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || !item || !item.drag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.startDrag(item, e);
+    });
     x.addEventListener('mousedown', (e) => e.stopPropagation());
     x.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -612,6 +815,9 @@ export class TradeController {
     return {
       root,
       update: (it) => {
+        item = it;
+        root.classList.toggle('is-draggable', !!it.drag);
+        root.title = it.drag ? '拖曳可改價（Esc 取消）' : '';
         const l = it.label;
         const key = `${l.text}|${l.value || ''}|${l.tone || ''}|${l.color}|${l.faint ? 1 : 0}|${l.cancel ? l.cancel.id : ''}`;
         cancel = l.cancel || null;
@@ -640,6 +846,8 @@ export class TradeController {
     chartEl.removeEventListener('mouseup', this.onUp, true);
     chartEl.removeEventListener('dblclick', this.onDbl, true);
     window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('mousemove', this.onDragMove);
+    window.removeEventListener('mouseup', this.onDragUp);
     window.removeEventListener('resize', this.fitOverlay);
     if (this.view.chart) this.view.chart.tradeLayer.onLayout = null;
     this.overlay.remove();

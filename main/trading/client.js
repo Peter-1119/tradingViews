@@ -195,6 +195,15 @@ class FuturesClient {
     return this.request('POST', '/fapi/v1/positionSide/dual', { dualSidePosition: 'false' }, { signed: true });
   }
 
+  /**
+   * Change a working LIMIT order's price in place: same order id, but it goes
+   * to the back of the queue at its new price. Binance only modifies LIMIT
+   * orders, and wants side and quantity restated with the price.
+   */
+  modifyOrder({ symbol, orderId, side, quantity, price }) {
+    return this.request('PUT', '/fapi/v1/order', { symbol, orderId, side, quantity, price }, { signed: true });
+  }
+
   setLeverage(symbol, leverage) {
     return this.request('POST', '/fapi/v1/leverage', { symbol, leverage }, { signed: true });
   }

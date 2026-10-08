@@ -442,6 +442,8 @@ tradingHandle('trading:place', (_e, req) => trading.placeOrder(req));
 tradingHandle('trading:cancel', (_e, req) => trading.cancel(req));
 tradingHandle('trading:close', (_e, req) => trading.closePosition(req));
 tradingHandle('trading:tpsl', (_e, req) => trading.setTpsl(req));
+tradingHandle('trading:modify', (_e, req) => trading.modifyOrderPrice(req));
+tradingHandle('trading:pending', (_e, req) => trading.updatePending(req));
 tradingHandle('trading:set-env', (_e, { env, confirmLive }) => trading.setEnv(env, { confirmLive }));
 tradingHandle('trading:set-keys', (_e, { env, apiKey, secret }) => trading.setCredentials(env, apiKey, secret));
 /**

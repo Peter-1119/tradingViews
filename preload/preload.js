@@ -108,6 +108,9 @@ const api = {
     cancel: (req) => ipcRenderer.invoke('trading:cancel', req),
     close: (symbol) => ipcRenderer.invoke('trading:close', { symbol }),
     setTpsl: (req) => ipcRenderer.invoke('trading:tpsl', req),
+    // Dragging on the chart: a limit order's price, and a pending TP/SL.
+    modifyOrder: (req) => ipcRenderer.invoke('trading:modify', req),
+    updatePending: (req) => ipcRenderer.invoke('trading:pending', req),
     setEnv: (env, confirmLive = false) => ipcRenderer.invoke('trading:set-env', { env, confirmLive }),
     setKeys: (env, apiKey, secret) => ipcRenderer.invoke('trading:set-keys', { env, apiKey, secret }),
     // Opens a file dialog in the main process; the private key never comes back.
