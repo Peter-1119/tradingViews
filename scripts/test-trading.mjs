@@ -111,5 +111,30 @@ t('pnl and ROE', () => {
   assert.equal(short.pnl, -100);
 });
 
+/* ---------------------------------------------------- self-generated keys */
+
+const nodeCrypto = require('crypto');
+const { makeSigner } = require('../main/trading/client.js');
+const QUERY = 'symbol=BTCUSDT&side=BUY&type=MARKET&quantity=0.001&recvWindow=5000&timestamp=1790000000000';
+
+for (const type of ['ed25519', 'rsa']) {
+  t(`${type} signatures verify against the public key, URL-encoded`, () => {
+    const { publicKey, privateKey } = nodeCrypto.generateKeyPairSync(type, type === 'rsa' ? { modulusLength: 2048 } : {});
+    const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+    const signed = makeSigner({ type, privateKey: pem })(QUERY);
+    // Base64 carries + / =, which a query string would mangle unescaped.
+    assert.ok(!/[+/=]/.test(signed), 'signature must be URL-encoded');
+    const raw = Buffer.from(decodeURIComponent(signed), 'base64');
+    const algorithm = type === 'rsa' ? 'RSA-SHA256' : null;
+    assert.ok(nodeCrypto.verify(algorithm, Buffer.from(QUERY), publicKey, raw), 'Binance verifies with the uploaded public key; so must we');
+    assert.ok(!nodeCrypto.verify(algorithm, Buffer.from(QUERY + '1'), publicKey, raw), 'and a changed query must fail');
+  });
+}
+
+t('HMAC keys still sign as before', () => {
+  assert.equal(makeSigner({ type: 'hmac', secret: 'abc' })('x=1'), r.sign('x=1', 'abc'));
+  assert.equal(makeSigner({ secret: 'abc' })('x=1'), r.sign('x=1', 'abc'), 'keys saved before types existed are HMAC');
+});
+
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);

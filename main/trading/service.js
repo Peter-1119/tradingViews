@@ -688,14 +688,25 @@ async function setEnv(env, { confirmLive = false } = {}) {
   return status();
 }
 
-async function setCredentials(env, apiKey, secret) {
-  vault.set(env, apiKey, secret);
+async function reconnectAfterKeyChange(env) {
   if (config().env === env) {
     disconnect();
     await connect();
   }
   broadcastStatus();
   return status();
+}
+
+/** A System-generated (HMAC) key. */
+async function setCredentials(env, apiKey, secret) {
+  vault.set(env, apiKey, secret);
+  return reconnectAfterKeyChange(env);
+}
+
+/** A Self-generated key: the API key, and the private key's PEM text. */
+async function setPrivateKey(env, apiKey, pem) {
+  vault.setPrivateKey(env, apiKey, pem);
+  return reconnectAfterKeyChange(env);
 }
 
 function clearCredentials(env) {
@@ -794,6 +805,7 @@ module.exports = {
   setTpsl,
   setEnv,
   setCredentials,
+  setPrivateKey,
   clearCredentials,
   setLeverage,
   setOneWay,

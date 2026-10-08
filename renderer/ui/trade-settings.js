@@ -51,14 +51,31 @@ export class TradeSettings {
     this.statusRow = el('div.ts-status', {}, this.dot, this.statusText, this.retryBtn);
 
     this.keyInput = el('input.sc-search__input', { type: 'text', placeholder: 'API Key', autocomplete: 'off', spellcheck: 'false' });
-    this.secretInput = el('input.sc-search__input', { type: 'password', placeholder: 'Secret Key', autocomplete: 'off' });
+    // Two ways to finish, matching the two kinds of key Binance issues.
+    this.fileBtn = el('button.sc-btn', {
+      type: 'button',
+      text: '選擇私鑰檔案…',
+      title: 'Self-generated（Ed25519 或 RSA）：選你產生的私鑰 .pem 檔',
+      onclick: () => this.saveKeyFile(),
+    });
+    this.secretInput = el('input.sc-search__input', { type: 'password', placeholder: 'Secret Key（System generated 才需要）', autocomplete: 'off' });
     this.saveBtn = el('button.sc-btn', { type: 'button', text: '儲存並連線', onclick: () => this.saveKeys() });
-    this.keyForm = el('div.ts-form', {}, this.keyInput, this.secretInput, el('div.ts-actions', {}, this.saveBtn));
+    this.keyForm = el(
+      'div.ts-form',
+      {},
+      this.keyInput,
+      el('div.ts-help', { text: 'Self-generated：填 API Key，再選私鑰檔案' }),
+      el('div.ts-actions', {}, this.fileBtn),
+      el('div.ts-help', { text: 'System generated：填 API Key 和 Secret Key' }),
+      this.secretInput,
+      el('div.ts-actions', {}, this.saveBtn)
+    );
     this.keyTail = el('span');
+    this.keyType = el('span');
     this.keySaved = el(
       'div.ts-saved',
       { hidden: true },
-      el('span', {}, '已設定 API Key ····', this.keyTail),
+      el('span', {}, '已設定 API Key ····', this.keyTail, this.keyType),
       el('button.sc-btn', { type: 'button', text: '移除', onclick: () => this.removeKeys() })
     );
     this.helpLink = el('a.ts-link', { href: '#', onclick: (e) => this.openHelp(e) });
@@ -138,6 +155,7 @@ export class TradeSettings {
     this.keySaved.hidden = !key.configured;
     this.keyForm.hidden = key.configured;
     this.keyTail.textContent = key.keyTail;
+    this.keyType.textContent = key.type ? `（${{ hmac: 'HMAC', ed25519: 'Ed25519', rsa: 'RSA' }[key.type] || key.type}）` : '';
     this.helpLink.textContent = s.env === 'testnet' ? '到幣安模擬交易（Demo Trading）建立測試用 API Key →' : '到幣安 API 管理建立 API Key →';
     this.help.hidden = key.configured;
 
@@ -187,6 +205,20 @@ export class TradeSettings {
   cancelLive() {
     this.pendingLive = false;
     this.render();
+  }
+
+  /** Self-generated: the main process opens the file dialog and reads the key. */
+  async saveKeyFile() {
+    const env = this.status.env;
+    this.fileBtn.disabled = true;
+    this.fileBtn.textContent = '驗證中…';
+    const res = await api().setKeyFile(env, this.keyInput.value);
+    this.fileBtn.disabled = false;
+    this.fileBtn.textContent = '選擇私鑰檔案…';
+    // Closing the dialog is not an error, and not a status either.
+    if (res && res.ok && res.data && res.data.canceled) return;
+    await this.run(async () => res);
+    if (res && res.ok) this.keyInput.value = '';
   }
 
   async saveKeys() {

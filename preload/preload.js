@@ -110,6 +110,8 @@ const api = {
     setTpsl: (req) => ipcRenderer.invoke('trading:tpsl', req),
     setEnv: (env, confirmLive = false) => ipcRenderer.invoke('trading:set-env', { env, confirmLive }),
     setKeys: (env, apiKey, secret) => ipcRenderer.invoke('trading:set-keys', { env, apiKey, secret }),
+    // Opens a file dialog in the main process; the private key never comes back.
+    setKeyFile: (env, apiKey) => ipcRenderer.invoke('trading:set-key-file', { env, apiKey }),
     clearKeys: (env) => ipcRenderer.invoke('trading:clear-keys', { env }),
     setLeverage: (leverage) => ipcRenderer.invoke('trading:set-leverage', { leverage }),
     setOneWay: () => ipcRenderer.invoke('trading:one-way'),

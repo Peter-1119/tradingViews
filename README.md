@@ -145,10 +145,14 @@ npm run dist      # 打包成 Windows 安裝檔 + 免安裝版 -> release/
 
 **設定**：右鍵 → 設定 → 最下面「交易」。
 1. 在[幣安模擬交易](https://demo.binance.com/)（或正式帳戶的 API 管理）建立 API Key：只勾「讀取」與「合約交易」，**不要開提現**，建議綁定 IP。
-2. 貼上 API Key 與 Secret →「儲存並連線」，顯示「已連線 · 可用 … USDT」就完成了。
+2. 依金鑰種類填入，顯示「已連線 · 可用 … USDT」就完成了：
+   - **Self-generated（自行產生，建議）**：貼上 API Key →「**選擇私鑰檔案…**」選你的 `-----BEGIN PRIVATE KEY-----` 那個 `.pem` 檔。支援 **Ed25519** 與 **RSA**。私鑰由主程序在檔案對話框裡讀取，不經過畫面端；Binance 那邊只有你上傳的公鑰。
+   - **System generated（HMAC）**：貼上 API Key 與 Secret Key →「儲存並連線」。
+
+   幣安永續合約 REST 的文件只列出 HMAC 和 RSA，但 **Ed25519 已用正式帳戶實測可用**（唯讀查詢，簽名驗證通過）。產生 Ed25519 金鑰：`openssl genpkey -algorithm ed25519 -out stockcard-private.pem`，公鑰：`openssl pkey -in stockcard-private.pem -pubout -out stockcard-public.pem`，把公鑰檔整個（含 BEGIN / END 兩行）貼到幣安。
 3. 槓桿是全域設定，每個幣種第一次下單時套用。保證金模式固定為**全倉**、持倉模式為**單向**；如果帳戶是雙向持倉，設定裡會出現切換按鈕。
 
-金鑰用 Windows 的 DPAPI 加密存在 `userData/trading-credentials.bin`，只有主程序讀得到，畫面端只看得到末四碼。所有下單都在主程序依交易所規則（最小跳動、數量步長、最小名目價值）重新驗證、取整後才送出。
+金鑰（HMAC 的 Secret，或自行產生的私鑰）用 Windows 的 DPAPI 加密存在 `userData/trading-credentials.bin`，只有主程序讀得到，畫面端只看得到末四碼與金鑰類型。所有下單都在主程序依交易所規則（最小跳動、數量步長、最小名目價值）重新驗證、取整後才送出。
 
 | 動作 | 方式 |
 | --- | --- |

@@ -9,6 +9,7 @@
  * (/fapi/v1/algoOrder, /fapi/v1/openAlgoOrders).
  */
 
+const crypto = require('crypto');
 const { encodeParams, sign } = require('./rules');
 
 /*
@@ -61,14 +62,27 @@ function friendly(err) {
   return known ? `${known}（${err.code}）` : `${err.message}${err.code ? `（${err.code}）` : ''}`;
 }
 
+/**
+ * The signature for a query string, by key type. HMAC is hex; Ed25519 and RSA
+ * are base64, which has to be URL-encoded to survive the query string.
+ * Ed25519 on USD-M REST is not in Binance's docs (they list HMAC and RSA), but
+ * it was checked against the live API with a self-generated key: accepted.
+ */
+function makeSigner({ type = 'hmac', secret, privateKey }) {
+  if (type === 'hmac') return (query) => sign(query, secret);
+  const key = crypto.createPrivateKey(privateKey);
+  const algorithm = type === 'rsa' ? 'RSA-SHA256' : null; // Ed25519 takes none
+  return (query) => encodeURIComponent(crypto.sign(algorithm, Buffer.from(query), key).toString('base64'));
+}
+
 class FuturesClient {
-  constructor({ env, apiKey, secret }) {
+  constructor({ env, apiKey, type, secret, privateKey }) {
     if (!ENDPOINTS[env]) throw new Error(`unknown environment ${env}`);
     this.env = env;
     this.base = ENDPOINTS[env].rest;
     this.wsBase = ENDPOINTS[env].ws;
     this.apiKey = apiKey;
-    this.secret = secret;
+    this.signer = makeSigner({ type, secret, privateKey });
     this.timeOffset = 0;
     this.timeSynced = false;
   }
@@ -91,7 +105,7 @@ class FuturesClient {
     if (signed) {
       const stamp = encodeParams({ recvWindow: RECV_WINDOW, timestamp: Date.now() + this.timeOffset });
       query = query ? `${query}&${stamp}` : stamp;
-      query += `&signature=${sign(query, this.secret)}`;
+      query += `&signature=${this.signer(query)}`;
     }
     const url = `${this.base}${path}${query ? `?${query}` : ''}`;
     const headers = {};
@@ -232,4 +246,4 @@ class FuturesClient {
   }
 }
 
-module.exports = { FuturesClient, BinanceError, ENDPOINTS, friendly };
+module.exports = { FuturesClient, BinanceError, ENDPOINTS, friendly, makeSigner };

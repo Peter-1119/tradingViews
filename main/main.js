@@ -8,7 +8,8 @@
  * (spec 3).
  */
 
-const { app, ipcMain, BrowserWindow, shell } = require('electron');
+const fs = require('fs');
+const { app, ipcMain, BrowserWindow, shell, dialog } = require('electron');
 const { randomUUID } = require('crypto');
 
 const protocolSetup = require('./protocol');
@@ -443,6 +444,27 @@ tradingHandle('trading:close', (_e, req) => trading.closePosition(req));
 tradingHandle('trading:tpsl', (_e, req) => trading.setTpsl(req));
 tradingHandle('trading:set-env', (_e, { env, confirmLive }) => trading.setEnv(env, { confirmLive }));
 tradingHandle('trading:set-keys', (_e, { env, apiKey, secret }) => trading.setCredentials(env, apiKey, secret));
+/**
+ * Self-generated key: the private key is chosen in a dialog and read here, in
+ * the main process. The renderer sends only the API key, and never sees the
+ * file's contents -- not even in transit.
+ */
+tradingHandle('trading:set-key-file', async (event, { env, apiKey }) => {
+  const win = windows.windowFromEvent(event);
+  const picked = await dialog.showOpenDialog(win, {
+    title: '選擇私鑰檔案（-----BEGIN PRIVATE KEY-----）',
+    properties: ['openFile'],
+    filters: [
+      { name: '私鑰 (.pem / .key)', extensions: ['pem', 'key', 'txt'] },
+      { name: '所有檔案', extensions: ['*'] },
+    ],
+  });
+  if (picked.canceled || !picked.filePaths.length) return { canceled: true };
+  const file = picked.filePaths[0];
+  // A PEM private key is a few KB at most; anything bigger is not one.
+  if (fs.statSync(file).size > 16 * 1024) throw new Error('這個檔案太大，不是私鑰檔案');
+  return trading.setPrivateKey(env, apiKey, fs.readFileSync(file, 'utf8'));
+});
 tradingHandle('trading:clear-keys', (_e, { env }) => trading.clearCredentials(env));
 tradingHandle('trading:set-leverage', (_e, { leverage }) => trading.setLeverage(leverage));
 tradingHandle('trading:one-way', () => trading.setOneWay());
