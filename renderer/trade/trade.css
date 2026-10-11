@@ -10,10 +10,11 @@
   --tr-line: rgba(148, 163, 184, 0.18);
   --tr-axis-right: 56px;
   --tr-axis-bottom: 26px;
+  /* top and height are set from the chart's box (fitOverlay): the overlay
+     covers the chart and nothing else, so it never sits on the docked strip. */
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
   top: 26px;
   z-index: 7;
   pointer-events: none;
@@ -147,7 +148,7 @@
 .tr-overlay > .tr-toasts {
   position: absolute;
   left: 8px;
-  bottom: calc(var(--tr-axis-bottom) + 38px);
+  bottom: calc(var(--tr-axis-bottom) + 8px);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -191,27 +192,31 @@
   }
 }
 
-/* ---- position strip ---- */
+/* ---- position strip ----
+   A row of the card's flex column, docked under the time axis: the chart
+   shrinks to make room rather than being covered. Flat, with a hairline on
+   top, like a status bar -- it is part of the card, not floating over it. */
 
 .pb {
-  position: absolute;
-  left: 6px;
-  right: calc(var(--tr-axis-right) + 6px);
-  bottom: calc(var(--tr-axis-bottom) + 5px);
+  position: relative;
+  z-index: 3;
+  flex: 0 0 22px;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 26px;
-  padding: 0 4px;
-  border: 1px solid var(--tr-line);
-  border-radius: 8px;
-  background: var(--tr-glass);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  font-size: 11px;
+  min-width: 0;
+  /* Right: clear of the resize grip in the corner, so a drag there never
+     lands on 平倉. Bottom corners follow the card's own radius. */
+  padding: 0 18px 0 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: rgba(8, 11, 18, 0.55);
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   container-type: inline-size;
+  -webkit-app-region: no-drag;
 }
 
 .pb[hidden] {
@@ -220,7 +225,7 @@
 
 .pb-side {
   flex: 0 0 auto;
-  padding: 2px 6px;
+  padding: 1px 6px;
   border-radius: 5px;
   font-weight: 700;
   font-size: 10px;
@@ -269,8 +274,8 @@
 
 .pb-btn {
   flex: 0 0 auto;
-  height: 20px;
-  padding: 0 8px;
+  height: 17px;
+  padding: 0 7px;
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 6px;
   background: rgba(148, 163, 184, 0.1);

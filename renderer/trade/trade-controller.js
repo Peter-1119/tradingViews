@@ -106,17 +106,24 @@ export class TradeController {
       {},
       this.labels,
       this.plusBtn,
-      this.bar.root,
       this.ticket.root,
       this.editor.root,
       this.toasts
     );
     view.root.append(this.overlay);
+    // The position strip is not in the overlay: it is a row of the card's
+    // layout, right under the chart, so it takes space instead of covering it.
+    view.chartEl.after(this.bar.root);
+    // The overlay spans exactly the chart -- never the strip under it -- and
+    // follows it as the strip appears, disappears or the card is resized.
     this.fitOverlay = () => {
       this.overlay.style.top = `${view.chartEl.offsetTop}px`;
+      this.overlay.style.height = `${view.chartEl.offsetHeight}px`;
     };
     this.fitOverlay();
     window.addEventListener('resize', this.fitOverlay);
+    this.chartResize = new ResizeObserver(() => this.fitOverlay());
+    this.chartResize.observe(view.chartEl);
 
     view.chart.tradeLayer.onLayout = (items) => this.placeLabels(items);
     this.bindPointer();
@@ -850,6 +857,7 @@ export class TradeController {
     window.removeEventListener('mousemove', this.onDragMove);
     window.removeEventListener('mouseup', this.onDragUp);
     window.removeEventListener('resize', this.fitOverlay);
+    if (this.chartResize) this.chartResize.disconnect();
     if (this.view.chart) this.view.chart.tradeLayer.onLayout = null;
     this.overlay.remove();
     this.ticket.destroy();

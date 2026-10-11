@@ -1,6 +1,12 @@
 /**
- * The position strip along the bottom of the chart: what is open, how it is
+ * The position strip along the bottom of the card: what is open, how it is
  * doing, and the two things one does with it -- adjust TP/SL, or close.
+ *
+ * Docked, not floating: it is a row of the card's own layout, under the time
+ * axis, and the chart gives up its height while a position is open. As an
+ * overlay it sat on the lowest pane -- which is the volume or OI pane -- and on
+ * a small card hid it completely. Persistent UI gets its own space; only
+ * transient UI (the ticket, toasts) floats over data.
  *
  * Unrealized PnL is recomputed here on every mark-price tick (1s) rather than
  * waiting for the next account snapshot; the snapshot supplies size, entry and
