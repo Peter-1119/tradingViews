@@ -1,6 +1,7 @@
 /**
  * Period boundaries in a chosen market's clock, and the levels built on them:
- * each period's open, the previous period's high and low, and the current
+ * each period's open and the previous period's open (yesterday's, last
+ * week's, last month's), the previous period's high and low, and the current
  * period's high and low so far.
  *
  * Five anchors, because where "the day" starts depends on who is trading:
@@ -132,18 +133,22 @@ export function periodStart(period, anchor, atMs, shift = 0) {
 }
 
 const LABELS = { D: '日', W: '週', M: '月' };
+const PREV_OPEN = { D: '昨日開', W: '前週開', M: '前月開' };
 
 /**
  * Levels for the chart, from 1h bars (oldest first, times in seconds) that
  * reach back at least to the start of the previous month.
  *
  * @param {{
- *   anchor: string, periods: string[], opens: boolean,
+ *   anchor: string, periods: string[], opens: boolean, prevOpens?: boolean,
  *   previous: boolean, current: boolean, now?: number,
  * }} options
  * @returns {{id, period, kind, label, time, price}[]}  time = when the level was made (seconds)
  */
-export function periodLevels(bars, { anchor = 'utc', periods = PERIODS, opens = true, previous = false, current = false, now = Date.now() } = {}) {
+export function periodLevels(
+  bars,
+  { anchor = 'utc', periods = PERIODS, opens = true, prevOpens = false, previous = false, current = false, now = Date.now() } = {}
+) {
   const tag = (ANCHORS[anchor] || ANCHORS.utc).tag;
   const name = (text) => (tag ? `${text} ${tag}` : text);
   const out = [];
@@ -156,6 +161,10 @@ export function periodLevels(bars, { anchor = 'utc', periods = PERIODS, opens = 
     if (opens) {
       const bar = bars.find((b) => b.time === start);
       if (bar) out.push({ id: `${period}-open`, period, kind: 'open', label: name(`${p}開`), time: start, price: bar.open });
+    }
+    if (prevOpens) {
+      const bar = bars.find((b) => b.time === prevStart);
+      if (bar) out.push({ id: `${period}-prevOpen`, period, kind: 'prevOpen', label: name(PREV_OPEN[period]), time: prevStart, price: bar.open });
     }
     const extremes = (from, to) => {
       let hi = null;

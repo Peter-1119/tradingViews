@@ -934,6 +934,27 @@ await test('levels: open at the boundary, previous and current extremes', () => 
   assert.equal(only[0].label, '週開', 'UTC needs no tag');
 });
 
+await test('previous opens: yesterday, last week and last month, at the same boundary', () => {
+  const t0 = at('2026-09-01T00:00Z') / 1000;
+  const now = at('2026-10-07T12:30Z');
+  const bars = [];
+  for (let t = t0, i = 0; t * 1000 <= now; t += 3600, i++) {
+    bars.push({ time: t, open: i, high: i + 0.5, low: i - 0.5, close: i + 0.2 });
+  }
+  const hour = (s) => (at(s) / 1000 - t0) / 3600;
+  const levels = periodLevels(bars, { anchor: 'ny', opens: false, prevOpens: true, now });
+  const by = Object.fromEntries(levels.map((l) => [l.id, l]));
+  assert.deepEqual(levels.map((l) => l.id), ['D-prevOpen', 'W-prevOpen', 'M-prevOpen'], 'opens: false leaves out this period');
+  assert.equal(by['D-prevOpen'].price, hour('2026-10-06T04:00Z'), 'yesterday at NY midnight');
+  assert.equal(by['D-prevOpen'].label, '昨日開 紐');
+  assert.equal(by['W-prevOpen'].price, hour('2026-09-28T04:00Z'), 'the Monday before');
+  assert.equal(by['M-prevOpen'].price, hour('2026-09-01T04:00Z'));
+  assert.equal(by['M-prevOpen'].time, at('2026-09-01T04:00Z') / 1000, 'the line starts where that month opened');
+
+  const both = periodLevels(bars, { anchor: 'utc', periods: ['D'], opens: true, prevOpens: true, now });
+  assert.deepEqual(both.map((l) => l.label), ['日開', '昨日開']);
+});
+
 await test('a previous period not fully loaded is left out, not understated', () => {
   const now = at('2026-10-07T12:00Z');
   const bars = [{ time: at('2026-10-06T12:00Z') / 1000, open: 1, high: 2, low: 0, close: 1 }];

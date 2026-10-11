@@ -431,6 +431,12 @@ export class CardView {
       return;
     }
     if (id === 'opens') {
+      // Which opens (this period's, the previous one's, both) turns them on
+      // at the current boundary, so one click is enough from 'off'.
+      if (value.startsWith('which:')) {
+        this.onPatch({ showOpens: true, opensWhich: value.slice(6) });
+        return;
+      }
       // A boundary choice turns the opens on; 'off' keeps the boundary for the
       // highs and lows, which share it.
       this.onPatch(value === 'off' ? { showOpens: false } : { showOpens: true, levelAnchor: value });
@@ -831,6 +837,7 @@ export class CardView {
   /** The rail's sub-pane switches follow the card; OI exists only on perp. */
   renderRail() {
     this.toolbar.setMenuValue('opens', this.card.showOpens ? this.card.levelAnchor : 'off');
+    this.toolbar.setMenuValue('opens', `which:${this.card.opensWhich || 'current'}`, 'which');
     this.toolbar.setMenuValue('hilo', this.card.hilo);
     this.toolbar.setToggled('volume', this.card.showVolume);
     this.toolbar.setToggled('oi', this.card.showOI);
@@ -981,6 +988,7 @@ export class CardView {
     const key = this.dataKey();
     const feed = this.feed;
     const { symbol, levelAnchor: anchor, hilo, levelPeriods, showOpens } = this.card;
+    const which = this.card.opensWhich || 'current';
     const now = Date.now();
     try {
       // 30m for the 09:30 New York open, 1h for every other boundary.
@@ -989,7 +997,8 @@ export class CardView {
       this.periodLevelsData = periodLevels(bars, {
         anchor,
         periods: levelPeriods,
-        opens: showOpens,
+        opens: showOpens && which !== 'prev',
+        prevOpens: showOpens && which !== 'current',
         previous: hilo === 'prev' || hilo === 'both',
         current: hilo === 'current' || hilo === 'both',
         now,
@@ -2087,6 +2096,7 @@ export class CardView {
       const levelsChanged =
         next.showOpens !== prev.showOpens ||
         next.levelAnchor !== prev.levelAnchor ||
+        next.opensWhich !== prev.opensWhich ||
         next.hilo !== prev.hilo ||
         String(next.levelPeriods) !== String(prev.levelPeriods);
       if (levelsChanged && !identityChanged) this.loadPeriodLevels();

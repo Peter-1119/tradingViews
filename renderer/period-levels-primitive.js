@@ -1,5 +1,5 @@
 /**
- * Period levels -- opens, previous highs and lows, current highs and lows of
+ * Period levels -- opens, previous opens, previous highs and lows, current highs and lows of
  * the day, week and month -- drawn by the chart (a series primitive).
  *
  * Each is a ray from the bar it was made on, out to the right: an open from
@@ -8,7 +8,8 @@
  * which span the whole chart, dashed, in one blue-grey.
  *
  *   colour = period   day teal, week violet, month pink
- *   stroke = kind     open solid, previous high/low dashed, current dotted
+ *   stroke = kind     open solid, previous open dash-dot, previous high/low
+ *                     dashed, current dotted
  *
  * plus a tag naming it at its start and a matching price tag on the axis.
  *
@@ -20,9 +21,9 @@
 
 const COLORS = { D: '#2dd4bf', W: '#a78bfa', M: '#f472b6' };
 /** Bitmap-independent dash patterns, scaled per draw. */
-const DASH = { open: [], prev: [6, 4], current: [1.5, 3] };
+const DASH = { open: [], prevOpen: [7, 3, 1.5, 3], prev: [6, 4], current: [1.5, 3] };
 /** When levels coincide, the merged line takes the strongest of their strokes. */
-const STRENGTH = { open: 3, prev: 2, current: 1 };
+const STRENGTH = { open: 4, prevOpen: 3, prev: 2, current: 1 };
 const MAX_EDGE = 4;
 const MAX_AXIS = 15;
 
@@ -30,6 +31,7 @@ const FONT = "10px 'Segoe UI', -apple-system, 'Noto Sans TC', 'Microsoft JhengHe
 
 function strokeOf(kind) {
   if (kind === 'open') return 'open';
+  if (kind === 'prevOpen') return 'prevOpen';
   if (kind === 'prevHigh' || kind === 'prevLow') return 'prev';
   return 'current';
 }

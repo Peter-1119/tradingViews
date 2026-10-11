@@ -199,6 +199,9 @@ function sanitizeCard(raw, index = 0) {
     // exchange's candles), New York or London midnight, or the New York
     // (09:30) or London (08:00) stock market open.
     levelAnchor: pick(card.levelAnchor, ['utc', 'ny', 'nyse', 'london', 'lse'], 'utc'),
+    // Which opens: this period's, the previous one's (yesterday, last week,
+    // last month), or both.
+    opensWhich: pick(card.opensWhich, ['current', 'prev', 'both'], 'current'),
     // Highs and lows: of the previous period, the current one so far, or both.
     hilo: pick(card.hilo, ['off', 'prev', 'current', 'both'], 'off'),
     levelPeriods: Array.isArray(card.levelPeriods)

@@ -74,13 +74,19 @@ export const TOOLS = [
   {
     id: 'opens',
     label: '開盤價',
-    hint: '日開 / 週開 / 月開（點一下選分界時區）',
+    hint: '日開 / 週開 / 月開，也可看昨日開 / 前週開 / 前月開（點一下選分界時區）',
     toggle: true,
     // Also where the day starts for the highs and lows below.
     // Labels are functions: the local time of each changes with daylight saving.
+    // A second group picks which opens; it ticks on its own, apart from the
+    // boundary above it.
     menu: [
       { value: 'off', label: '關閉' },
       ...['utc', 'ny', 'nyse', 'london', 'lse'].map((value) => ({ value, label: () => anchorLabel(value) })),
+      { heading: '顯示' },
+      { value: 'which:current', group: 'which', label: '本期開（日／週／月開）' },
+      { value: 'which:prev', group: 'which', label: '前期開（昨日／前週／前月）' },
+      { value: 'which:both', group: 'which', label: '兩者' },
     ],
   },
   {
@@ -158,6 +164,7 @@ export class Toolbar {
       'div.card__rail-menu',
       { hidden: true },
       tool.menu.map((option) => {
+        if (option.heading) return el('div.card__rail-menu-heading', { text: option.heading });
         const item = el('button.card__rail-menu-item', {
           type: 'button',
           text: typeof option.label === 'function' ? option.label() : option.label,
@@ -166,12 +173,14 @@ export class Toolbar {
             this.onSelect(tool.id, option.value);
           },
         });
+        item.dataset.group = option.group || '';
         items.set(option.value, item);
         return item;
       })
     );
     const refresh = () => {
       for (const option of tool.menu) {
+        if (option.heading) continue;
         if (typeof option.label === 'function') items.get(option.value).textContent = option.label();
       }
     };
@@ -207,12 +216,18 @@ export class Toolbar {
     this.root.classList.remove('is-menu-open');
   }
 
-  /** Tick the current option; light the rail button unless it is 'off'. */
-  setMenuValue(id, value) {
+  /**
+   * Tick the current option; light the rail button unless it is 'off'. A
+   * named group (a second set of choices in the same menu) ticks on its own
+   * and does not light the button.
+   */
+  setMenuValue(id, value, group = '') {
     const menu = this.menus.get(id);
     if (!menu) return;
-    for (const [key, item] of menu.items) item.classList.toggle('is-current', key === value);
-    this.setToggled(id, value && value !== 'off');
+    for (const [key, item] of menu.items) {
+      if (item.dataset.group === group) item.classList.toggle('is-current', key === value);
+    }
+    if (!group) this.setToggled(id, value && value !== 'off');
   }
 
   /**
