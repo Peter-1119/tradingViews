@@ -10,6 +10,7 @@
 import { CardChart } from './chart.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { TradeController } from './trade/trade-controller.js';
+import { PriceAlertController } from './price-alerts.js';
 import { Toolbar } from './ui/toolbar.js';
 import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchlist.js';
 import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
@@ -381,6 +382,8 @@ export class CardView {
     this.bindFibInput();
     // Order entry, positions and orders on the chart -- perpetual cards only.
     this.trade = new TradeController(this);
+    // Price alerts: the bell on the rail, Alt+A, and their lines.
+    this.priceAlerts = new PriceAlertController(this);
     this.offFibs = window.stockcard.onFibsChanged(({ symbol, fibs }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.fibs = fibs;
@@ -1700,6 +1703,7 @@ export class CardView {
     if (lastActive === this) lastActive = null;
     if (this.offRangeChange) this.offRangeChange();
     if (this.trade) this.trade.destroy();
+    if (this.priceAlerts) this.priceAlerts.destroy();
     this.feed.unsubscribe(this.card.id);
     this.feed.unsubscribe(`${this.card.id}:htf`);
     if (this.chart) this.chart.destroy();
@@ -2115,6 +2119,7 @@ export class CardView {
     this.renderRail();
     this.panel.update(next);
     if (this.trade && (next.symbol !== prev.symbol || marketChanged)) this.trade.sync();
+    if (this.priceAlerts && (next.symbol !== prev.symbol || marketChanged)) this.priceAlerts.render();
 
     if (symbolChanged) {
       this.ticker = null;

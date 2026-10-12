@@ -82,6 +82,49 @@ ipcMain.on('hub:ready', () => {
   hubReady = true;
   flushHubQueue();
   sendWatch();
+  sendPriceAlerts();
+});
+
+/* ----------------------------------------------------------- price alerts */
+
+/*
+ * The hub watches prices, because it holds the sockets and keeps running with
+ * every card hidden (Ctrl+Alt+S) or closed. Main owns the list: it persists,
+ * tells the hub what to watch, and delivers a hit -- then drops the alert,
+ * since they are one-shot.
+ */
+function sendPriceAlerts() {
+  sendHub('hub:price-alerts', store.getPriceAlerts());
+}
+
+function priceAlertsChanged() {
+  const list = store.getPriceAlerts();
+  windows.broadcast('priceAlerts:changed', list);
+  sendHub('hub:price-alerts', list);
+}
+
+ipcMain.handle('priceAlerts:list', () => store.getPriceAlerts());
+ipcMain.handle('priceAlerts:add', (_event, partial = {}) => {
+  const alert = store.addPriceAlert(partial);
+  if (alert) priceAlertsChanged();
+  return alert;
+});
+ipcMain.handle('priceAlerts:update', (_event, { id, price, direction } = {}) => {
+  const alert = store.updatePriceAlert(id, { price, direction });
+  if (alert) priceAlertsChanged();
+  return alert;
+});
+ipcMain.handle('priceAlerts:remove', (_event, id) => {
+  const removed = store.removePriceAlert(id);
+  if (removed) priceAlertsChanged();
+  return !!removed;
+});
+ipcMain.on('hub:price-alert-hit', (_event, { id, price } = {}) => {
+  // Removed first: a second report of the same hit finds nothing to deliver.
+  const alert = store.removePriceAlert(id);
+  if (!alert) return;
+  priceAlertsChanged();
+  alerts.firePrice(alert, price);
 });
 
 /** Tell the hub what to monitor for position alerts, and at which levels. */

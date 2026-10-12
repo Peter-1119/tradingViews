@@ -126,6 +126,16 @@ const api = {
     onNotice: (cb) => on('trading:notice', cb),
   },
 
+  /* --------------------------------------------------- price alerts */
+  priceAlerts: {
+    list: () => ipcRenderer.invoke('priceAlerts:list'),
+    add: (alert) => ipcRenderer.invoke('priceAlerts:add', alert),
+    update: (id, patch) => ipcRenderer.invoke('priceAlerts:update', { id, ...patch }),
+    remove: (id) => ipcRenderer.invoke('priceAlerts:remove', id),
+    onChanged: (cb) => on('priceAlerts:changed', cb),
+    onFired: (cb) => on('priceAlerts:fired', cb),
+  },
+
   /* ------------------------------------------------ position alerts */
   alertStates: () => ipcRenderer.invoke('alerts:states'),
   onAlertState: (cb) => on('alerts:state', cb),
@@ -150,6 +160,8 @@ const hubApi = {
   onWatch: (cb) => on('hub:watch', cb),
   alert: (payload) => ipcRenderer.send('hub:alert', payload),
   alertState: (payload) => ipcRenderer.send('hub:alert-state', payload),
+  onPriceAlerts: (cb) => on('hub:price-alerts', cb),
+  priceAlertHit: (payload) => ipcRenderer.send('hub:price-alert-hit', payload),
 };
 
 contextBridge.exposeInMainWorld('stockcard', api);

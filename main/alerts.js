@@ -77,6 +77,39 @@ function fire(alert) {
   if (settings.flash) windows.flashFor(alert);
 }
 
+/**
+ * A price alert the user set by hand. Unlike the position alerts it ignores
+ * the "all alerts off" switch and the per-symbol mute: those govern automatic
+ * alerts, and a price someone placed deliberately is never noise. The toast
+ * and flash preferences still decide how it is delivered -- but if both are
+ * off, the toast is sent anyway, or a hidden app would have no way to say it.
+ */
+function firePrice(alert, price) {
+  const settings = store.getAlerts();
+  const name = `${pretty(alert.symbol)}${alert.market === 'perp' ? ' 永續' : ''}`;
+  const arrow = alert.direction === 'up' ? '↑ 漲到' : '↓ 跌到';
+  console.log(`[alerts] price ${alert.market}:${alert.symbol} ${alert.direction} ${alert.price} hit at ${price}`);
+  windows.broadcast('priceAlerts:fired', { ...alert, hitPrice: price, time: Date.now() });
+
+  const toastOn = settings.toast || !settings.flash;
+  if (toastOn && Notification.isSupported()) {
+    const toast = new Notification({
+      title: `${name} · 價格提醒`,
+      body: `${arrow} ${alert.price}　目前 ${price}`,
+      silent: true, // no sound, like the position alerts (by request)
+    });
+    live.add(toast);
+    toast.on('click', () => windows.showAll('price alert notification'));
+    toast.on('close', () => live.delete(toast));
+    toast.on('failed', (_e, err) => {
+      live.delete(toast);
+      console.warn('[alerts] toast failed', err);
+    });
+    toast.show();
+  }
+  if (settings.flash) windows.flashFor(alert);
+}
+
 function setState(state) {
   states.set(`${state.market}:${state.symbol}`, state);
   windows.broadcast('alerts:state', state);
@@ -90,6 +123,7 @@ function prune(entries) {
 
 module.exports = {
   fire,
+  firePrice,
   setState,
   prune,
   getStates: () => [...states.values()],

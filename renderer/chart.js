@@ -25,6 +25,7 @@ import { formatCompact } from './util.js';
 import { MeasurePrimitive } from './measure-primitive.js';
 import { ExtremesPrimitive } from './extremes-primitive.js';
 import { TradePrimitive } from './trade/trade-primitive.js';
+import { LivePricePrimitive } from './live-price-primitive.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -334,6 +335,9 @@ export class CardChart {
     /** The on-screen high and low, tagged with their prices. */
     this.extremes = new ExtremesPrimitive(this);
     this.tradeLayer = new TradePrimitive(this);
+    // Price alerts reuse the trade layer's line-and-axis-tag drawing.
+    this.alertLayer = new TradePrimitive(this);
+    this.livePrice = new LivePricePrimitive(this);
 
     this.createPriceSeries();
     this.syncSubPanes();
@@ -367,8 +371,9 @@ export class CardChart {
         color: up,
         lineWidth: 2,
         priceFormat,
-        lastValueVisible: true,
-        priceLineVisible: true,
+        // The live price layer draws these, for the newest bar (live-price-primitive.js).
+        lastValueVisible: false,
+        priceLineVisible: false,
         priceLineColor: withAlpha(up, 0.5),
         priceLineWidth: 1,
         priceLineStyle: 2,
@@ -383,8 +388,9 @@ export class CardChart {
         bottomColor: withAlpha(up, 0.02),
         lineWidth: 2,
         priceFormat,
-        lastValueVisible: true,
-        priceLineVisible: true,
+        // The live price layer draws these, for the newest bar (live-price-primitive.js).
+        lastValueVisible: false,
+        priceLineVisible: false,
         priceLineColor: withAlpha(up, 0.5),
         priceLineWidth: 1,
         priceLineStyle: 2,
@@ -401,8 +407,9 @@ export class CardChart {
       wickDownColor: withAlpha(down, 0.8),
       borderVisible: true,
       priceFormat,
-      lastValueVisible: true,
-      priceLineVisible: true,
+      // The live price layer draws these, for the newest bar (live-price-primitive.js).
+      lastValueVisible: false,
+      priceLineVisible: false,
       priceLineWidth: 1,
       priceLineStyle: 2,
     };
@@ -426,6 +433,8 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.periodLevels);
     this.priceSeries.attachPrimitive(this.extremes);
     this.priceSeries.attachPrimitive(this.tradeLayer);
+    this.priceSeries.attachPrimitive(this.alertLayer);
+    this.priceSeries.attachPrimitive(this.livePrice);
     this.priceSeries.attachPrimitive(this.viewportWatcher);
   }
 
@@ -1182,7 +1191,11 @@ export class CardChart {
     if (this.volumeSeries) this.volumeSeries.priceScale().setAutoScale(true);
     const ts = this.chart.timeScale();
     ts.applyOptions({ barSpacing: DEFAULT_BAR_SPACING, rightOffset: DEFAULT_RIGHT_OFFSET });
-    ts.scrollToRealTime();
+    // A jump, not scrollToRealTime(): that animates for 400ms from wherever
+    // the view is, and from far back the history page that scrolling back
+    // requested lands mid-animation -- prependBars re-pins the visible range
+    // and cuts it short, so one press only got part of the way home.
+    ts.scrollToPosition(DEFAULT_RIGHT_OFFSET, false);
     this.zoomBaseline = { spacing: DEFAULT_BAR_SPACING, width: ts.width() };
   }
 

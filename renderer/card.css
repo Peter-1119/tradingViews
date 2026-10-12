@@ -1286,3 +1286,70 @@ button {
   font-size: 10px;
   color: var(--down);
 }
+
+/* ------------------------------------------------------- price alerts */
+
+/* Laid over the chart as a sibling, like the trading overlay, so pressing a
+   label is never also a press on the chart's drawing gestures underneath. */
+.pa-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 26px;
+  z-index: 6;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.pa-labels {
+  position: absolute;
+  inset: 0;
+}
+
+.pa-label {
+  position: absolute;
+  /* Clear of the tool rail on the left. */
+  left: 40px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 17px;
+  padding: 0 3px 0 5px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(245, 197, 66, 0.85);
+  border-radius: 5px;
+  background: rgba(10, 14, 22, 0.88);
+  color: #f5c542;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: ns-resize;
+  pointer-events: auto;
+}
+
+.pa-label:hover {
+  background: rgba(245, 197, 66, 0.16);
+}
+
+.pa-label__bell {
+  display: inline-flex;
+}
+
+.pa-label__x {
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.7);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.pa-label__x:hover {
+  background: rgba(237, 84, 101, 0.3);
+  color: #fff;
+}

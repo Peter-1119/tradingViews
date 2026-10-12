@@ -97,6 +97,13 @@ const DEFAULTS = {
    * {time, price}, the same as fibs.
    */
   rects: {},
+  /**
+   * Price alerts: [{id, symbol, market, price, direction: 'up'|'down', createdAt}].
+   * One-shot -- removed when hit. `direction` is which side of the price the
+   * market was on when the alert was set: 'up' fires at or above, 'down' at
+   * or below, so an alert never fires just for being created.
+   */
+  priceAlerts: [],
 };
 
 /** What fits the dropdown on a card of default height, and Alt+1..6. */
@@ -104,6 +111,8 @@ const WATCHLIST_MAX = 6;
 
 /** Enough for any real chart; a guard against a stuck drag writing thousands. */
 const MAX_LEVELS_PER_SYMBOL = 60;
+/** Plenty for manual use; a guard against something runaway. */
+const MAX_PRICE_ALERTS = 200;
 
 const store = new Store({ name: 'stock-card-config', defaults: DEFAULTS });
 
@@ -579,6 +588,55 @@ function removeRect(symbol, id) {
   );
 }
 
+/* ----------------------------------------------------------- price alerts */
+
+function sanitizePriceAlert(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const symbol = String(raw.symbol || '').toUpperCase();
+  const price = Number(raw.price);
+  if (!/^[A-Z0-9]{2,30}$/.test(symbol) || !Number.isFinite(price) || price <= 0) return null;
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : randomUUID(),
+    symbol,
+    market: pickMarket(raw.market),
+    price,
+    direction: raw.direction === 'down' ? 'down' : 'up',
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+function getPriceAlerts() {
+  const raw = store.get('priceAlerts');
+  return Array.isArray(raw) ? raw.map(sanitizePriceAlert).filter(Boolean) : [];
+}
+
+function addPriceAlert(partial) {
+  const alert = sanitizePriceAlert({ ...partial, id: null, createdAt: Date.now() });
+  if (!alert) return null;
+  const list = getPriceAlerts();
+  if (list.length >= MAX_PRICE_ALERTS) return null;
+  store.set('priceAlerts', [...list, alert]);
+  return alert;
+}
+
+function updatePriceAlert(id, patch) {
+  let updated = null;
+  const list = getPriceAlerts().map((a) => {
+    if (a.id !== id) return a;
+    updated = sanitizePriceAlert({ ...a, ...patch, id: a.id, symbol: a.symbol, market: a.market });
+    return updated || a;
+  });
+  if (updated) store.set('priceAlerts', list);
+  return updated;
+}
+
+function removePriceAlert(id) {
+  const list = getPriceAlerts();
+  const removed = list.find((a) => a.id === id) || null;
+  if (removed) store.set('priceAlerts', list.filter((a) => a.id !== id));
+  return removed;
+}
+
 module.exports = {
   INTERVALS,
   CHART_TYPES,
@@ -609,6 +667,10 @@ module.exports = {
   getWatchlist,
   setWatchlist,
   getAlerts,
+  getPriceAlerts,
+  addPriceAlert,
+  updatePriceAlert,
+  removePriceAlert,
   setAlerts,
   ALERT_WINDOWS,
   ALERT_LEVELS,
