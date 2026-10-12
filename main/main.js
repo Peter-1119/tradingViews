@@ -509,6 +509,7 @@ tradingHandle('trading:preview', (_e, req) => trading.preview(req));
 tradingHandle('trading:place', (_e, req) => trading.placeOrder(req));
 tradingHandle('trading:cancel', (_e, req) => trading.cancel(req));
 tradingHandle('trading:close', (_e, req) => trading.closePosition(req));
+tradingHandle('trading:reverse', (_e, req) => trading.reversePosition(req));
 tradingHandle('trading:tpsl', (_e, req) => trading.setTpsl(req));
 tradingHandle('trading:modify', (_e, req) => trading.modifyOrderPrice(req));
 tradingHandle('trading:pending', (_e, req) => trading.updatePending(req));

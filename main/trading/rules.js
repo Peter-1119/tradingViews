@@ -190,6 +190,57 @@ function reduceQuantity({ positionAmt, pct, notional, price, market = false }, r
 }
 
 /**
+ * A reversal as one order: the opposite side, twice the position. The first
+ * half closes it, the second opens the same size the other way. One order
+ * rather than close-then-open, so there is no moment flat between two round
+ * trips, and if Binance refuses it (margin, say) nothing has happened at all.
+ *
+ * A limit reversal must rest on the far side of the market: a long reverses
+ * by selling *above* the last trade, a short by buying below it. Through the
+ * market it would fill at once as a taker -- that is a market reversal, and
+ * the user should pick that knowingly.
+ *
+ * TP/SL belong to the *new* position, so they are judged as the new side's.
+ *
+ * @returns {{side, qty, qtyNum, price, target, errors: string[]}}
+ */
+function planReverse({ positionAmt, market, price, lastPrice, markPrice, tp = null, sl = null }, rules) {
+  const amt = Number(positionAmt) || 0;
+  if (!amt) return { errors: ['目前沒有倉位'] };
+  const side = amt > 0 ? 'SELL' : 'BUY';
+  const qty = roundQty(Math.abs(amt) * 2, rules, { market });
+  const qtyNum = Number(qty);
+  const p = market ? null : roundPrice(Number(price), rules);
+  const ref = market ? Number(lastPrice) || Number(markPrice) || 0 : Number(p);
+  const errors = validateOrder(
+    { side, type: market ? 'MARKET' : 'LIMIT', price: p, qty, refPrice: ref, tp, sl, markPrice },
+    rules
+  );
+  const last = Number(lastPrice);
+  if (!market && Number(p) > 0 && last > 0) {
+    if (side === 'SELL' && !(Number(p) > last)) {
+      errors.unshift('反手賣出的限價要高於目前價格，否則會立刻成交；要立刻反手請用市價');
+    }
+    if (side === 'BUY' && !(Number(p) < last)) {
+      errors.unshift('反手買入的限價要低於目前價格，否則會立刻成交；要立刻反手請用市價');
+    }
+  }
+  const target = amt + (side === 'BUY' ? qtyNum : -qtyNum);
+  return { side, qty, qtyNum, price: p, target, errors };
+}
+
+/**
+ * Is a working reversal still the one that was placed? The position must be
+ * where the order's own fills put it: where it started, moved by what has
+ * filled. Anything else -- a stop that triggered, a manual close -- means the
+ * order would now open twice the size the other way, and must go.
+ */
+function reverseIntact({ from, side, filled, amt }, rules) {
+  const expected = Number(from) + (side === 'BUY' ? 1 : -1) * (Number(filled) || 0);
+  return Math.abs((Number(amt) || 0) - expected) <= Number(rules.stepSize) / 2;
+}
+
+/**
  * The highest leverage a symbol allows at all: its first bracket's. Altcoins
  * stop far below BTC's 125x, which is why one global leverage cannot work.
  */
@@ -273,6 +324,8 @@ module.exports = {
   maxLeverage,
   maxNotionalAt,
   reduceQuantity,
+  planReverse,
+  reverseIntact,
   positionAfter,
   estimateLiquidation,
   pnlAt,

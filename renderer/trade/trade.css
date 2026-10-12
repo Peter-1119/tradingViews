@@ -244,6 +244,16 @@
   color: var(--ink-dim);
 }
 
+/* Text gives way before the buttons do: whatever the container queries
+   below leave on a card too narrow for it is cut short, never the buttons. */
+.pb-field,
+.pb-pnl {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pb-field[hidden] {
   display: none;
 }
@@ -287,6 +297,15 @@
   background: rgba(148, 163, 184, 0.22);
 }
 
+.pb-btn--reverse {
+  border-color: rgba(143, 180, 255, 0.45);
+  color: #cfdcff;
+}
+
+.pb-btn--reverse:hover {
+  background: rgba(143, 180, 255, 0.28);
+}
+
 .pb-btn--close {
   border-color: rgba(237, 84, 101, 0.45);
   color: #ffc9cf;
@@ -313,14 +332,14 @@
 }
 
 /* Narrow cards shed the secondary fields, never the PnL or the buttons. */
-@container (max-width: 560px) {
+@container (max-width: 760px) {
   .pb-mark,
   .pb-tpsl {
     display: none;
   }
 }
 
-@container (max-width: 440px) {
+@container (max-width: 600px) {
   .pb-entry,
   .pb-liq,
   .pb-env {
@@ -328,7 +347,7 @@
   }
 }
 
-@container (max-width: 320px) {
+@container (max-width: 400px) {
   .pb-qty {
     display: none;
   }
@@ -813,6 +832,47 @@
 
 .tk--editor {
   width: 200px;
+}
+
+/* ---- reversal sheet ---- */
+
+.tk--reverse {
+  width: 216px;
+}
+
+.rv-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0 2px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rv-from {
+  opacity: 0.6;
+}
+
+.rv-from.is-long,
+.rv-to.is-long {
+  color: var(--up);
+}
+
+.rv-from.is-short,
+.rv-to.is-short {
+  color: var(--down);
+}
+
+.rv-arrow {
+  color: var(--ink-dim);
+  font-weight: 400;
+}
+
+.tk-actions--single {
+  grid-template-columns: 1fr;
 }
 
 .tk-primary {

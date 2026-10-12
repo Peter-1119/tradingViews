@@ -1,6 +1,6 @@
 /**
  * The position strip along the bottom of the card: what is open, how it is
- * doing, and the two things one does with it -- adjust TP/SL, or close.
+ * doing, and the things one does with it -- adjust TP/SL, reverse, or close.
  *
  * Docked, not floating: it is a row of the card's own layout, under the time
  * axis, and the chart gives up its height while a position is open. As an
@@ -23,7 +23,7 @@ const fmt = (n, d = 2) =>
 
 export class PositionBar {
   /**
-   * @param {{onClose: () => Promise<{ok, error}>, onTpsl: () => void, formatPrice: (p) => string}} hooks
+   * @param {{onClose: () => Promise<{ok, error}>, onTpsl: () => void, onReverse: () => void, formatPrice: (p) => string}} hooks
    */
   constructor(hooks) {
     this.hooks = hooks;
@@ -40,6 +40,12 @@ export class PositionBar {
     this.liqEl = el('span.pb-field.pb-liq');
     this.tpslEl = el('span.pb-field.pb-tpsl');
     this.tpslBtn = el('button.pb-btn', { type: 'button', text: '止盈止損', onclick: () => this.hooks.onTpsl() });
+    this.reverseBtn = el('button.pb-btn.pb-btn--reverse', {
+      type: 'button',
+      text: '反手',
+      title: '反手：同樣大小的反向倉位（多轉空、空轉多），可選市價或限價',
+      onclick: () => this.hooks.onReverse(),
+    });
     this.closeBtn = el('button.pb-btn.pb-btn--close', { type: 'button', text: '平倉', onclick: () => this.pressClose() });
 
     this.root = el(
@@ -55,6 +61,7 @@ export class PositionBar {
       this.tpslEl,
       el('span.pb-spacer'),
       this.tpslBtn,
+      this.reverseBtn,
       this.closeBtn
     );
     for (const type of ['mousedown', 'dblclick', 'wheel', 'click']) {

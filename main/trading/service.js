@@ -58,6 +58,7 @@ const state = {
   accountTimer: null,
   refreshQueued: new Map(),
   busy: new Set(), // symbols with an order action in flight
+  flipCleared: new Set(), // reversal orders whose old-side stops are already gone
 };
 
 function config() {
@@ -311,6 +312,7 @@ function classifyAlgo(a) {
     trigger: Number(a.triggerPrice),
     qty: Number(a.quantity) || 0,
     closePosition: a.closePosition === true || a.closePosition === 'true',
+    reduceOnly: a.reduceOnly === true || a.reduceOnly === 'true',
   };
 }
 
@@ -371,6 +373,7 @@ async function refreshSymbol(symbol) {
     };
     state.snapshots.set(symbol, snap);
     publish(symbol);
+    await guardReversals(symbol, snap);
     await settlePending(symbol, snap);
   } catch (err) {
     console.warn(`[trading] refresh ${symbol} failed: ${friendly(err)}`);
@@ -383,7 +386,7 @@ function pendingFor(symbol) {
   const pending = config().pending[state.env] || {};
   return Object.entries(pending)
     .filter(([, p]) => p.symbol === symbol)
-    .map(([orderId, p]) => ({ orderId, tp: p.tp, sl: p.sl }));
+    .map(([orderId, p]) => ({ orderId, tp: p.tp, sl: p.sl, reverse: p.reverse || null }));
 }
 
 function setPending(orderId, value) {
@@ -413,10 +416,213 @@ async function settlePending(symbol, snap) {
     const done = ['FILLED', 'CANCELED', 'EXPIRED', 'REJECTED'].includes(order.status);
     if (!done) continue;
     setPending(p.orderId, null);
+    state.flipCleared.delete(p.orderId);
+    if (p.reverse) {
+      if (filled && snap.position) await settleReversal(symbol, snap, p);
+      continue;
+    }
     if (filled && snap.position) {
       await placeTpsl(symbol, snap.position.amt > 0 ? 'long' : 'short', { tp: p.tp, sl: p.sl });
       queueRefresh(symbol, 300);
     }
+  }
+}
+
+/* -------------------------------------------------------------- reversals */
+
+const directionWord = (amt) => (amt > 0 ? '多' : '空');
+
+/**
+ * After a flip, the old position's TP/SL and reduce-only orders sit on the
+ * wrong side of the new one: a long's stop is a sell, and the position is now
+ * short. They cannot do anything useful and could only confuse, so they go.
+ * `side` is the side that closed the old position.
+ */
+async function clearStale(symbol, side) {
+  const [algos, orders] = await Promise.all([
+    state.client.openAlgoOrders(symbol).catch(() => []),
+    state.client.openOrders(symbol).catch(() => []),
+  ]);
+  let n = 0;
+  const algoList = (Array.isArray(algos) ? algos : (algos && algos.orders) || [])
+    .filter((a) => !a.symbol || a.symbol === symbol)
+    .map(classifyAlgo);
+  for (const a of algoList) {
+    if (a.side !== side || !(a.closePosition || a.reduceOnly)) continue;
+    try {
+      await state.client.cancelAlgoOrder(a.id);
+      n++;
+    } catch {
+      /* already gone */
+    }
+  }
+  for (const o of orders || []) {
+    if (o.side !== side || !(o.reduceOnly === true || o.reduceOnly === 'true')) continue;
+    try {
+      await state.client.cancelOrder(symbol, o.orderId);
+      n++;
+    } catch {
+      /* already gone */
+    }
+  }
+  if (n) notice('info', `${symbol} 已取消原倉位的 ${n} 筆止盈止損／減倉單`, symbol);
+}
+
+/**
+ * A working limit reversal is only safe while the position is the one it was
+ * sized for. If a stop triggers first, or the position is closed by hand, the
+ * order would open *twice* the size the other way -- so it is cancelled.
+ *
+ * Position and open orders are read in parallel for the snapshot, and a fill
+ * landing between the two reads looks exactly like a changed position. So a
+ * mismatch is confirmed with reads in order -- the order, the position, the
+ * order again -- and only acted on if the order did not move in between.
+ */
+async function guardReversals(symbol, snap) {
+  for (const p of snap.pending) {
+    if (!p.reverse) continue;
+    const o = snap.orders.find((x) => x.id === p.orderId);
+    if (!o) continue; // done: settlePending takes it from here
+    const r = rulesFor(symbol);
+    const amt = snap.position ? snap.position.amt : 0;
+    const want = p.reverse.side === 'BUY' ? 1 : -1;
+    if (rules.reverseIntact({ ...p.reverse, filled: o.filled, amt }, r)) {
+      // Part filled and already past flat: the old side's stops are now in the way.
+      if (Math.sign(amt) === want && !state.flipCleared.has(p.orderId)) {
+        state.flipCleared.add(p.orderId);
+        await clearStale(symbol, p.reverse.side);
+      }
+      continue;
+    }
+    try {
+      const before = await state.client.getOrder(symbol, p.orderId);
+      const risk = await state.client.positionRisk(symbol);
+      const after = await state.client.getOrder(symbol, p.orderId);
+      if (before.executedQty !== after.executedQty) continue; // filling right now
+      if (!['NEW', 'PARTIALLY_FILLED'].includes(after.status)) continue;
+      const row = (risk || []).find((x) => x.symbol === symbol && Number(x.positionAmt) !== 0);
+      const now = row ? Number(row.positionAmt) : 0;
+      if (rules.reverseIntact({ ...p.reverse, filled: Number(after.executedQty), amt: now }, r)) continue;
+      await state.client.cancelOrder(symbol, p.orderId);
+      setPending(p.orderId, null);
+      notice(
+        'warn',
+        `${symbol} 倉位在反手單成交前變了（可能是止盈止損觸發或手動平倉），已取消反手限價單，避免開出兩倍的反向倉位`,
+        symbol
+      );
+      queueRefresh(symbol, 200);
+    } catch (err) {
+      console.warn(`[trading] reversal guard ${symbol} failed: ${friendly(err)}`);
+    }
+  }
+}
+
+/** A limit reversal is done: clear the old side, then put on the new TP/SL. */
+async function settleReversal(symbol, snap, p) {
+  const want = p.reverse.side === 'BUY' ? 1 : -1;
+  const amt = snap.position.amt;
+  if (Math.sign(amt) !== want) {
+    notice(
+      'warn',
+      `${symbol} 反手限價單只成交了一部分，倉位還是${directionWord(amt)} ${Math.abs(amt)}${p.tp || p.sl ? '，新的止盈止損沒有設定' : ''}`,
+      symbol
+    );
+    return;
+  }
+  await clearStale(symbol, p.reverse.side);
+  if (p.tp || p.sl) {
+    await placeTpsl(symbol, want > 0 ? 'long' : 'short', { tp: p.tp || undefined, sl: p.sl || undefined });
+  }
+  queueRefresh(symbol, 300);
+}
+
+/**
+ * Reverse the position: long to short of the same size, or short to long.
+ * Market fills now; limit rests on the far side of the market, guarded until
+ * it fills. Either way, once flipped, the old side's TP/SL and reduce-only
+ * orders are cancelled and the new TP/SL (if any) placed.
+ *
+ * `expectAmt` is the size the user saw when confirming. If the exchange says
+ * otherwise, nothing is sent: the summary they agreed to is no longer true.
+ */
+async function reversePosition(req) {
+  await ready();
+  const symbol = String(req.symbol || '').toUpperCase();
+  if (state.busy.has(symbol)) throw new Error('上一筆指令還在處理中');
+  state.busy.add(symbol);
+  try {
+    await prepareSymbol(symbol);
+    const r = rulesFor(symbol);
+    const market = req.type !== 'LIMIT';
+    const risk = await state.client.positionRisk(symbol);
+    const row = (risk || []).find((p) => p.symbol === symbol && Number(p.positionAmt) !== 0);
+    if (!row) throw new Error('目前沒有倉位');
+    const amt = Number(row.positionAmt);
+    if (req.expectAmt !== undefined && Math.abs(Number(req.expectAmt) - amt) > Number(r.stepSize) / 2) {
+      throw new Error(`倉位剛剛變成${directionWord(amt)} ${Math.abs(amt)}，請確認後再反手`);
+    }
+    if (!market && pendingFor(symbol).some((p) => p.reverse)) {
+      throw new Error('已經有一筆反手限價單在等成交，要改價請拖曳它，或先取消');
+    }
+    const num = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
+    const tp = num(req.tp);
+    const sl = num(req.sl);
+    const [last, mark] = await Promise.all([state.client.lastPrice(symbol), state.client.markPrice(symbol)]);
+    const plan = rules.planReverse(
+      { positionAmt: amt, market, price: req.price, lastPrice: Number(last), markPrice: Number(mark), tp, sl },
+      r
+    );
+    if (plan.errors.length) throw new Error(plan.errors[0]);
+    const params = {
+      symbol,
+      side: plan.side,
+      type: market ? 'MARKET' : 'LIMIT',
+      quantity: plan.qty,
+      newClientOrderId: `sc_rev_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
+    };
+    if (!market) Object.assign(params, { price: plan.price, timeInForce: 'GTC' });
+    const order = await state.client.newOrder(params);
+    const from = `${directionWord(amt)} ${Math.abs(amt)}`;
+    const to = `${directionWord(plan.target)} ${Math.abs(plan.target)}`;
+
+    if (market) {
+      const avg = Number(order.avgPrice) > 0 ? `，均價 ${order.avgPrice}` : '';
+      notice('fill', `${symbol} 已市價反手：${from} → ${to}${avg}`, symbol);
+      const now = await state.client.positionRisk(symbol);
+      const nrow = (now || []).find((p) => p.symbol === symbol && Number(p.positionAmt) !== 0);
+      const namt = nrow ? Number(nrow.positionAmt) : 0;
+      if (Math.sign(namt) === Math.sign(plan.target)) {
+        await clearStale(symbol, plan.side);
+        if (tp || sl) {
+          await placeTpsl(symbol, plan.target > 0 ? 'long' : 'short', { tp: tp || undefined, sl: sl || undefined });
+        }
+      } else {
+        notice('warn', `${symbol} 反手單沒有完全成交，目前倉位 ${namt}，請確認`, symbol);
+      }
+    } else {
+      setPending(String(order.orderId), {
+        symbol,
+        tp,
+        sl,
+        at: Date.now(),
+        reverse: { from: amt, side: plan.side, qty: plan.qty },
+      });
+      notice(
+        'info',
+        `${symbol} 反手限價${plan.side === 'SELL' ? '賣出' : '買入'} ${plan.qty} @ ${plan.price} 已掛單，成交後 ${from} → ${to}`,
+        symbol
+      );
+    }
+    queueRefresh(symbol, 200);
+    return { ok: true, orderId: String(order.orderId) };
+  } catch (err) {
+    if (err.unknown) {
+      queueRefresh(symbol, 500);
+      throw new Error('反手結果不明（逾時或幣安忙碌），請確認倉位與掛單後再操作');
+    }
+    throw new Error(friendly(err));
+  } finally {
+    state.busy.delete(symbol);
   }
 }
 
@@ -937,6 +1143,7 @@ module.exports = {
   placeOrder,
   cancel,
   closePosition,
+  reversePosition,
   setTpsl,
   modifyOrderPrice,
   updatePending,

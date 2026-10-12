@@ -112,6 +112,7 @@ const api = {
     place: (req) => ipcRenderer.invoke('trading:place', req),
     cancel: (req) => ipcRenderer.invoke('trading:cancel', req),
     close: (symbol) => ipcRenderer.invoke('trading:close', { symbol }),
+    reverse: (req) => ipcRenderer.invoke('trading:reverse', req),
     setTpsl: (req) => ipcRenderer.invoke('trading:tpsl', req),
     // Dragging on the chart: a limit order's price, and a pending TP/SL.
     modifyOrder: (req) => ipcRenderer.invoke('trading:modify', req),

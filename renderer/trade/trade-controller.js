@@ -12,7 +12,9 @@
  *   - ＋ opens the order ticket at that price;
  *   - the position, its liquidation price, working limit orders and TP/SL are
  *     lines on the chart with labels that cancel on ×, and the position strip
- *     along the bottom carries the live PnL and the close button;
+ *     along the bottom carries the live PnL and the reverse and close buttons;
+ *   - 反手 opens the reversal sheet: market now, or a limit price picked by
+ *     clicking the chart or dragging its line;
  *   - a limit order's, a TP/SL's or the ticket's draft label can be dragged to
  *     a new price (the label, not the line: lines share the chart with levels
  *     and panning, and grabbing one by accident would move a real order).
@@ -21,6 +23,7 @@
 import { el } from '../util.js';
 import { OrderTicket } from './order-ticket.js';
 import { PositionBar } from './position-bar.js';
+import { ReverseSheet } from './reverse-sheet.js';
 
 const api = () => window.stockcard.trading;
 
@@ -57,6 +60,8 @@ export class TradeController {
     this.hoverY = null;
     this.lock = null; // {price}
     this.draft = null;
+    /** The reversal sheet's lines: {side, price, tp, sl}. */
+    this.revDraft = null;
     this.symbol = null;
     this.offs = [];
 
@@ -75,6 +80,18 @@ export class TradeController {
     this.bar = new PositionBar({
       onClose: () => this.closePosition(),
       onTpsl: () => this.openTpslEditor(),
+      onReverse: () => this.openReverse(),
+      formatPrice: (p) => this.view.chart.formatPrice(p),
+    });
+
+    this.reverse = new ReverseSheet({
+      onSubmit: (req) => this.submitReverse(req),
+      onClose: () => this.closeReverse(),
+      onDraft: (draft) => {
+        this.revDraft = draft;
+        this.renderLines();
+      },
+      getMarket: () => ({ last: this.lastPrice(), mark: this.mark || 0 }),
       formatPrice: (p) => this.view.chart.formatPrice(p),
     });
 
@@ -107,6 +124,7 @@ export class TradeController {
       this.labels,
       this.plusBtn,
       this.ticket.root,
+      this.reverse.root,
       this.editor.root,
       this.toasts
     );
@@ -156,6 +174,7 @@ export class TradeController {
       this.lock = null;
       this.closeTicket();
       this.closeEditor();
+      this.closeReverse();
       this.bar.set(null);
     }
     if (symbol) {
@@ -176,6 +195,7 @@ export class TradeController {
     if (!this.enabled) {
       this.closeTicket();
       this.closeEditor();
+      this.closeReverse();
     }
     this.bar.setEnv(status.env);
     this.view.root.classList.toggle('is-trading', this.enabled);
@@ -192,6 +212,7 @@ export class TradeController {
     if (snap.position && !this.mark) this.mark = snap.position.mark;
     this.bar.set(this.enabled ? snap : null);
     if (this.editor.isOpen && !snap.position) this.closeEditor();
+    this.reverse.setPosition(snap.position);
     this.renderLines();
   }
 
@@ -301,7 +322,7 @@ export class TradeController {
         event.stopPropagation();
         return;
       }
-      if (this.ticket.isOpen || this.editor.isOpen) return; // they handle their own
+      if (this.ticket.isOpen || this.editor.isOpen || this.reverse.isOpen) return; // they handle their own
       if (this.lock) {
         this.lock = null;
         this.renderLines();
@@ -318,9 +339,13 @@ export class TradeController {
       const price = this.view.chart.priceAt(0, y);
       if (price === null) return;
       this.lock = { price };
-      // With the ticket open, a click re-targets its limit price instead.
+      // With the ticket open, a click re-targets its limit price instead;
+      // with the reversal sheet open, it picks the reversal's price.
       if (this.ticket.isOpen) {
         this.ticket.retarget(price);
+        this.lock = null;
+      } else if (this.reverse.isOpen) {
+        this.reverse.setFromChart('price', price);
         this.lock = null;
       }
     }
@@ -333,7 +358,7 @@ export class TradeController {
     const chart = this.view.chart;
     let y = null;
     if (this.lock) y = chart.priceToY(this.lock.price);
-    else if (this.hoverY !== null && !this.ticket.isOpen) y = this.hoverY;
+    else if (this.hoverY !== null && !this.ticket.isOpen && !this.reverse.isOpen) y = this.hoverY;
     const show = this.enabled && y !== null && Number.isFinite(y);
     this.plusBtn.hidden = !show;
     if (!show) return;
@@ -348,6 +373,7 @@ export class TradeController {
   openTicket(price) {
     if (!this.enabled || !this.symbol) return;
     this.closeEditor();
+    this.closeReverse();
     const rules = this.snapshot && this.snapshot.rules;
     const acc = this.status.account;
     this.lock = null;
@@ -397,6 +423,42 @@ export class TradeController {
 
   async submit(req) {
     const res = await api().place(req);
+    if (!res.ok) this.applyNotice({ level: 'error', text: res.error, symbol: this.symbol });
+    return res;
+  }
+
+  /* -------------------------------------------------------------- reverse */
+
+  openReverse() {
+    const snap = this.snapshot;
+    if (!this.enabled || !snap || !snap.position) return;
+    this.closeTicket();
+    this.closeEditor();
+    // A price already locked on the chart is the obvious limit price.
+    const price = this.lock ? this.lock.price : null;
+    this.lock = null;
+    this.reverse.open({
+      symbol: this.symbol,
+      baseAsset: snap.rules ? snap.rules.baseAsset : '',
+      position: snap.position,
+      env: this.status.env,
+      price,
+    });
+    this.view.root.classList.add('is-ticket-open');
+    this.renderPlus();
+  }
+
+  closeReverse() {
+    if (!this.reverse || !this.reverse.isOpen) return;
+    this.reverse.close();
+    this.view.root.classList.remove('is-ticket-open');
+    this.revDraft = null;
+    this.renderLines();
+    this.renderPlus();
+  }
+
+  async submitReverse(req) {
+    const res = await api().reverse(req);
     if (!res.ok) this.applyNotice({ level: 'error', text: res.error, symbol: this.symbol });
     return res;
   }
@@ -480,6 +542,7 @@ export class TradeController {
   openTpslEditor() {
     if (!this.snapshot || !this.snapshot.position) return;
     this.closeTicket();
+    this.closeReverse();
     this.editor.open(this.snapshot);
   }
 
@@ -538,6 +601,7 @@ export class TradeController {
     }
     for (const o of (snap && snap.orders) || []) {
       const buy = o.side === 'BUY';
+      const reversal = (snap.pending || []).some((p) => p.orderId === o.id && p.reverse);
       items.push({
         id: `order:${o.id}`,
         price: o.price,
@@ -545,7 +609,7 @@ export class TradeController {
         dash: [2, 3],
         axis: true,
         label: {
-          text: `${o.reduceOnly ? '減倉' : '限價'}${buy ? '買' : '賣'} ${o.qty - o.filled}`,
+          text: `${o.reduceOnly ? '減倉' : reversal ? '反手' : '限價'}${buy ? '買' : '賣'} ${o.qty - o.filled}`,
           color: buy ? COLORS.long : COLORS.short,
           cancel: { kind: 'order', id: o.id },
         },
@@ -567,6 +631,13 @@ export class TradeController {
       if (d.tp) items.push({ id: 'draft-tp', price: d.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止盈', color: COLORS.tp, faint: true }, drag: { kind: 'draft', which: 'tp' } });
       if (d.sl) items.push({ id: 'draft-sl', price: d.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止損', color: COLORS.sl, faint: true }, drag: { kind: 'draft', which: 'sl' } });
       if (d.liq) items.push({ id: 'draft-liq', price: d.liq, color: COLORS.liq, dash: [5, 4], alpha: 0.8, label: { text: '預估強平', color: COLORS.liq, faint: true } });
+    }
+    const rv = this.revDraft;
+    if (rv && this.reverse.isOpen) {
+      const color = rv.side === 'BUY' ? COLORS.long : COLORS.short;
+      if (rv.price) items.push({ id: 'rev', price: rv.price, color, dash: [4, 3], axis: true, label: { text: '反手價', color, faint: true }, drag: { kind: 'reverse', which: 'price' } });
+      if (rv.tp) items.push({ id: 'rev-tp', price: rv.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '反手後止盈', color: COLORS.tp, faint: true }, drag: { kind: 'reverse', which: 'tp' } });
+      if (rv.sl) items.push({ id: 'rev-sl', price: rv.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '反手後止損', color: COLORS.sl, faint: true }, drag: { kind: 'reverse', which: 'sl' } });
     }
     return items.map((it) => this.withDrag(it));
   }
@@ -683,6 +754,7 @@ export class TradeController {
     d.problem = this.dragProblem(d.meta, d.price);
     // The ticket's own lines move its fields as they go: that is the point.
     if (d.meta.kind === 'draft') this.ticket.setFromChart(d.meta.which, d.price);
+    else if (d.meta.kind === 'reverse') this.reverse.setFromChart(d.meta.which, d.price);
     else this.renderLines();
   }
 
@@ -692,6 +764,7 @@ export class TradeController {
     this.drag = null;
     this.view.chart.setInteractionEnabled(true);
     if (d.meta.kind === 'draft' && d.moved) this.ticket.setFromChart(d.meta.which, d.startPrice);
+    if (d.meta.kind === 'reverse' && d.moved) this.reverse.setFromChart(d.meta.which, d.startPrice);
     this.renderLines();
   }
 
@@ -704,7 +777,7 @@ export class TradeController {
       this.renderLines();
       return;
     }
-    if (d.meta.kind === 'draft') return; // already applied, live
+    if (d.meta.kind === 'draft' || d.meta.kind === 'reverse') return; // already applied, live
     if (d.problem) {
       this.applyNotice({ level: 'warn', text: `沒有變更：${d.problem}`, symbol: this.symbol });
       this.renderLines();
@@ -861,6 +934,7 @@ export class TradeController {
     if (this.view.chart) this.view.chart.tradeLayer.onLayout = null;
     this.overlay.remove();
     this.ticket.destroy();
+    this.reverse.destroy();
     this.bar.destroy();
     this.editor.root.remove();
     this.labels.remove();

@@ -201,5 +201,49 @@ t('reduce-only orders are exempt from the minimum notional (Binance -4164)', () 
   assert.ok(!r.validateOrder({ ...order, reduceOnly: true }, BTC).some((e) => /名目價值至少/.test(e)), 'a reduce-only one is not');
 });
 
+t('a reversal is one order: the other side, twice the position', () => {
+  const long = r.planReverse({ positionAmt: 0.01, market: true, lastPrice: 80000, markPrice: 80000 }, BTC);
+  assert.deepEqual(long.errors, []);
+  assert.equal(long.side, 'SELL');
+  assert.equal(long.qty, '0.020');
+  assert.ok(Math.abs(long.target + 0.01) < 1e-12, 'ends short the same size');
+  const short = r.planReverse({ positionAmt: -0.003, market: true, lastPrice: 80000, markPrice: 80000 }, BTC);
+  assert.equal(short.side, 'BUY');
+  assert.equal(short.qty, '0.006');
+});
+
+t('a limit reversal must rest on the far side of the market', () => {
+  const base = { positionAmt: 0.01, market: false, lastPrice: 80000, markPrice: 80000 };
+  assert.deepEqual(r.planReverse({ ...base, price: 81000 }, BTC).errors, [], 'a long sells above');
+  assert.ok(/高於目前價格/.test(r.planReverse({ ...base, price: 79000 }, BTC).errors[0]), 'not below');
+  const short = { ...base, positionAmt: -0.01 };
+  assert.deepEqual(r.planReverse({ ...short, price: 79000 }, BTC).errors, [], 'a short buys below');
+  assert.ok(/低於目前價格/.test(r.planReverse({ ...short, price: 81000 }, BTC).errors[0]), 'not above');
+});
+
+t('a reversal\'s TP/SL are judged as the new position\'s', () => {
+  const base = { positionAmt: 0.01, market: true, lastPrice: 80000, markPrice: 80000 };
+  assert.deepEqual(r.planReverse({ ...base, sl: 81000, tp: 78000 }, BTC).errors, [], 'now short: stop above, target below');
+  assert.ok(r.planReverse({ ...base, sl: 79000 }, BTC).errors.length, 'a stop below would be the old long\'s');
+});
+
+t('a reversal too big for one market order says so', () => {
+  // 70 BTC reversed is 140, over the 120 market-order cap.
+  const plan = r.planReverse({ positionAmt: 70, market: true, lastPrice: 80000, markPrice: 80000 }, BTC);
+  assert.ok(plan.errors.some((e) => /單筆上限/.test(e)));
+});
+
+t('no position, nothing to reverse', () => {
+  assert.ok(/沒有倉位/.test(r.planReverse({ positionAmt: 0, market: true, lastPrice: 1 }, BTC).errors[0]));
+});
+
+t('a working reversal is intact only while its own fills explain the position', () => {
+  const rev = { from: 0.01, side: 'SELL' };
+  assert.ok(r.reverseIntact({ ...rev, filled: 0, amt: 0.01 }, BTC), 'untouched');
+  assert.ok(r.reverseIntact({ ...rev, filled: 0.015, amt: -0.005 }, BTC), 'part filled, already past flat');
+  assert.ok(!r.reverseIntact({ ...rev, filled: 0, amt: 0 }, BTC), 'stopped out first: it would open 0.02 short');
+  assert.ok(!r.reverseIntact({ ...rev, filled: 0, amt: 0.02 }, BTC), 'added to by hand');
+});
+
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);
