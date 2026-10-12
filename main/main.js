@@ -350,6 +350,31 @@ ipcMain.handle('rects:remove', (_event, { symbol, id } = {}) => {
   return broadcastRects(symbol);
 });
 
+function broadcastVRanges(symbol) {
+  const vranges = store.getVRanges(symbol);
+  windows.broadcast('vranges:changed', { symbol: String(symbol).toUpperCase(), vranges });
+  return vranges;
+}
+
+ipcMain.handle('vranges:list', (_event, symbol) => store.getVRanges(symbol));
+
+ipcMain.handle('vranges:add', (_event, { symbol, from, to } = {}) => {
+  const range = store.addVRange(symbol, from, to);
+  if (range) broadcastVRanges(symbol);
+  return range;
+});
+
+ipcMain.handle('vranges:update', (_event, { symbol, id, patch } = {}) => {
+  const range = store.updateVRange(symbol, id, patch || {});
+  broadcastVRanges(symbol);
+  return range;
+});
+
+ipcMain.handle('vranges:remove', (_event, { symbol, id } = {}) => {
+  store.removeVRange(symbol, id);
+  return broadcastVRanges(symbol);
+});
+
 /* -------------------------------------------------------- IPC: windows */
 
 function senderWindow(event) {

@@ -55,6 +55,11 @@ const api = {
   updateRect: (symbol, id, patch) => ipcRenderer.invoke('rects:update', { symbol, id, patch }),
   removeRect: (symbol, id) => ipcRenderer.invoke('rects:remove', { symbol, id }),
   onRectsChanged: (cb) => on('rects:changed', cb),
+  listVRanges: (symbol) => ipcRenderer.invoke('vranges:list', symbol),
+  addVRange: (symbol, from, to) => ipcRenderer.invoke('vranges:add', { symbol, from, to }),
+  updateVRange: (symbol, id, patch) => ipcRenderer.invoke('vranges:update', { symbol, id, patch }),
+  removeVRange: (symbol, id) => ipcRenderer.invoke('vranges:remove', { symbol, id }),
+  onVRangesChanged: (cb) => on('vranges:changed', cb),
 
   /* --------------------------------------------------------- window */
   getBounds: () => ipcRenderer.invoke('window:get-bounds'),

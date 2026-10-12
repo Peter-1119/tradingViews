@@ -98,6 +98,13 @@ const DEFAULTS = {
    */
   rects: {},
   /**
+   * Range volume profiles: [{id, from, to}] per symbol, times in seconds.
+   * `to` is exclusive; null means "to now" -- the range stays open and grows.
+   * Price plays no part: a range is a span of time, profiled over every
+   * price traded in it.
+   */
+  vranges: {},
+  /**
    * Price alerts: [{id, symbol, market, price, direction: 'up'|'down', createdAt}].
    * One-shot -- removed when hit. `direction` is which side of the price the
    * market was on when the alert was set: 'up' fires at or above, 'down' at
@@ -198,6 +205,8 @@ function sanitizeCard(raw, index = 0) {
       VP_MODES,
       card.showVolumeProfile === true ? 'day' : 'off'
     ),
+    // Row height of every volume profile on the card, range ones included.
+    vpDetail: pick(card.vpDetail, ['coarse', 'normal', 'fine', 'ultra'], 'normal'),
     showHtf: card.showHtf === true,
     // Open interest sub-pane. Perpetuals only; a spot card keeps the setting
     // and shows it again when switched back to perp.
@@ -637,6 +646,65 @@ function removePriceAlert(id) {
   return removed;
 }
 
+/* ---------------------------------------------------------------- vranges */
+
+function sanitizeVRange(raw) {
+  const from = Math.round(Number(raw && raw.from));
+  if (!Number.isFinite(from) || from <= 0) return null;
+  let to = raw && raw.to;
+  if (to !== null) {
+    to = Math.round(Number(to));
+    // Shorter than a minute is a click, not a range.
+    if (!Number.isFinite(to) || to - from < 60) return null;
+  }
+  const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
+  return { id, from, to };
+}
+
+function getVRanges(symbol) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = store.get('vranges') || {};
+  const list = Array.isArray(all[key]) ? all[key] : [];
+  return list.map(sanitizeVRange).filter(Boolean);
+}
+
+function setVRanges(symbol, list) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = { ...(store.get('vranges') || {}) };
+  const clean = (Array.isArray(list) ? list : [])
+    .map(sanitizeVRange)
+    .filter(Boolean)
+    .slice(0, MAX_LEVELS_PER_SYMBOL);
+  if (clean.length) all[key] = clean;
+  else delete all[key];
+  store.set('vranges', all);
+  return clean;
+}
+
+function addVRange(symbol, from, to) {
+  const range = sanitizeVRange({ from, to });
+  if (!range) return null;
+  setVRanges(symbol, [...getVRanges(symbol), range]);
+  return getVRanges(symbol).find((r) => r.id === range.id) || null;
+}
+
+function updateVRange(symbol, id, patch) {
+  setVRanges(
+    symbol,
+    getVRanges(symbol).map((r) => (r.id === id ? { ...r, ...patch } : r))
+  );
+  return getVRanges(symbol).find((r) => r.id === id) || null;
+}
+
+function removeVRange(symbol, id) {
+  return setVRanges(
+    symbol,
+    getVRanges(symbol).filter((r) => r.id !== id)
+  );
+}
+
 module.exports = {
   INTERVALS,
   CHART_TYPES,
@@ -692,4 +760,8 @@ module.exports = {
   addRect,
   updateRect,
   removeRect,
+  getVRanges,
+  addVRange,
+  updateVRange,
+  removeVRange,
 };

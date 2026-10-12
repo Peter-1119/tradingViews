@@ -15,6 +15,16 @@
  * Crypto has no sessions, so "session" here means the exchange's own day
  * boundary, which for Binance is 00:00 UTC -- the same boundary its daily
  * candles use.
+ *
+ * Each row also splits its volume into buying and selling, the way
+ * TradingView's up/down volume does: a bar that closed at or above its open
+ * counts as buying. The bar cache has no taker-buy volume to do better, and
+ * on 1m bars -- what a range profile uses whenever it can -- the split is a
+ * fair read of who was in control at each price.
+ *
+ * Row count is not fixed: it follows how tall the profile is on screen
+ * (rowsForHeight), so zooming in on the price axis shows more detail instead
+ * of fatter rows. ProfileSource keeps the bars and rebuilds on demand.
  */
 
 /** UTC-day bounds, in epoch ms, containing `atMs`. */
@@ -45,6 +55,7 @@ export function buildProfile(bars, rows = 24) {
 
   const step = (high - low) / rows;
   const volumes = new Float64Array(rows);
+  const buys = new Float64Array(rows);
 
   for (const bar of bars) {
     const volume = Number(bar.volume) || 0;
@@ -54,7 +65,11 @@ export function buildProfile(bars, rows = 24) {
     const from = Math.max(0, Math.min(rows - 1, Math.floor((bar.low - low) / step)));
     const to = Math.max(0, Math.min(rows - 1, Math.floor((bar.high - low) / step)));
     const share = volume / (to - from + 1);
-    for (let i = from; i <= to; i++) volumes[i] += share;
+    const buying = bar.close >= bar.open;
+    for (let i = from; i <= to; i++) {
+      volumes[i] += share;
+      if (buying) buys[i] += share;
+    }
   }
 
   let total = 0;
@@ -91,6 +106,8 @@ export function buildProfile(bars, rows = 24) {
     rows: Array.from(volumes, (volume, i) => ({
       index: i,
       volume,
+      buy: buys[i],
+      sell: volume - buys[i],
       ratio: volume / peak,
       priceLow: low + i * step,
       priceHigh: low + (i + 1) * step,
@@ -104,6 +121,68 @@ export function buildProfile(bars, rows = 24) {
     low,
     step,
   };
+}
+
+/**
+ * How fine the rows are: on-screen height of one row, in px. 'normal' is
+ * already about twice the detail of the old fixed 24 rows on a typical card.
+ */
+export const VP_DETAIL_PX = Object.freeze({ coarse: 10, normal: 6, fine: 4, ultra: 2 });
+export const VP_DETAILS = Object.keys(VP_DETAIL_PX);
+
+/** Rows for a profile spanning `heightPx` on screen, at a detail level. */
+export function rowsForHeight(heightPx, detail = 'normal') {
+  const px = VP_DETAIL_PX[detail] || VP_DETAIL_PX.normal;
+  return Math.max(6, Math.min(300, Math.round(Math.abs(heightPx) / px)));
+}
+
+/**
+ * Bars kept for one profile, rebuilt at whatever row count the screen asks
+ * for. Pans and zooms ask for the same count over and over, so the last
+ * build is kept; a resize or detail change rebuilds once.
+ */
+export class ProfileSource {
+  constructor(bars) {
+    this.bars = Array.isArray(bars) ? bars : [];
+    let high = -Infinity;
+    let low = Infinity;
+    for (const bar of this.bars) {
+      if (bar.high > high) high = bar.high;
+      if (bar.low < low) low = bar.low;
+    }
+    this.high = high;
+    this.low = low;
+    this.rows = 0;
+    this.profile = null;
+  }
+
+  at(rows) {
+    if (rows !== this.rows) {
+      this.rows = rows;
+      this.profile = buildProfile(this.bars, rows);
+    }
+    return this.profile;
+  }
+}
+
+/**
+ * The bar interval for a range profile: the finest whose bar count over the
+ * span stays near 3,000 -- 1m up to two days, 5m to about ten, 15m to a
+ * month. Finer bars put each bar's volume on fewer rows, which is most of the
+ * difference between a profile and a smear.
+ */
+const RANGE_INTERVALS = [
+  ['1m', 60],
+  ['5m', 300],
+  ['15m', 900],
+  ['1h', 3600],
+  ['4h', 14400],
+];
+export function rangeInterval(spanSec) {
+  for (const [interval, sec] of RANGE_INTERVALS) {
+    if (spanSec / sec <= 3000) return interval;
+  }
+  return '1d';
 }
 
 /** Profile modes a card can show. 'off' first so it is the obvious default. */
@@ -133,7 +212,8 @@ export function buildPeriodProfiles(bars, periodSec = PERIOD_4H, rows = 16) {
   const out = [];
   for (const start of [...groups.keys()].sort((a, b) => a - b)) {
     const profile = buildProfile(groups.get(start), rows);
-    if (profile) out.push({ start, end: start + periodSec, profile });
+    // The source lets the chart rebuild the block at its on-screen detail.
+    if (profile) out.push({ start, end: start + periodSec, profile, source: new ProfileSource(groups.get(start)) });
   }
   return out;
 }

@@ -1068,6 +1068,52 @@ await test('per-4h profiles conserve volume block by block', async () => {
   }
 });
 
+const { ProfileSource, rowsForHeight, rangeInterval } = await import('../renderer/volume-profile.js');
+
+await test('each row splits into buying and selling by how its bars closed', async () => {
+  const bars = [
+    // Rising bar at 100-101, falling bar at 104-105, each with volume 10.
+    { time: 1, open: 100, high: 101, low: 100, close: 101, volume: 10 },
+    { time: 2, open: 105, high: 105, low: 104, close: 104, volume: 10 },
+  ];
+  const p = buildProfile(bars, 5);
+  for (const r of p.rows) assert.ok(Math.abs(r.buy + r.sell - r.volume) < 1e-9, 'buy + sell = volume');
+  const buy = p.rows.reduce((s, r) => s + r.buy, 0);
+  const sell = p.rows.reduce((s, r) => s + r.sell, 0);
+  assert.equal(buy, 10);
+  assert.equal(sell, 10);
+  assert.equal(p.rows[0].sell, 0, 'the bottom rows are only the rising bar');
+  assert.equal(p.rows[4].buy, 0, 'the top row is only the falling bar');
+});
+
+await test('row count follows on-screen height and the detail setting', async () => {
+  assert.equal(rowsForHeight(300, 'normal'), 50, '300px at 6px a row');
+  assert.equal(rowsForHeight(300, 'ultra'), 150);
+  assert.equal(rowsForHeight(300, 'coarse'), 30);
+  assert.equal(rowsForHeight(10, 'normal'), 6, 'never fewer than 6');
+  assert.equal(rowsForHeight(5000, 'ultra'), 300, 'never more than 300');
+  assert.equal(rowsForHeight(-300, 'normal'), 50, 'a flipped axis is still 300px tall');
+});
+
+await test('a profile source rebuilds only when the row count changes', async () => {
+  const bars = Array.from({ length: 50 }, (_, i) => ({ time: i, open: 10 + i, high: 11 + i, low: 9 + i, close: 10.5 + i, volume: 1 }));
+  const src = new ProfileSource(bars);
+  const a = src.at(20);
+  assert.equal(src.at(20), a, 'same rows, same object');
+  assert.equal(src.at(40).rows.length, 40);
+  assert.equal(src.high, 60);
+  assert.equal(src.low, 9);
+});
+
+await test('a range profile uses the finest bars that keep it near 3,000', async () => {
+  assert.equal(rangeInterval(6 * 3600), '1m', 'six hours');
+  assert.equal(rangeInterval(2 * 86400), '1m', 'two days is 2,880 1m bars');
+  assert.equal(rangeInterval(5 * 86400), '5m');
+  assert.equal(rangeInterval(20 * 86400), '15m');
+  assert.equal(rangeInterval(90 * 86400), '1h');
+  assert.equal(rangeInterval(400 * 86400), '4h');
+});
+
 /* ---------------------------------------------------------------- report */
 
 globalThis.setTimeout = realSetTimeout;

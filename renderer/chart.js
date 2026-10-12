@@ -18,6 +18,7 @@ import {
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
+import { VRangePrimitive } from './vrange-primitive.js';
 import { RectPrimitive } from './rect-primitive.js';
 import { FibPrimitive } from './fib-primitive.js';
 import { PeriodLevelsPrimitive } from './period-levels-primitive.js';
@@ -328,6 +329,7 @@ export class CardChart {
     this.htf = new HtfPrimitive(this);
     this.htf.setColors(this.colors);
     this.vp = new VolumeProfilePrimitive(this);
+    this.vranges = new VRangePrimitive(this);
     this.rects = new RectPrimitive(this);
     this.fibLayer = new FibPrimitive(this);
     this.measureLayer = new MeasurePrimitive(this);
@@ -427,6 +429,7 @@ export class CardChart {
     // has to re-attach -- this is the one place every new series comes from.
     this.priceSeries.attachPrimitive(this.htf);
     this.priceSeries.attachPrimitive(this.vp);
+    this.priceSeries.attachPrimitive(this.vranges);
     this.priceSeries.attachPrimitive(this.rects);
     this.priceSeries.attachPrimitive(this.fibLayer);
     this.priceSeries.attachPrimitive(this.measureLayer);
@@ -1226,8 +1229,15 @@ export class CardChart {
     this.vp.setMode(mode);
   }
 
-  setDayProfile(profile) {
-    this.vp.setDayProfile(profile);
+  /** Today's 1m bars as a ProfileSource; rows follow the on-screen height. */
+  setDaySource(source) {
+    this.vp.setDaySource(source);
+  }
+
+  /** Row height for every profile on the card: 'coarse' | 'normal' | 'fine' | 'ultra'. */
+  setVolumeProfileDetail(detail) {
+    this.vp.setDetail(detail);
+    this.vranges.setDetail(detail);
   }
 
   setPeriodProfiles(list) {

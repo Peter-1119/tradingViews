@@ -13,7 +13,7 @@ import { TradeController } from './trade/trade-controller.js';
 import { PriceAlertController } from './price-alerts.js';
 import { Toolbar } from './ui/toolbar.js';
 import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchlist.js';
-import { buildProfile, buildPeriodProfiles, sessionBounds, PERIOD_4H } from './volume-profile.js';
+import { buildPeriodProfiles, sessionBounds, PERIOD_4H, ProfileSource, rangeInterval } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
 import { oiPoints, bucketOI, historyRecords, OI_MAX_GAP_SEC } from './open-interest.js';
 import { WINDOWS as POSITION_WINDOWS } from './position.js';
@@ -233,6 +233,9 @@ export class CardView {
 
     this.fibs = [];
     this.rects = [];
+    /** Range volume profiles of this symbol, and their bars by range id. */
+    this.vranges = [];
+    this.vrangeData = new Map();
 
     this.htfBars = [];
 
@@ -397,7 +400,15 @@ export class CardView {
       this.chart.rects.setRects(rects);
     });
     this.loadRects();
+    this.bindVRangeInput();
+    this.offVRanges = window.stockcard.onVRangesChanged(({ symbol, vranges }) => {
+      if (this.destroyed || symbol !== this.card.symbol) return;
+      this.vranges = vranges;
+      this.syncVRanges();
+    });
+    this.loadVRanges();
     this.applyVolumeProfile(this.card.volumeProfile || 'off');
+    this.applyVpDetail();
     this.toolbar.setToggled('htf', this.card.showHtf);
     if (this.card.showHtf) this.setHtfEnabled(true);
     this.renderRail();
@@ -424,6 +435,10 @@ export class CardView {
     if (id === 'vp') {
       // A display layer, not a drawing mode -- choosing a variant must not
       // disarm whatever tool the user currently has in hand.
+      if (value.startsWith('detail:')) {
+        window.stockcard.updateCard(this.card.id, { vpDetail: value.slice(7) });
+        return;
+      }
       window.stockcard.updateCard(this.card.id, { volumeProfile: value });
       return;
     }
@@ -758,13 +773,20 @@ export class CardView {
     }
   }
 
+  /** Row height for every profile on the card, and the tick in the menu. */
+  applyVpDetail() {
+    const detail = this.card.vpDetail || 'normal';
+    this.toolbar.setMenuValue('vp', `detail:${detail}`, 'detail');
+    if (this.chart) this.chart.setVolumeProfileDetail(detail);
+  }
+
   async loadDayProfile() {
     const key = this.dataKey();
     const { start, end } = sessionBounds();
     try {
       const bars = await this.feed.getRange(this.card.symbol, '1m', start, end);
       if (this.destroyed || key !== this.dataKey() || this.card.volumeProfile !== 'day') return;
-      this.chart.setDayProfile(buildProfile(bars, 26));
+      this.chart.setDaySource(new ProfileSource(bars));
     } catch (err) {
       console.error('[card] day profile failed', err);
     }
@@ -1138,6 +1160,17 @@ export class CardView {
         case 'rect-move':
           await window.stockcard.updateRect(s, op.id, op.from);
           break;
+        case 'vrange-add':
+          await window.stockcard.removeVRange(s, op.id);
+          break;
+        case 'vrange-remove': {
+          const back = await window.stockcard.addVRange(s, op.from, op.to);
+          if (back) this.remapUndo(op.id, back.id);
+          break;
+        }
+        case 'vrange-move':
+          await window.stockcard.updateVRange(s, op.id, op.from);
+          break;
         default:
           break;
       }
@@ -1422,6 +1455,242 @@ export class CardView {
     this.chart.rects.setDraft({ id: d.id, ...d.next });
   }
 
+  /* ------------------------------------------------------ range profiles */
+
+  async loadVRanges() {
+    const symbol = this.card.symbol;
+    const vranges = await window.stockcard.listVRanges(symbol);
+    if (this.destroyed || symbol !== this.card.symbol) return;
+    this.vranges = vranges;
+    this.syncVRanges();
+  }
+
+  /**
+   * Fetch what each range needs and hand the lot to the chart. A range's bars
+   * are keyed by market and span, so moving it, resizing it or switching the
+   * card between spot and perp refetches, and nothing else does.
+   *
+   * Bars are the finest interval that keeps the span near 3,000 of them
+   * (rangeInterval): 1m for up to two days. A closed range is read through
+   * the bar cache; a "至今" one fetches only its tail each minute.
+   */
+  syncVRanges() {
+    if (!this.chart) return;
+    const ids = new Set(this.vranges.map((r) => r.id));
+    for (const id of this.vrangeData.keys()) if (!ids.has(id)) this.vrangeData.delete(id);
+    for (const range of this.vranges) {
+      const key = `${this.card.market}|${range.from}|${range.to === null ? 'live' : range.to}`;
+      const have = this.vrangeData.get(range.id);
+      if (!have || have.key !== key) this.loadVRange(range, key);
+    }
+    clearInterval(this.vrangeTimer);
+    this.vrangeTimer = null;
+    if (this.vranges.some((r) => r.to === null)) {
+      this.vrangeTimer = setInterval(() => this.refreshLiveVRanges(), 60000);
+    }
+    this.chart.vranges.set(this.vranges, this.vrangeData);
+  }
+
+  async loadVRange(range, key) {
+    const { market, symbol } = this.card;
+    const now = Math.floor(Date.now() / 1000);
+    const to = range.to === null ? now : range.to;
+    const interval = rangeInterval(to - range.from);
+    const sec = intervalToMs(interval) / 1000;
+    const entry = { key, interval, source: null, bars: [], loading: true, error: false };
+    this.vrangeData.set(range.id, entry);
+    try {
+      let bars;
+      if (range.to === null) {
+        bars = await this.feedFor(market).getRange(symbol, interval, range.from * 1000, now * 1000);
+      } else {
+        const expect = Math.floor((range.to - range.from) / sec);
+        bars = await this.fetchBars(market, symbol, interval, range.from, range.to - 1, expect);
+      }
+      if (this.destroyed || this.vrangeData.get(range.id) !== entry) return;
+      entry.bars = bars.filter((b) => b.time >= range.from && (range.to === null || b.time < range.to));
+      entry.source = new ProfileSource(entry.bars);
+    } catch (err) {
+      console.error('[card] range profile failed', err);
+      entry.error = true;
+    }
+    entry.loading = false;
+    if (this.chart) this.chart.vranges.update();
+  }
+
+  /** "至今" ranges: fetch from their newest bar on, replace it, rebuild. */
+  async refreshLiveVRanges() {
+    const { market, symbol } = this.card;
+    for (const range of this.vranges) {
+      if (range.to !== null) continue;
+      const entry = this.vrangeData.get(range.id);
+      if (!entry || entry.loading || !entry.bars.length) continue;
+      const last = entry.bars[entry.bars.length - 1].time;
+      try {
+        const tail = await this.feedFor(market).getRange(symbol, entry.interval, last * 1000, Date.now());
+        if (this.destroyed || this.vrangeData.get(range.id) !== entry || !tail.length) continue;
+        entry.bars = [...entry.bars.filter((b) => b.time < tail[0].time), ...tail];
+        entry.source = new ProfileSource(entry.bars);
+      } catch (err) {
+        console.error('[card] range profile refresh failed', err);
+      }
+    }
+    if (this.chart) this.chart.vranges.update();
+  }
+
+  /**
+   * Range profiles: arm the tool and drag across the chart, x1 to x2. Only
+   * time matters, so the pointer's height is ignored. Edges snap to whole
+   * bars of the card's interval, both end bars included; dragging onto the
+   * newest bar makes the range "至今". The tool disarms after one range --
+   * the next drag on the chart should pan, not draw a second.
+   *
+   *   drag an edge      resize that side
+   *   drag the tag      move the whole range
+   *   double-click      delete (edge or tag)
+   */
+  bindVRangeInput() {
+    const el = this.chartEl;
+    const local = (event) => {
+      const rect = el.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+    const prim = () => this.chart.vranges;
+    // Bar index under x, and the time a bar index starts at. An index at or
+    // past the end of the loaded bars is "now": the range stays open.
+    const indexAt = (x) => {
+      const logical = this.chart.chart.timeScale().coordinateToLogical(x);
+      return logical === null ? null : Math.round(logical);
+    };
+    const count = () => this.chart.bars.length;
+    const timeOf = (i) => (i >= count() ? null : this.chart.timeFromLogical(i));
+    const indexOf = (time) => (time === null ? count() : Math.round(this.chart.logicalFromTime(time)));
+    const span = (a, b) => {
+      const lo = Math.min(a, b);
+      const hi = Math.max(a, b) + 1;
+      return { from: this.chart.timeFromLogical(lo), to: timeOf(hi) };
+    };
+
+    this.onVRangeDown = (event) => {
+      if (event.button !== 0 || event.shiftKey || event.defaultPrevented) return;
+      if (this.activeTool !== 'cursor' && this.activeTool !== 'vrange') return;
+      const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y) || !this.chart.bars.length) return;
+      const at = indexAt(x);
+      if (at === null) return;
+
+      const hit = prim().hitTest(x, y);
+      if (hit) {
+        const range = this.vranges.find((r) => r.id === hit.id);
+        if (!range) return;
+        this.draggingVRange = {
+          id: range.id,
+          part: hit.part,
+          start: at,
+          fromIdx: indexOf(range.from),
+          toIdx: indexOf(range.to),
+          orig: { from: range.from, to: range.to },
+          next: null,
+        };
+      } else if (this.activeTool === 'vrange') {
+        this.drawingVRange = { anchor: at };
+        prim().setDraft({ id: '__draft__', ...span(at, at) });
+      } else {
+        return;
+      }
+      prim().setActive(hit ? hit.id : null);
+      this.chart.setInteractionEnabled(false);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    this.onVRangeMove = (event) => {
+      const { x, y } = local(event);
+      if (this.drawingVRange) {
+        const at = indexAt(x);
+        if (at === null) return;
+        this.drawingVRange.end = at;
+        prim().setDraft({ id: '__draft__', ...span(this.drawingVRange.anchor, at) });
+        return;
+      }
+      const d = this.draggingVRange;
+      if (d) {
+        const at = indexAt(x);
+        if (at === null) return;
+        const delta = at - d.start;
+        let fromIdx = d.fromIdx;
+        let toIdx = d.toIdx; // exclusive
+        if (d.part === 'left') fromIdx = Math.min(d.fromIdx + delta, toIdx - 1);
+        else if (d.part === 'right') toIdx = Math.min(count(), Math.max(d.toIdx + delta, fromIdx + 1));
+        else {
+          // Moving: never past the newest bar. A "至今" range moved left
+          // becomes a closed one of the same width.
+          const shift = Math.min(delta, count() - d.toIdx);
+          fromIdx += shift;
+          toIdx += shift;
+        }
+        d.next = { from: this.chart.timeFromLogical(fromIdx), to: timeOf(toIdx) };
+        prim().setDraft({ id: d.id, ...d.next });
+        return;
+      }
+      // Hover: light the range under the pointer and show what a drag does.
+      if (this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib || this.drawingRect || this.draggingRect) return;
+      if (event.target !== el && !el.contains(event.target)) {
+        prim().setActive(null);
+        return;
+      }
+      const hit = this.chart.inPlot(x, y) ? prim().hitTest(x, y) : null;
+      prim().setActive(hit ? hit.id : null);
+      if (hit) el.style.cursor = hit.part === 'tag' ? 'move' : 'ew-resize';
+    };
+
+    this.onVRangeUp = async () => {
+      if (this.drawingVRange) {
+        const draw = this.drawingVRange;
+        this.drawingVRange = null;
+        this.chart.setInteractionEnabled(true);
+        prim().setDraft(null);
+        // A click with no drag is not a range.
+        if (draw.end === undefined || draw.end === draw.anchor) return;
+        const { from, to } = span(draw.anchor, draw.end);
+        const added = await window.stockcard.addVRange(this.card.symbol, from, to);
+        if (added) this.pushUndo({ kind: 'vrange-add', id: added.id });
+        if (this.activeTool === 'vrange') this.setActiveTool('vrange');
+        return;
+      }
+      const d = this.draggingVRange;
+      if (d) {
+        this.draggingVRange = null;
+        this.chart.setInteractionEnabled(true);
+        // The first click of a double-click arrives here without moving.
+        if (!d.next || (d.next.from === d.orig.from && d.next.to === d.orig.to)) {
+          prim().setDraft(null);
+          return;
+        }
+        await window.stockcard.updateVRange(this.card.symbol, d.id, d.next);
+        prim().setDraft(null);
+        this.pushUndo({ kind: 'vrange-move', id: d.id, from: d.orig });
+      }
+    };
+
+    this.onVRangeDblClick = async (event) => {
+      const { x, y } = local(event);
+      const hit = prim().hitTest(x, y);
+      if (!hit) return;
+      // Otherwise the double-click falls through and drops a level as well.
+      event.stopPropagation();
+      const range = this.vranges.find((r) => r.id === hit.id);
+      await window.stockcard.removeVRange(this.card.symbol, hit.id);
+      prim().setActive(null);
+      if (range) this.pushUndo({ kind: 'vrange-remove', id: range.id, from: range.from, to: range.to });
+    };
+
+    el.addEventListener('mousedown', this.onVRangeDown, true);
+    el.addEventListener('dblclick', this.onVRangeDblClick, true);
+    window.addEventListener('mousemove', this.onVRangeMove);
+    window.addEventListener('mouseup', this.onVRangeUp);
+  }
+
   /* ------------------------------------------------------------------ fibs */
 
   async loadFibs() {
@@ -1688,6 +1957,14 @@ export class CardView {
     this.watchlist.destroy();
     if (this.offFibs) this.offFibs();
     if (this.offRects) this.offRects();
+    if (this.offVRanges) this.offVRanges();
+    clearInterval(this.vrangeTimer);
+    if (this.onVRangeDown) {
+      this.chartEl.removeEventListener('mousedown', this.onVRangeDown, true);
+      this.chartEl.removeEventListener('dblclick', this.onVRangeDblClick, true);
+      window.removeEventListener('mousemove', this.onVRangeMove);
+      window.removeEventListener('mouseup', this.onVRangeUp);
+    }
     if (this.onRectDown) {
       this.chartEl.removeEventListener('mousedown', this.onRectDown, true);
       this.chartEl.removeEventListener('dblclick', this.onRectDblClick, true);
@@ -2093,6 +2370,7 @@ export class CardView {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
       if (next.volumeProfile !== prev.volumeProfile) this.applyVolumeProfile(next.volumeProfile);
+      if (next.vpDetail !== prev.vpDetail) this.applyVpDetail();
       // A symbol or market change reloads opens below. An interval change does
       // not -- the opens are the same on every interval -- so it must not stop
       // a toggle that arrives in the same patch from loading them.
@@ -2150,6 +2428,10 @@ export class CardView {
         this.rects = [];
         this.chart.rects.setRects([]);
         this.loadRects();
+        this.vranges = [];
+        this.vrangeData.clear();
+        this.chart.vranges.set([], this.vrangeData);
+        this.loadVRanges();
         // Undo entries belong to the symbol they were recorded on; replaying
         // them after a switch would edit drawings that are not on screen.
         this.undoStack = [];
@@ -2158,6 +2440,8 @@ export class CardView {
       if (next.symbol !== prev.symbol || marketChanged) {
         this.periodCache.clear();
         this.applyVolumeProfile(this.card.volumeProfile || 'off');
+        // Same ranges, the other market's volume: the data key has changed.
+        if (next.symbol === prev.symbol) this.syncVRanges();
         this.toolbar.setToggled('htf', this.card.showHtf);
         this.htfBars = [];
         this.renderHtf();

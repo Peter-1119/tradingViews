@@ -11,24 +11,91 @@
  *              updateAllViews, so it follows panning and zooming frame for frame.
  *   day        today's UTC session, right-anchored. The original mode.
  *
+ * (Range profiles the user drags out are their own layer, vrange-primitive.js,
+ * drawn with the same rows.)
+ *
+ * Rows are as fine as the detail setting asks for at the profile's current
+ * height on screen, and each is split into buying and selling.
+ *
  * Same reason as the 4h overlay for being a primitive rather than DOM: the
  * chart repaints this in the same frame as the candles on every viewport change,
  * so it cannot lag a resize. And the pane canvas excludes the price scale, so
  * "right edge" is simply the canvas width -- no gutter arithmetic.
  */
 
-import { buildProfile } from './volume-profile.js';
+import { ProfileSource, rowsForHeight } from './volume-profile.js';
 
-const ROWS_VISIBLE = 24;
 /** Right-anchored histograms stop at a third of the plot, framing the candles. */
 const RIGHT_MAX_SHARE = 0.34;
 /** A block's histogram leaves a little air before the next block. */
 const PERIOD_MAX_SHARE = 0.88;
 
-const ROW = 'rgba(125, 154, 196, 0.22)';
-const ROW_VA = 'rgba(125, 154, 196, 0.42)';
+/** Buying and selling, brighter inside the value area. */
+export const VP_COLORS = {
+  buy: 'rgba(45, 190, 160, 0.24)',
+  buyVa: 'rgba(45, 190, 160, 0.5)',
+  sell: 'rgba(236, 94, 108, 0.22)',
+  sellVa: 'rgba(236, 94, 108, 0.46)',
+};
 const POC = 'rgba(240, 180, 90, 0.9)';
 const POC_TEXT = 'rgba(245, 200, 130, 0.95)';
+
+/**
+ * Screen rows for a profile: y extent, and the buying and selling lengths.
+ * Shared with the range layer.
+ */
+export function projectRows(card, profile, maxLength) {
+  const out = [];
+  if (!profile) return out;
+  const peak = profile.rows.reduce((m, r) => Math.max(m, r.volume), 0) || 1;
+  for (const row of profile.rows) {
+    if (!row.volume) continue;
+    const top = card.priceToY(row.priceHigh);
+    const bottom = card.priceToY(row.priceLow);
+    if (top === null || bottom === null) continue;
+    out.push({
+      top,
+      bottom,
+      va: row.inValueArea,
+      buy: (row.buy / peak) * maxLength,
+      sell: (row.sell / peak) * maxLength,
+    });
+  }
+  return out;
+}
+
+/** The row count that gives a source's price span the detail asked for. */
+export function rowsOnScreen(card, source, detail) {
+  const top = card.priceToY(source.high);
+  const bottom = card.priceToY(source.low);
+  if (top === null || bottom === null) return rowsForHeight(0, detail);
+  return rowsForHeight(bottom - top, detail);
+}
+
+/**
+ * Paint rows in bitmap space. `fromRight` grows them leftward from `x`.
+ * Buying sits against the anchor, selling continues past it.
+ */
+export function paintRows(ctx, rows, x, fromRight, hr, vr) {
+  // A one-pixel gap between rows reads as separate rows; below ~3px a gap
+  // would eat the row, so fine rows touch.
+  for (const row of rows) {
+    const top = Math.round(row.top * vr);
+    const bottom = Math.round(row.bottom * vr);
+    const tall = bottom - top;
+    const h = Math.max(1, tall >= 3 * vr ? tall - Math.round(vr) : tall);
+    const buy = Math.round(row.buy * hr);
+    const sell = Math.round(row.sell * hr);
+    if (buy > 0) {
+      ctx.fillStyle = row.va ? VP_COLORS.buyVa : VP_COLORS.buy;
+      ctx.fillRect(fromRight ? x - buy : x, top, buy, h);
+    }
+    if (sell > 0) {
+      ctx.fillStyle = row.va ? VP_COLORS.sellVa : VP_COLORS.sell;
+      ctx.fillRect(fromRight ? x - buy - sell : x + buy, top, sell, h);
+    }
+  }
+}
 
 class VpRenderer {
   constructor(source) {
@@ -40,17 +107,9 @@ class VpRenderer {
     const layout = this.source.layout;
     if (!layout.length) return;
     target.useBitmapCoordinateSpace(({ context: ctx, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
-      const width = bitmapSize.width;
       for (const block of layout) {
-        for (const row of block.rows) {
-          const top = Math.round(row.top * vr);
-          const bottom = Math.round(row.bottom * vr);
-          const h = Math.max(1, bottom - top - Math.round(vr));
-          const len = Math.max(1, Math.round(row.length * hr));
-          ctx.fillStyle = row.va ? ROW_VA : ROW;
-          if (block.anchor === 'right') ctx.fillRect(width - len, top, len, h);
-          else ctx.fillRect(Math.round(block.left * hr), top, len, h);
-        }
+        if (block.anchor === 'right') paintRows(ctx, block.rows, bitmapSize.width, true, hr, vr);
+        else paintRows(ctx, block.rows, Math.round(block.left * hr), false, hr, vr);
       }
     });
   }
@@ -99,7 +158,9 @@ export class VolumeProfilePrimitive {
   constructor(card) {
     this.card = card;
     this.mode = 'off';
-    this.dayProfile = null;
+    this.detail = 'normal';
+    /** @type {ProfileSource|null} */
+    this.daySource = null;
     this.periodProfiles = [];
     this.layout = [];
     this.requestUpdate = null;
@@ -129,8 +190,14 @@ export class VolumeProfilePrimitive {
     this.update();
   }
 
-  setDayProfile(profile) {
-    this.dayProfile = profile;
+  setDetail(detail) {
+    this.detail = detail;
+    this.update();
+  }
+
+  /** Today's 1m bars, as a ProfileSource. */
+  setDaySource(source) {
+    this.daySource = source;
     this.update();
   }
 
@@ -145,25 +212,16 @@ export class VolumeProfilePrimitive {
 
   /* ---------------------------------------------------------- geometry */
 
-  rowsFor(profile, maxLength) {
-    const out = [];
-    for (const row of profile.rows) {
-      const top = this.card.priceToY(row.priceHigh);
-      const bottom = this.card.priceToY(row.priceLow);
-      if (top === null || bottom === null) continue;
-      out.push({ top, bottom, va: row.inValueArea, length: row.ratio * maxLength });
-    }
-    return out;
-  }
-
-  rightAnchored(profile) {
+  rightAnchored(source) {
     const plotWidth = this.card.plotWidth();
-    if (!profile || !plotWidth) return [];
+    if (!source || !plotWidth) return [];
+    const profile = source.at(rowsOnScreen(this.card, source, this.detail));
+    if (!profile) return [];
     const maxLength = plotWidth * RIGHT_MAX_SHARE;
     return [
       {
         anchor: 'right',
-        rows: this.rowsFor(profile, maxLength),
+        rows: projectRows(this.card, profile, maxLength),
         pocY: this.card.priceToY(profile.poc),
         maxLength,
         label: `POC ${this.card.formatPrice(profile.poc)}`,
@@ -172,7 +230,7 @@ export class VolumeProfilePrimitive {
   }
 
   computeLayout() {
-    if (this.mode === 'day') return this.rightAnchored(this.dayProfile);
+    if (this.mode === 'day') return this.rightAnchored(this.daySource);
 
     if (this.mode === 'visible') {
       const range = this.card.chart.timeScale().getVisibleLogicalRange();
@@ -181,7 +239,9 @@ export class VolumeProfilePrimitive {
       const from = Math.max(0, Math.ceil(range.from));
       const to = Math.min(bars.length - 1, Math.floor(range.to));
       if (to <= from) return [];
-      return this.rightAnchored(buildProfile(bars.slice(from, to + 1), ROWS_VISIBLE));
+      // The slice changes on every pan, so the source is rebuilt -- a few
+      // hundred bars at most, cheap next to the repaint itself.
+      return this.rightAnchored(new ProfileSource(bars.slice(from, to + 1)));
     }
 
     if (this.mode === 'session4h') {
@@ -198,12 +258,14 @@ export class VolumeProfilePrimitive {
         const left = this.card.logicalToX(startLogical - 0.5);
         const right = this.card.logicalToX(rightLogical - 0.5);
         if (left === null || right === null || right <= left) continue;
+        const profile = block.source ? block.source.at(rowsOnScreen(this.card, block.source, this.detail)) : block.profile;
+        if (!profile) continue;
         out.push({
           anchor: 'left',
           left,
           right,
-          rows: this.rowsFor(block.profile, (right - left) * PERIOD_MAX_SHARE),
-          pocY: this.card.priceToY(block.profile.poc),
+          rows: projectRows(this.card, profile, (right - left) * PERIOD_MAX_SHARE),
+          pocY: this.card.priceToY(profile.poc),
         });
       }
       return out;
