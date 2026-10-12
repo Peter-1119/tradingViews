@@ -30,6 +30,20 @@ function sign(query, secret) {
   return crypto.createHmac('sha256', secret).update(query).digest('hex');
 }
 
+/**
+ * JSON.parse, except that integers too long for a double come back as
+ * strings, digit for digit. A double holds 15-16 significant digits, and a
+ * Binance order id can be longer: parsed as a number, its last digits round
+ * off -- the order still draws (only its price matters for that), but cancel
+ * and modify then name an order that does not exist (-2011 "Unknown order
+ * sent"). Every id is used as a string from here on, so nothing else changes.
+ * Prices and quantities are strings in Binance's JSON already; timestamps
+ * are 13 digits.
+ */
+function parseExact(text) {
+  return JSON.parse(String(text).replace(/([:,[]\s*)(-?\d{16,})(?=\s*[,}\]])/g, '$1"$2"'));
+}
+
 /* ---------------------------------------------------------------- filters */
 
 /** Decimal places a step like "0.00100000" allows: 3. */
@@ -314,6 +328,7 @@ function pnlAt({ amt, entry, leverage }, price) {
 module.exports = {
   encodeParams,
   sign,
+  parseExact,
   decimalsOf,
   parseSymbolRules,
   roundPrice,

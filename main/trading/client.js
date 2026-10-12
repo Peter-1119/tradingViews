@@ -10,7 +10,7 @@
  */
 
 const crypto = require('crypto');
-const { encodeParams, sign } = require('./rules');
+const { encodeParams, sign, parseExact } = require('./rules');
 
 /*
  * STOCKCARD_TESTNET_REST / _WS point the *testnet* at another host -- a local
@@ -133,7 +133,7 @@ class FuturesClient {
     const text = await res.text();
     let body = null;
     try {
-      body = text ? JSON.parse(text) : null;
+      body = text ? parseExact(text) : null;
     } catch {
       body = null;
     }

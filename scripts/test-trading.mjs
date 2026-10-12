@@ -245,5 +245,14 @@ t('a working reversal is intact only while its own fills explain the position', 
   assert.ok(!r.reverseIntact({ ...rev, filled: 0, amt: 0.02 }, BTC), 'added to by hand');
 });
 
+t('order ids too long for a double survive parsing digit for digit', () => {
+  const body = r.parseExact('{"orderId":8389765907134201345,"algoId":12,"price":"84213.4","updateTime":1760250000000,"list":[9007199254740993, 5]}');
+  assert.equal(body.orderId, '8389765907134201345', 'JSON.parse would give 8389765907134201000');
+  assert.equal(body.algoId, 12, 'short ids stay numbers');
+  assert.equal(body.updateTime, 1760250000000, 'timestamps stay numbers');
+  assert.deepEqual(body.list, ['9007199254740993', 5]);
+  assert.equal(r.parseExact('{"msg":"id 12345678901234567, ok"}').msg, 'id 12345678901234567, ok', 'never inside a string');
+});
+
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);

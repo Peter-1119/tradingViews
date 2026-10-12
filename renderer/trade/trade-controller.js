@@ -34,6 +34,12 @@ const CLICK_MAX_MS = 350;
 // Long enough for the second click of a double-click to cancel the lock.
 const LOCK_DELAY_MS = 230;
 const TOAST_MS = 4500;
+/**
+ * How long a cancelled order's line stays hidden without the exchange's word.
+ * Binance's open-orders list can lag a cancel by a moment; the line must not
+ * sit there looking uncancelled meanwhile.
+ */
+const CANCEL_HIDE_MS = 8000;
 
 const COLORS = {
   long: '#26c281',
@@ -62,6 +68,9 @@ export class TradeController {
     this.draft = null;
     /** The reversal sheet's lines: {side, price, tp, sl}. */
     this.revDraft = null;
+    /** Line ids ('order:123', 'algo:456') with a cancel in flight, and just cancelled. */
+    this.cancelling = new Set();
+    this.cancelled = new Map(); // id -> timer
     this.symbol = null;
     this.offs = [];
 
@@ -469,9 +478,32 @@ export class TradeController {
     return res;
   }
 
+  /**
+   * The ✕ on a label. The label says 取消中… at once, and once Binance has
+   * accepted the cancel the line goes -- without waiting for a snapshot that
+   * may still list the order for a moment. A refused cancel (already filled,
+   * say) brings it back with the reason.
+   */
   async cancel(kind, id) {
+    const key = `${kind === 'algo' ? 'algo' : 'order'}:${id}`;
+    if (this.cancelling.has(key)) return;
+    this.cancelling.add(key);
+    this.renderLines();
     const res = await api().cancel({ symbol: this.symbol, kind, id });
-    if (!res.ok) this.applyNotice({ level: 'error', text: res.error, symbol: this.symbol });
+    this.cancelling.delete(key);
+    if (res.ok) {
+      clearTimeout(this.cancelled.get(key));
+      this.cancelled.set(
+        key,
+        setTimeout(() => {
+          this.cancelled.delete(key);
+          this.renderLines();
+        }, CANCEL_HIDE_MS)
+      );
+    } else {
+      this.applyNotice({ level: 'error', text: res.error, symbol: this.symbol });
+    }
+    this.renderLines();
   }
 
   /* ------------------------------------------------------- TP/SL editor */
@@ -639,7 +671,19 @@ export class TradeController {
       if (rv.tp) items.push({ id: 'rev-tp', price: rv.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '反手後止盈', color: COLORS.tp, faint: true }, drag: { kind: 'reverse', which: 'tp' } });
       if (rv.sl) items.push({ id: 'rev-sl', price: rv.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '反手後止損', color: COLORS.sl, faint: true }, drag: { kind: 'reverse', which: 'sl' } });
     }
-    return items.map((it) => this.withDrag(it));
+    return items.filter((it) => !this.isCancelled(it.id)).map((it) => this.withCancel(this.withDrag(it)));
+  }
+
+  /** A cancelled order takes the TP/SL waiting on its fill with it. */
+  isCancelled(id) {
+    if (this.cancelled.has(id)) return true;
+    const m = /^pend-(?:tp|sl):(.+)$/.exec(id);
+    return !!m && this.cancelled.has(`order:${m[1]}`);
+  }
+
+  withCancel(it) {
+    if (!this.cancelling.has(it.id) || !it.label) return it;
+    return { ...it, alpha: 0.5, drag: null, label: { ...it.label, value: '取消中…', tone: '', faint: true, cancel: null } };
   }
 
   /* ------------------------------------------------------------------- drag */
@@ -920,6 +964,7 @@ export class TradeController {
   destroy() {
     for (const off of this.offs) off();
     clearTimeout(this.lockTimer);
+    for (const timer of this.cancelled.values()) clearTimeout(timer);
     const chartEl = this.view.chartEl;
     chartEl.removeEventListener('mousemove', this.onMove);
     chartEl.removeEventListener('mouseleave', this.onLeave);

@@ -988,19 +988,50 @@ async function updatePending(req) {
   return { ok: true };
 }
 
+/** Is the order (or conditional order) a cancel was refused for still working? */
+async function stillOpen(symbol, req) {
+  try {
+    if (req.kind === 'algo') {
+      const algos = await state.client.openAlgoOrders(symbol);
+      const list = Array.isArray(algos) ? algos : (algos && algos.orders) || [];
+      return list.some((a) => String(a.algoId) === String(req.id));
+    }
+    const orders = await state.client.openOrders(symbol);
+    return (orders || []).some((o) => String(o.orderId) === String(req.id));
+  } catch {
+    return true; // unknown: keep the error
+  }
+}
+
 async function cancel(req) {
   await ready();
   const symbol = String(req.symbol || '').toUpperCase();
   try {
-    if (req.kind === 'algo') await state.client.cancelAlgoOrder(req.id);
-    else {
-      await state.client.cancelOrder(symbol, req.id);
+    if (req.kind === 'algo') {
+      await state.client.cancelAlgoOrder(req.id);
+      notice('info', `${symbol} 已取消條件單`, symbol);
+    } else {
+      const res = await state.client.cancelOrder(symbol, req.id);
       setPending(String(req.id), null);
+      const side = res && res.side === 'SELL' ? '賣' : '買';
+      notice('info', `${symbol} 已取消限價${side}${res && res.price ? ` @ ${Number(res.price)}` : ''}`, symbol);
     }
   } catch (err) {
+    // -2011 "Unknown order sent": usually a second press on a line still
+    // drawn after the first press had already cancelled it (or the order
+    // filled meanwhile). If it really is gone, the user got what they asked
+    // for -- say so plainly instead of showing an alarming error.
+    if (err.code === -2011 && !(await stillOpen(symbol, req))) {
+      if (req.kind !== 'algo') setPending(String(req.id), null);
+      notice('info', `${symbol} 這筆委託已經不在了（已取消或已成交）`, symbol);
+      return { ok: true, gone: true };
+    }
     throw new Error(friendly(err));
   } finally {
     queueRefresh(symbol, 150);
+    // Binance's open-order list can trail a cancel; look again a little later
+    // rather than wait for the next poll to drop the line.
+    setTimeout(() => refreshSymbol(symbol), 1500);
   }
   return { ok: true };
 }

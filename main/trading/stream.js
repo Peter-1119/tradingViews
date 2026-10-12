@@ -14,6 +14,8 @@
  * falling back to /ws if /private will not open.
  */
 
+const { parseExact } = require('./rules');
+
 const KEEPALIVE_MS = 30 * 60 * 1000;
 // Binance drops a connection at 24h; leave on our own terms a little before.
 const MAX_SESSION_MS = 23 * 60 * 60 * 1000;
@@ -103,7 +105,7 @@ class UserStream {
     ws.onmessage = (msg) => {
       let data;
       try {
-        data = JSON.parse(typeof msg.data === 'string' ? msg.data : msg.data.toString());
+        data = parseExact(typeof msg.data === 'string' ? msg.data : msg.data.toString());
       } catch {
         return;
       }
