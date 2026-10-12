@@ -79,6 +79,12 @@ export class TradeController {
       onSubmit: (req) => this.submit(req),
       onClose: () => this.closeTicket(),
       onLeverage: (symbol, leverage) => this.setLeverage(symbol, leverage),
+      onSaveDefault: async (value) => {
+        const res = await api().setDefaultNotional(value);
+        if (res.ok) this.applyStatus(res.data);
+        else this.applyNotice({ level: 'error', text: res.error, symbol: this.symbol });
+        return res.ok;
+      },
       onDraft: (draft) => {
         this.draft = draft;
         this.renderLines();
@@ -200,7 +206,11 @@ export class TradeController {
   applyStatus(status) {
     this.status = status;
     const acc = status.account;
-    this.ticket.setAccount({ available: acc ? acc.availableBalance : 0, env: status.env });
+    this.ticket.setAccount({
+      available: acc ? acc.availableBalance : 0,
+      env: status.env,
+      defaultNotional: status.defaultNotional || null,
+    });
     if (!this.enabled) {
       this.closeTicket();
       this.closeEditor();

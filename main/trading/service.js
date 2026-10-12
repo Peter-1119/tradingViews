@@ -36,7 +36,7 @@ const ACCOUNT_MS = 10000;
 const LEVERAGE_MIN = 1;
 const LEVERAGE_MAX = 125;
 
-const DEFAULT_CONFIG = Object.freeze({ env: 'testnet', leverage: 10, liveConfirmed: false, pending: {} });
+const DEFAULT_CONFIG = Object.freeze({ env: 'testnet', leverage: 10, liveConfirmed: false, pending: {}, defaultNotional: null });
 
 /* ------------------------------------------------------------------ state */
 
@@ -68,6 +68,8 @@ function config() {
     leverage: clampLeverage(raw.leverage),
     liveConfirmed: raw.liveConfirmed === true,
     pending: raw.pending && typeof raw.pending === 'object' ? raw.pending : {},
+    // USDT the order ticket opens with, every symbol alike; null for none.
+    defaultNotional: Number(raw.defaultNotional) > 0 ? Number(raw.defaultNotional) : null,
   };
 }
 
@@ -123,6 +125,7 @@ function status() {
     env: cfg.env,
     leverage: cfg.leverage,
     liveConfirmed: cfg.liveConfirmed,
+    defaultNotional: cfg.defaultNotional,
     keys: { testnet: vault.describe('testnet'), live: vault.describe('live') },
     connection: state.connection,
     error: state.error,
@@ -1110,6 +1113,14 @@ function clearCredentials(env) {
   return status();
 }
 
+/** The amount the order ticket opens with; 0 or empty clears it. */
+function setDefaultNotional(value) {
+  const n = Math.round(Number(value) * 100) / 100;
+  saveConfig({ defaultNotional: Number.isFinite(n) && n > 0 ? n : null });
+  broadcastStatus();
+  return status();
+}
+
 async function setOneWay() {
   if (!(await connect())) throw new Error(state.error || '尚未連線');
   try {
@@ -1185,6 +1196,7 @@ module.exports = {
   getLeverage,
   setSymbolLeverage,
   setOneWay,
+  setDefaultNotional,
   test,
   shutdown,
 };

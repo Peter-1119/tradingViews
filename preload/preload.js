@@ -126,6 +126,7 @@ const api = {
     getLeverage: (symbol) => ipcRenderer.invoke('trading:leverage', { symbol }),
     setLeverage: (symbol, leverage) => ipcRenderer.invoke('trading:set-leverage', { symbol, leverage }),
     setOneWay: () => ipcRenderer.invoke('trading:one-way'),
+    setDefaultNotional: (value) => ipcRenderer.invoke('trading:default-notional', { value }),
     test: () => ipcRenderer.invoke('trading:test'),
     onStatus: (cb) => on('trading:status', cb),
     onSnapshot: (cb) => on('trading:snapshot', cb),

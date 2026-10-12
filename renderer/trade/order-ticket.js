@@ -8,6 +8,10 @@
  * comes from the main process (`trading.preview`), the same code that will
  * validate the order, so the ticket never promises what the exchange refuses.
  *
+ * A default amount (預設) fills the amount every time the ticket opens, so
+ * when the moment comes the only decisions left are the side and the
+ * confirmation. Set from the amount field's button; shared by every symbol.
+ *
  * Sending takes two presses: the first turns the button into a summary
  * ("確認做多 0.005 BTC @ 84,213.4") with a 3s fuse; the second sends.
  *
@@ -81,6 +85,8 @@ export class OrderTicket {
     this.maxLeverage = null;
     this.levOpen = false;
     this.available = 0;
+    /** USDT the ticket opens with (from the main process); null for none. */
+    this.defaultNotional = null;
     this.previews = { BUY: null, SELL: null };
     this.armed = null;
     this.sending = false;
@@ -208,7 +214,14 @@ export class OrderTicket {
           {},
           el('span.tk-input__prefix', { text: '金額' }),
           this.notionalInput,
-          el('span.tk-input__unit', { text: 'USDT' })
+          el('span.tk-input__unit', { text: 'USDT' }),
+          (this.defaultBtn = el('button.tk-input__btn.tk-default', {
+            type: 'button',
+            onclick: (event) => {
+              event.preventDefault(); // a button inside a <label> would refocus the field
+              this.saveDefault();
+            },
+          }))
         ),
         el('div.tk-pcts', {}, this.pctBtns),
         this.qtyEl,
@@ -276,6 +289,11 @@ export class OrderTicket {
       this.reducePct = null;
       this.reduceToggle.checked = false;
     }
+    // The default amount, every time: a ticket opened in a hurry is ready to send.
+    if (!this.reduceOnly && this.defaultNotional) {
+      this.notional = String(this.defaultNotional);
+      this.notionalInput.value = this.notional;
+    }
     this.root.hidden = false;
     if (price > 0) {
       this.setType('LIMIT', { silent: true });
@@ -294,8 +312,9 @@ export class OrderTicket {
     this.hooks.onDraft(null);
   }
 
-  setAccount({ available, env }) {
+  setAccount({ available, env, defaultNotional }) {
     if (Number.isFinite(available)) this.available = available;
+    if (defaultNotional !== undefined) this.defaultNotional = defaultNotional;
     if (env) this.envEl.hidden = env !== 'testnet';
     if (this.isOpen) this.render();
   }
@@ -403,6 +422,21 @@ export class OrderTicket {
     this.update({});
   }
 
+  /**
+   * The amount field's button: store what is typed as the default, or, with
+   * the field empty, clear the default.
+   */
+  async saveDefault() {
+    const value = Number(this.notional);
+    const next = value > 0 ? value : null;
+    if (next === this.defaultNotional || (!next && !this.defaultNotional)) return;
+    this.defaultBtn.disabled = true;
+    const ok = await this.hooks.onSaveDefault(next || 0);
+    this.defaultBtn.disabled = false;
+    if (ok) this.defaultNotional = next;
+    this.render();
+  }
+
   setPercent(pct) {
     if (this.reduceOnly) {
       // Sized in the main process from the live position; shown here as the
@@ -495,6 +529,18 @@ export class OrderTicket {
     this.tpslBox.hidden = this.reduceOnly;
     this.liqBox.hidden = this.reduceOnly;
     this.root.classList.toggle('is-reduce-only', this.reduceOnly);
+    const def = this.defaultNotional;
+    const isDefault = !!def && Number(this.notional) === def;
+    this.defaultBtn.hidden = this.reduceOnly;
+    this.defaultBtn.classList.toggle('is-active', isDefault);
+    this.defaultBtn.textContent = isDefault ? '預設 ✓' : Number(this.notional) > 0 ? '設預設' : def ? '清除預設' : '設預設';
+    this.defaultBtn.title = isDefault
+      ? `這是預設金額：每次開下單票都會自動帶入 ${fmt(def)} USDT`
+      : Number(this.notional) > 0
+        ? `把 ${this.notional} USDT 存成預設金額，之後每次開下單票都會自動帶入${def ? `（目前預設 ${fmt(def)}）` : ''}`
+        : def
+          ? `清除預設金額（目前 ${fmt(def)} USDT）`
+          : '先輸入金額，再按這裡存成預設';
     this.pctBtns.forEach((b, i) => {
       const pct = this.reduceOnly ? REDUCE_PCTS[i] : PCTS[i];
       b.textContent = `${pct}%`;

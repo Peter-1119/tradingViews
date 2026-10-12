@@ -540,6 +540,7 @@ tradingHandle('trading:clear-keys', (_e, { env }) => trading.clearCredentials(en
 tradingHandle('trading:leverage', (_e, { symbol }) => trading.getLeverage(symbol));
 tradingHandle('trading:set-leverage', (_e, { symbol, leverage }) => trading.setSymbolLeverage(symbol, leverage));
 tradingHandle('trading:one-way', () => trading.setOneWay());
+tradingHandle('trading:default-notional', (_e, { value }) => trading.setDefaultNotional(value));
 tradingHandle('trading:test', () => trading.test());
 
 /* ------------------------------------------------------------ lifecycle */

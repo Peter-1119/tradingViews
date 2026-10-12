@@ -597,6 +597,15 @@
   cursor: pointer;
 }
 
+.tk-default.is-active {
+  background: rgba(79, 143, 247, 0.42);
+  color: #fff;
+}
+
+.tk-default[hidden] {
+  display: none;
+}
+
 .tk-input__btn:hover {
   background: rgba(79, 143, 247, 0.32);
 }
