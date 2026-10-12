@@ -465,6 +465,10 @@ export class OrderTicket {
     this.submitError = '';
     this.disarm();
     this.render();
+    // The lines follow at once -- a dragged price line must keep up with the
+    // pointer. Only the figures (quantity, margin, liquidation) wait for the
+    // preview round trip.
+    this.emitDraft();
     clearTimeout(this.previewTimer);
     this.previewTimer = setTimeout(() => this.refresh(), PREVIEW_DEBOUNCE_MS);
   }

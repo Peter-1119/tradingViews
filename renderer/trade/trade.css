@@ -25,6 +25,13 @@
   pointer-events: auto;
 }
 
+/* A draft line under the pointer: it can be grabbed anywhere along it. The
+   library sets its own cursor on its canvases, hence the reach and weight. */
+.is-over-draft,
+.is-over-draft * {
+  cursor: ns-resize !important;
+}
+
 /* ---- ＋ on the price lane ---- */
 
 .tr-plus {

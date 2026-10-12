@@ -18,6 +18,9 @@
  *   - a limit order's, a TP/SL's or the ticket's draft label can be dragged to
  *     a new price (the label, not the line: lines share the chart with levels
  *     and panning, and grabbing one by accident would move a real order).
+ *     The ticket's and the reversal sheet's own draft lines are the exception:
+ *     they can be grabbed anywhere along their length, since moving one only
+ *     changes a field in a sheet that is still waiting to be sent.
  */
 
 import { el } from '../util.js';
@@ -30,6 +33,8 @@ const api = () => window.stockcard.trading;
 const CLICK_SLOP_PX = 4;
 /** A drag shorter than this is a click, and sends nothing. */
 const DRAG_SLOP_PX = 3;
+/** How close to a draft line a press grabs it. */
+const DRAFT_GRAB_PX = 5;
 const CLICK_MAX_MS = 350;
 // Long enough for the second click of a double-click to cancel the lock.
 const LOCK_DELAY_MS = 230;
@@ -320,6 +325,27 @@ export class TradeController {
     };
     this.onDbl = () => clearTimeout(this.lockTimer);
 
+    // Grabbing a draft line by its body. On the window, in the capture phase:
+    // that runs before the chart's own gestures (panning, drawing tools) and
+    // the library's, and stopping it there keeps them all out of it.
+    this.onGrab = (event) => {
+      if (event.button !== 0 || !chartEl.contains(event.target)) return;
+      const { x, y } = local(event);
+      const item = this.draftLineAt(x, y);
+      if (!item) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.press = null;
+      this.startDrag(item, event);
+    };
+    this.onHoverDraft = (event) => {
+      if (this.drag) return;
+      const { x, y } = local(event);
+      chartEl.classList.toggle('is-over-draft', !!this.draftLineAt(x, y));
+    };
+    window.addEventListener('mousedown', this.onGrab, true);
+    chartEl.addEventListener('mousemove', this.onHoverDraft);
+
     chartEl.addEventListener('mousemove', this.onMove);
     chartEl.addEventListener('mouseleave', this.onLeave);
     chartEl.addEventListener('mousedown', this.onDown, true);
@@ -349,6 +375,19 @@ export class TradeController {
       }
     };
     window.addEventListener('keydown', this.onKey);
+  }
+
+  /** The ticket's or reversal sheet's draft line under (x, y) in the plot, if any. */
+  draftLineAt(x, y) {
+    if (!this.enabled || this.drag || !(this.ticket.isOpen || this.reverse.isOpen)) return null;
+    if (!this.view.chart.inPlot(x, y)) return null;
+    let best = null;
+    for (const it of this.layout || []) {
+      if (!it.drag || (it.drag.kind !== 'draft' && it.drag.kind !== 'reverse')) continue;
+      const d = Math.abs(it.y - y);
+      if (d <= DRAFT_GRAB_PX && (!best || d < best.d)) best = { it, d };
+    }
+    return best ? best.it : null;
   }
 
   toggleLock(y) {
@@ -878,6 +917,7 @@ export class TradeController {
    * render pass: label positions land in the same frame as the lines.
    */
   placeLabels(items) {
+    this.layout = items;
     const seen = new Set();
     const chart = this.view.chart;
     // The ticket, strip and toasts keep clear of both axes.
@@ -981,6 +1021,9 @@ export class TradeController {
     chartEl.removeEventListener('mousedown', this.onDown, true);
     chartEl.removeEventListener('mouseup', this.onUp, true);
     chartEl.removeEventListener('dblclick', this.onDbl, true);
+    chartEl.removeEventListener('mousemove', this.onHoverDraft);
+    chartEl.classList.remove('is-over-draft');
+    window.removeEventListener('mousedown', this.onGrab, true);
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('mousemove', this.onDragMove);
     window.removeEventListener('mouseup', this.onDragUp);
