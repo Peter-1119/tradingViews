@@ -100,7 +100,8 @@ export class TradeController {
     this.bar = new PositionBar({
       onClose: () => this.closePosition(),
       onTpsl: () => this.openTpslEditor(),
-      onReverse: () => this.openReverse(),
+      onReverseLimit: () => this.openReverse('LIMIT'),
+      onReverseMarket: (expectAmt) => this.submitReverse({ symbol: this.symbol, type: 'MARKET', expectAmt }),
       formatPrice: (p) => this.view.chart.formatPrice(p),
     });
 
@@ -488,7 +489,7 @@ export class TradeController {
 
   /* -------------------------------------------------------------- reverse */
 
-  openReverse() {
+  openReverse(type) {
     const snap = this.snapshot;
     if (!this.enabled || !snap || !snap.position) return;
     this.closeTicket();
@@ -502,6 +503,7 @@ export class TradeController {
       position: snap.position,
       env: this.status.env,
       price,
+      type,
     });
     this.view.root.classList.add('is-ticket-open');
     this.renderPlus();

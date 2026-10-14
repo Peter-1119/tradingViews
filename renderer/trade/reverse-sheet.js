@@ -148,8 +148,11 @@ export class ReverseSheet {
     return !this.root.hidden;
   }
 
-  /** @param {{symbol, baseAsset, position, env, price?}} opts  price: a locked chart price, for limit */
-  open({ symbol, baseAsset, position, env, price }) {
+  /**
+   * @param {{symbol, baseAsset, position, env, price?, type?}} opts
+   *   price: a locked chart price, for limit; type: 'MARKET' | 'LIMIT' to start in
+   */
+  open({ symbol, baseAsset, position, env, price, type }) {
     if (symbol !== this.symbol) {
       this.tp = this.sl = '';
       this.tpInput.value = this.slInput.value = '';
@@ -163,13 +166,16 @@ export class ReverseSheet {
     this.errorEl.hidden = true;
     this.price = '';
     this.priceInput.value = '';
+    if (type) this.type = type;
     if (price > 0) {
       this.type = 'LIMIT';
       this.setPrice(price, { silent: true });
     }
     this.root.hidden = false;
     this.update({});
-    this.goBtn.focus();
+    // Limit without a price yet: the next thing to do is pick one.
+    if (this.type === 'LIMIT' && !this.price) this.priceInput.focus();
+    else this.goBtn.focus();
   }
 
   close() {

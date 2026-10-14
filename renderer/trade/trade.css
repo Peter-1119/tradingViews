@@ -317,6 +317,12 @@
   background: rgba(143, 180, 255, 0.28);
 }
 
+.pb-btn--reverse.is-armed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .pb-btn--close {
   border-color: rgba(237, 84, 101, 0.45);
   color: #ffc9cf;

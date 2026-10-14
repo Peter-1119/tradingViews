@@ -2,6 +2,11 @@
  * The position strip along the bottom of the card: what is open, how it is
  * doing, and the things one does with it -- adjust TP/SL, reverse, or close.
  *
+ * The two that act at market -- 市價反手 and 平倉 -- take two presses on the
+ * same button within 3s: the first turns it into what the second will do
+ * ("確認反手→空"), so a stray click never trades, and a deliberate one is
+ * a double tap away. 限價反手 opens the reversal sheet at a limit price.
+ *
  * Docked, not floating: it is a row of the card's own layout, under the time
  * axis, and the chart gives up its height while a position is open. As an
  * overlay it sat on the lowest pane -- which is the volume or OI pane -- and on
@@ -17,20 +22,29 @@
 import { el } from '../util.js';
 import { envChip } from './env-chip.js';
 
-const CLOSE_ARM_MS = 3000;
+const ARM_MS = 3000;
+/** Under this width the buttons use their short labels, so the PnL keeps its room. */
+const COMPACT_PX = 460;
 
 const fmt = (n, d = 2) =>
   Number.isFinite(n) ? n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—';
 
 export class PositionBar {
   /**
-   * @param {{onClose: () => Promise<{ok, error}>, onTpsl: () => void, onReverse: () => void, formatPrice: (p) => string}} hooks
+   * @param {{
+   *   onClose: () => Promise<{ok, error}>,
+   *   onReverseMarket: (expectAmt: number) => Promise<{ok, error}>,
+   *   onReverseLimit: () => void,
+   *   onTpsl: () => void,
+   *   formatPrice: (p) => string,
+   * }} hooks
    */
   constructor(hooks) {
     this.hooks = hooks;
     this.position = null;
     this.mark = null;
-    this.closeArmed = false;
+    /** 'close' | 'reverse' while a button waits for its second press. */
+    this.armed = null;
 
     this.sideEl = el('span.pb-side');
     this.envEl = el('span.pb-env', { text: '測試網', hidden: true });
@@ -41,13 +55,26 @@ export class PositionBar {
     this.liqEl = el('span.pb-field.pb-liq');
     this.tpslEl = el('span.pb-field.pb-tpsl');
     this.tpslBtn = el('button.pb-btn', { type: 'button', text: '止盈止損', onclick: () => this.hooks.onTpsl() });
+    this.limitReverseBtn = el('button.pb-btn.pb-btn--reverse', {
+      type: 'button',
+      text: '限價反手',
+      title: '限價反手：打開反手面板，在圖上點價格或拖曳「反手價」線，掛單等成交',
+      onclick: () => {
+        this.disarm();
+        this.hooks.onReverseLimit();
+      },
+    });
     this.reverseBtn = el('button.pb-btn.pb-btn--reverse', {
       type: 'button',
-      text: '反手',
-      title: '反手：同樣大小的反向倉位（多轉空、空轉多），可選市價或限價',
-      onclick: () => this.hooks.onReverse(),
+      title: '市價反手：按兩下立刻反手（同樣大小的反向倉位，一張兩倍數量的市價單）',
+      onclick: () => this.press('reverse'),
     });
-    this.closeBtn = el('button.pb-btn.pb-btn--close', { type: 'button', text: '平倉', onclick: () => this.pressClose() });
+    this.closeBtn = el('button.pb-btn.pb-btn--close', {
+      type: 'button',
+      title: '平倉：按兩下市價平掉整個倉位',
+      onclick: () => this.press('close'),
+    });
+    this.labels();
 
     this.root = el(
       'div.pb',
@@ -62,12 +89,21 @@ export class PositionBar {
       this.tpslEl,
       el('span.pb-spacer'),
       this.tpslBtn,
+      this.limitReverseBtn,
       this.reverseBtn,
       this.closeBtn
     );
     for (const type of ['mousedown', 'dblclick', 'wheel', 'click']) {
       this.root.addEventListener(type, (event) => event.stopPropagation());
     }
+    this.compact = false;
+    this.resize = new ResizeObserver(() => {
+      const compact = this.root.clientWidth > 0 && this.root.clientWidth < COMPACT_PX;
+      if (compact === this.compact) return;
+      this.compact = compact;
+      this.labels();
+    });
+    this.resize.observe(this.root);
   }
 
   set(snapshot) {
@@ -76,7 +112,10 @@ export class PositionBar {
     this.sl = snapshot ? snapshot.sl : null;
     this.baseAsset = snapshot && snapshot.rules ? snapshot.rules.baseAsset : '';
     if (this.position && !this.mark) this.mark = this.position.mark;
-    if (!this.position) this.disarmClose();
+    // An armed button promised something about *this* position; if it is gone
+    // or has changed size, the promise is void.
+    const amt = this.position ? this.position.amt : 0;
+    if (amt !== this.armedAmt) this.disarm();
     this.render();
   }
 
@@ -130,33 +169,54 @@ export class PositionBar {
     this.pnlEl.classList.toggle('is-down', r.pnl < 0);
   }
 
-  pressClose() {
-    if (!this.closeArmed) {
-      this.closeArmed = true;
-      this.closeBtn.textContent = '確認市價平倉';
-      this.closeBtn.classList.add('is-armed');
-      clearTimeout(this.closeTimer);
-      this.closeTimer = setTimeout(() => this.disarmClose(), CLOSE_ARM_MS);
+  /** The two market buttons' resting and armed labels. */
+  labels() {
+    const p = this.position;
+    const to = p && p.amt > 0 ? '空' : '多';
+    const c = this.compact;
+    this.tpslBtn.textContent = c ? 'TP/SL' : '止盈止損';
+    this.limitReverseBtn.textContent = c ? '限反' : '限價反手';
+    if (this.busy) return;
+    this.reverseBtn.textContent = this.armed === 'reverse' ? (c ? `確認→${to}` : `確認反手→${to}`) : c ? '市反' : '市價反手';
+    this.closeBtn.textContent = this.armed === 'close' ? (c ? '確認平倉' : '確認市價平倉') : '平倉';
+    this.reverseBtn.classList.toggle('is-armed', this.armed === 'reverse');
+    this.closeBtn.classList.toggle('is-armed', this.armed === 'close');
+  }
+
+  press(kind) {
+    if (!this.position || this.busy) return;
+    if (this.armed !== kind) {
+      this.armed = kind;
+      this.armedAmt = this.position.amt;
+      clearTimeout(this.armTimer);
+      this.armTimer = setTimeout(() => this.disarm(), ARM_MS);
+      this.labels();
       return;
     }
-    this.disarmClose();
-    this.closeBtn.disabled = true;
-    this.closeBtn.textContent = '平倉中…';
-    this.hooks.onClose().finally(() => {
-      this.closeBtn.disabled = false;
-      this.closeBtn.textContent = '平倉';
+    const amt = this.armedAmt;
+    this.disarm();
+    const btn = kind === 'close' ? this.closeBtn : this.reverseBtn;
+    this.busy = true;
+    btn.disabled = true;
+    btn.textContent = kind === 'close' ? '平倉中…' : '反手中…';
+    const run = kind === 'close' ? this.hooks.onClose() : this.hooks.onReverseMarket(amt);
+    run.finally(() => {
+      this.busy = false;
+      btn.disabled = false;
+      this.labels();
     });
   }
 
-  disarmClose() {
-    this.closeArmed = false;
-    clearTimeout(this.closeTimer);
-    this.closeBtn.textContent = '平倉';
-    this.closeBtn.classList.remove('is-armed');
+  disarm() {
+    this.armed = null;
+    this.armedAmt = undefined;
+    clearTimeout(this.armTimer);
+    this.labels();
   }
 
   destroy() {
-    clearTimeout(this.closeTimer);
+    clearTimeout(this.armTimer);
+    this.resize.disconnect();
     this.root.remove();
   }
 }
