@@ -98,6 +98,11 @@ const DEFAULTS = {
    */
   rects: {},
   /**
+   * Trend lines: a segment between two {time, price} anchors, keyed by symbol
+   * like rectangles, for sloped support and resistance.
+   */
+  trendlines: {},
+  /**
    * Range volume profiles: [{id, from, to}] per symbol, times in seconds.
    * `to` is exclusive; null means "to now" -- the range stays open and grows.
    * Price plays no part: a range is a span of time, profiled over every
@@ -597,6 +602,62 @@ function removeRect(symbol, id) {
   );
 }
 
+/* ------------------------------------------------------------ trend lines */
+
+function sanitizeTrend(raw) {
+  const a = sanitizeAnchor(raw && raw.a);
+  const b = sanitizeAnchor(raw && raw.b);
+  if (!a || !b) return null;
+  // Both ends on the same point is a dot, not a line.
+  if (a.price === b.price && a.time === b.time) return null;
+  const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
+  return { id, a, b };
+}
+
+function getTrendlines(symbol) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = store.get('trendlines') || {};
+  const list = Array.isArray(all[key]) ? all[key] : [];
+  return list.map(sanitizeTrend).filter(Boolean);
+}
+
+function setTrendlines(symbol, list) {
+  const key = levelKey(symbol);
+  if (!key) return [];
+  const all = { ...(store.get('trendlines') || {}) };
+  const clean = (Array.isArray(list) ? list : [])
+    .map(sanitizeTrend)
+    .filter(Boolean)
+    .slice(0, MAX_LEVELS_PER_SYMBOL);
+  if (clean.length) all[key] = clean;
+  else delete all[key];
+  store.set('trendlines', all);
+  return clean;
+}
+
+function addTrendline(symbol, a, b) {
+  const line = sanitizeTrend({ a, b });
+  if (!line) return null;
+  setTrendlines(symbol, [...getTrendlines(symbol), line]);
+  return getTrendlines(symbol).find((l) => l.id === line.id) || null;
+}
+
+function updateTrendline(symbol, id, patch) {
+  setTrendlines(
+    symbol,
+    getTrendlines(symbol).map((l) => (l.id === id ? { ...l, ...patch } : l))
+  );
+  return getTrendlines(symbol).find((l) => l.id === id) || null;
+}
+
+function removeTrendline(symbol, id) {
+  return setTrendlines(
+    symbol,
+    getTrendlines(symbol).filter((l) => l.id !== id)
+  );
+}
+
 /* ----------------------------------------------------------- price alerts */
 
 function sanitizePriceAlert(raw) {
@@ -757,6 +818,10 @@ module.exports = {
   updateFib,
   removeFib,
   getRects,
+  getTrendlines,
+  addTrendline,
+  updateTrendline,
+  removeTrendline,
   addRect,
   updateRect,
   removeRect,

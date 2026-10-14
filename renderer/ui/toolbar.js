@@ -23,6 +23,8 @@ import { anchorLabel } from '../sessions.js';
 const ICONS = {
   cursor: '<path d="M3 2l8 5-3.2 1.1L6.6 11.5z"/>',
   level: '<path d="M1.5 7h11"/><circle cx="4.5" cy="7" r="1.6"/>',
+  // A segment with its two ends: the trend line.
+  trend: '<path d="M3 11l8-8"/><circle cx="2.6" cy="11.4" r="1.4"/><circle cx="11.4" cy="2.6" r="1.4"/>',
   // A bell: the price alert.
   alert: '<path d="M4 9.5V6.5a3 3 0 0 1 6 0v3l1.2 1.5H2.8z"/><path d="M5.8 12.3a1.3 1.3 0 0 0 2.4 0"/>',
   measure: '<path d="M2 12V4h8"/><path d="M2 12l9-9"/><path d="M6.5 7.5l1.6 1.6"/>',
@@ -53,6 +55,7 @@ const ICONS = {
 export const TOOLS = [
   { id: 'cursor', label: '游標', hint: '游標(雙擊加水平線、Shift 拖曳量測)' },
   { id: 'level', label: '水平線', hint: '水平支撐壓力線:點一下放線' },
+  { id: 'trend', label: '趨勢線', hint: '趨勢線（兩點連線）：拖曳畫出，或點兩下各點一個端點。拖端點調整、拖線移動、雙擊刪除' },
   { id: 'alert', label: '價格提醒', hint: '價格提醒：點一下設定（或滑鼠在圖上按 Alt+A）。到價時通知一次，卡片隱藏時也會提醒' },
   { id: 'measure', label: '量測', hint: '量測區間:直接拖曳' },
   { id: 'fib', label: '斐波那契', hint: '斐波那契回撤:拖曳畫出波段' },

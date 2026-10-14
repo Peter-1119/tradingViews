@@ -233,6 +233,7 @@ export class CardView {
 
     this.fibs = [];
     this.rects = [];
+    this.trends = [];
     /** Range volume profiles of this symbol, and their bars by range id. */
     this.vranges = [];
     this.vrangeData = new Map();
@@ -400,6 +401,13 @@ export class CardView {
       this.chart.rects.setRects(rects);
     });
     this.loadRects();
+    this.bindTrendInput();
+    this.offTrends = window.stockcard.onTrendlinesChanged(({ symbol, trendlines }) => {
+      if (this.destroyed || symbol !== this.card.symbol) return;
+      this.trends = trendlines;
+      this.chart.trends.setLines(trendlines);
+    });
+    this.loadTrends();
     this.bindVRangeInput();
     this.offVRanges = window.stockcard.onVRangesChanged(({ symbol, vranges }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
@@ -1160,6 +1168,17 @@ export class CardView {
         case 'rect-move':
           await window.stockcard.updateRect(s, op.id, op.from);
           break;
+        case 'trend-add':
+          await window.stockcard.removeTrendline(s, op.id);
+          break;
+        case 'trend-remove': {
+          const back = await window.stockcard.addTrendline(s, op.a, op.b);
+          if (back) this.remapUndo(op.id, back.id);
+          break;
+        }
+        case 'trend-move':
+          await window.stockcard.updateTrendline(s, op.id, op.from);
+          break;
         case 'vrange-add':
           await window.stockcard.removeVRange(s, op.id);
           break;
@@ -1346,7 +1365,7 @@ export class CardView {
         return;
       }
       // Hover feedback -- but never while another tool is mid-gesture.
-      if (this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib) return;
+      if (this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib || this.drawingTrend || this.draggingTrend) return;
       if (event.target !== el && !el.contains(event.target)) {
         prim().setActive(null);
         return;
@@ -1453,6 +1472,190 @@ export class CardView {
       d.next = { a: move(d.orig.a), b: move(d.orig.b) };
     }
     this.chart.rects.setDraft({ id: d.id, ...d.next });
+  }
+
+  /* ----------------------------------------------------------- trend lines */
+
+  async loadTrends() {
+    const symbol = this.card.symbol;
+    const trendlines = await window.stockcard.listTrendlines(symbol);
+    if (this.destroyed || symbol !== this.card.symbol) return;
+    this.trends = trendlines;
+    this.chart.trends.setLines(trendlines);
+  }
+
+  /**
+   * Trend lines: a solid segment between two points, for sloped support.
+   *
+   *   draw          with the tool armed, drag from one end to the other -- or
+   *                 click once for each end (the line follows the pointer in
+   *                 between; Escape gives up)
+   *   drag an end   move that end, the other stays put
+   *   drag the line move the whole line
+   *   double-click  delete
+   *
+   * Ctrl magnets an end to the nearest OHLC, as for rectangles and fibs.
+   * Ends and the line are grabbable from the cursor tool too, like rectangles.
+   */
+  bindTrendInput() {
+    const el = this.chartEl;
+    const local = (event) => {
+      const rect = el.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+    const prim = () => this.chart.trends;
+    const otherGesture = () =>
+      this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib || this.drawingRect || this.draggingRect;
+
+    this.onTrendDown = (event) => {
+      if (event.button !== 0 || event.shiftKey) return;
+      if (this.activeTool !== 'cursor' && this.activeTool !== 'trend') return;
+      const { x, y } = local(event);
+      if (!this.chart.inPlot(x, y)) return;
+
+      // The second click of a click-click line places its far end.
+      if (this.drawingTrend && this.drawingTrend.awaitingSecond) {
+        const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+        if (anchor) this.drawingTrend.b = anchor;
+        this.finishTrend();
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      const hit = prim().hitTest(x, y);
+      if (hit) {
+        const line = this.trends.find((l) => l.id === hit.id);
+        if (!line) return;
+        const orig = { a: { ...line.a }, b: { ...line.b } };
+        if (hit.part === 'line') {
+          // No magnet on the reference point: it only measures the offset.
+          const start = this.chart.anchorAt(x, y);
+          if (!start) return;
+          this.draggingTrend = { id: hit.id, mode: 'move', start, orig, next: null };
+        } else {
+          this.draggingTrend = { id: hit.id, mode: 'end', end: hit.part, orig, next: null };
+        }
+        prim().setActive(hit.id);
+        this.chart.setInteractionEnabled(false);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      if (this.activeTool !== 'trend') return;
+      const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+      if (!anchor) return;
+      this.drawingTrend = { id: '__draft__', a: anchor, b: { ...anchor }, startX: x, startY: y, awaitingSecond: false };
+      prim().setDraft({ id: '__draft__', a: anchor, b: { ...anchor } });
+      this.chart.setInteractionEnabled(false);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    this.onTrendMove = (event) => {
+      const { x, y } = local(event);
+      const t = this.drawingTrend;
+      if (t) {
+        const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+        if (!anchor) return;
+        t.b = anchor;
+        prim().setDraft({ id: '__draft__', a: t.a, b: t.b });
+        return;
+      }
+      const d = this.draggingTrend;
+      if (d) {
+        if (d.mode === 'end') {
+          const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
+          if (!anchor) return;
+          d.next = { ...d.orig, [d.end]: anchor };
+        } else {
+          const now = this.chart.anchorAt(x, y);
+          if (!now) return;
+          const dt = now.time - d.start.time;
+          const dp = now.price - d.start.price;
+          const move = (p) => ({ time: Math.round(p.time + dt), price: Number((p.price + dp).toFixed(this.chart.precision)) });
+          d.next = { a: move(d.orig.a), b: move(d.orig.b) };
+        }
+        prim().setDraft({ id: d.id, ...d.next });
+        return;
+      }
+      // Hover feedback -- never while another tool is mid-gesture.
+      if (otherGesture()) return;
+      if (event.target !== el && !el.contains(event.target)) {
+        prim().setActive(null);
+        return;
+      }
+      const hit = prim().hitTest(x, y);
+      prim().setActive(hit ? hit.id : null);
+      if (hit) el.style.cursor = hit.part === 'line' ? 'move' : 'grab';
+    };
+
+    this.onTrendUp = async (event) => {
+      const t = this.drawingTrend;
+      if (t && !t.awaitingSecond) {
+        const { x, y } = local(event);
+        if (Math.hypot(x - t.startX, y - t.startY) <= 4) {
+          // A click, not a drag: the far end goes where the next click lands.
+          t.awaitingSecond = true;
+          return;
+        }
+        await this.finishTrend();
+        return;
+      }
+      const d = this.draggingTrend;
+      if (!d) return;
+      this.draggingTrend = null;
+      this.chart.setInteractionEnabled(true);
+      // The first click of a double-click arrives here without moving; not
+      // an edit, and must not cost an undo step.
+      if (!d.next) {
+        prim().setDraft(null);
+        return;
+      }
+      await window.stockcard.updateTrendline(this.card.symbol, d.id, d.next);
+      prim().setDraft(null);
+      this.pushUndo({ kind: 'trend-move', id: d.id, from: d.orig });
+    };
+
+    this.onTrendDblClick = async (event) => {
+      const { x, y } = local(event);
+      const hit = prim().hitTest(x, y);
+      if (!hit) return;
+      // Otherwise the double-click falls through and drops a level as well.
+      event.stopPropagation();
+      const line = this.trends.find((l) => l.id === hit.id);
+      await window.stockcard.removeTrendline(this.card.symbol, hit.id);
+      prim().setActive(null);
+      if (line) this.pushUndo({ kind: 'trend-remove', id: line.id, a: { ...line.a }, b: { ...line.b } });
+    };
+
+    this.onTrendKey = (event) => {
+      if (event.key === 'Escape' && this.drawingTrend) this.cancelTrend();
+    };
+
+    el.addEventListener('mousedown', this.onTrendDown, true);
+    el.addEventListener('dblclick', this.onTrendDblClick, true);
+    window.addEventListener('mousemove', this.onTrendMove);
+    window.addEventListener('mouseup', this.onTrendUp);
+    window.addEventListener('keydown', this.onTrendKey);
+  }
+
+  async finishTrend() {
+    const t = this.drawingTrend;
+    this.drawingTrend = null;
+    this.chart.setInteractionEnabled(true);
+    this.chart.trends.setDraft(null);
+    if (!t || (t.a.time === t.b.time && t.a.price === t.b.price)) return;
+    const added = await window.stockcard.addTrendline(this.card.symbol, t.a, t.b);
+    if (added) this.pushUndo({ kind: 'trend-add', id: added.id });
+  }
+
+  cancelTrend() {
+    if (!this.drawingTrend) return;
+    this.drawingTrend = null;
+    this.chart.setInteractionEnabled(true);
+    this.chart.trends.setDraft(null);
   }
 
   /* ------------------------------------------------------ range profiles */
@@ -1634,7 +1837,7 @@ export class CardView {
         return;
       }
       // Hover: light the range under the pointer and show what a drag does.
-      if (this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib || this.drawingRect || this.draggingRect) return;
+      if (this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib || this.drawingRect || this.draggingRect || this.drawingTrend || this.draggingTrend) return;
       if (event.target !== el && !el.contains(event.target)) {
         prim().setActive(null);
         return;
@@ -1757,7 +1960,7 @@ export class CardView {
 
     this.onFibMove = (event) => {
       if (!this.drawingFib && !this.draggingFib) {
-        if (this.draggingLevel || this.measuring || this.drawingRect || this.draggingRect) return;
+        if (this.draggingLevel || this.measuring || this.drawingRect || this.draggingRect || this.drawingTrend || this.draggingTrend) return;
         const inside = event.target === el || el.contains(event.target);
         const hit = inside ? this.fibHandleAt(event) : null;
         this.chart.fibLayer.setHover(hit);
@@ -1964,6 +2167,14 @@ export class CardView {
       this.chartEl.removeEventListener('dblclick', this.onVRangeDblClick, true);
       window.removeEventListener('mousemove', this.onVRangeMove);
       window.removeEventListener('mouseup', this.onVRangeUp);
+    }
+    if (this.offTrends) this.offTrends();
+    if (this.onTrendDown) {
+      this.chartEl.removeEventListener('mousedown', this.onTrendDown, true);
+      this.chartEl.removeEventListener('dblclick', this.onTrendDblClick, true);
+      window.removeEventListener('mousemove', this.onTrendMove);
+      window.removeEventListener('mouseup', this.onTrendUp);
+      window.removeEventListener('keydown', this.onTrendKey);
     }
     if (this.onRectDown) {
       this.chartEl.removeEventListener('mousedown', this.onRectDown, true);
@@ -2428,6 +2639,10 @@ export class CardView {
         this.rects = [];
         this.chart.rects.setRects([]);
         this.loadRects();
+        this.cancelTrend();
+        this.trends = [];
+        this.chart.trends.setLines([]);
+        this.loadTrends();
         this.vranges = [];
         this.vrangeData.clear();
         this.chart.vranges.set([], this.vrangeData);

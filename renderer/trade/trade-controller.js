@@ -319,7 +319,7 @@ export class TradeController {
       if (Math.hypot(x - press.x, y - press.y) > CLICK_SLOP_PX) return;
       if (performance.now() - press.at > CLICK_MAX_MS) return;
       // Something else took the click: a level/fib/rect drag, the measure box.
-      if (this.view.draggingLevel || this.view.measuring || this.view.draggingRect || this.view.draggingFib) return;
+      if (this.view.draggingLevel || this.view.measuring || this.view.draggingRect || this.view.draggingFib || this.view.draggingTrend || this.view.drawingTrend) return;
       clearTimeout(this.lockTimer);
       this.lockTimer = setTimeout(() => this.toggleLock(y), LOCK_DELAY_MS);
     };

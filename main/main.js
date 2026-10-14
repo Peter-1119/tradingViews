@@ -350,6 +350,31 @@ ipcMain.handle('rects:remove', (_event, { symbol, id } = {}) => {
   return broadcastRects(symbol);
 });
 
+function broadcastTrendlines(symbol) {
+  const trendlines = store.getTrendlines(symbol);
+  windows.broadcast('trendlines:changed', { symbol: String(symbol).toUpperCase(), trendlines });
+  return trendlines;
+}
+
+ipcMain.handle('trendlines:list', (_event, symbol) => store.getTrendlines(symbol));
+
+ipcMain.handle('trendlines:add', (_event, { symbol, a, b } = {}) => {
+  const line = store.addTrendline(symbol, a, b);
+  if (line) broadcastTrendlines(symbol);
+  return line;
+});
+
+ipcMain.handle('trendlines:update', (_event, { symbol, id, patch } = {}) => {
+  const line = store.updateTrendline(symbol, id, patch || {});
+  broadcastTrendlines(symbol);
+  return line;
+});
+
+ipcMain.handle('trendlines:remove', (_event, { symbol, id } = {}) => {
+  store.removeTrendline(symbol, id);
+  return broadcastTrendlines(symbol);
+});
+
 function broadcastVRanges(symbol) {
   const vranges = store.getVRanges(symbol);
   windows.broadcast('vranges:changed', { symbol: String(symbol).toUpperCase(), vranges });

@@ -20,6 +20,7 @@ import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
 import { VRangePrimitive } from './vrange-primitive.js';
 import { RectPrimitive } from './rect-primitive.js';
+import { TrendPrimitive } from './trend-primitive.js';
 import { FibPrimitive } from './fib-primitive.js';
 import { PeriodLevelsPrimitive } from './period-levels-primitive.js';
 import { formatCompact } from './util.js';
@@ -331,6 +332,7 @@ export class CardChart {
     this.vp = new VolumeProfilePrimitive(this);
     this.vranges = new VRangePrimitive(this);
     this.rects = new RectPrimitive(this);
+    this.trends = new TrendPrimitive(this);
     this.fibLayer = new FibPrimitive(this);
     this.measureLayer = new MeasurePrimitive(this);
     this.periodLevels = new PeriodLevelsPrimitive(this);
@@ -431,6 +433,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.vp);
     this.priceSeries.attachPrimitive(this.vranges);
     this.priceSeries.attachPrimitive(this.rects);
+    this.priceSeries.attachPrimitive(this.trends);
     this.priceSeries.attachPrimitive(this.fibLayer);
     this.priceSeries.attachPrimitive(this.measureLayer);
     this.priceSeries.attachPrimitive(this.periodLevels);

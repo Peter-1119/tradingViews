@@ -55,6 +55,12 @@ const api = {
   updateRect: (symbol, id, patch) => ipcRenderer.invoke('rects:update', { symbol, id, patch }),
   removeRect: (symbol, id) => ipcRenderer.invoke('rects:remove', { symbol, id }),
   onRectsChanged: (cb) => on('rects:changed', cb),
+
+  listTrendlines: (symbol) => ipcRenderer.invoke('trendlines:list', symbol),
+  addTrendline: (symbol, a, b) => ipcRenderer.invoke('trendlines:add', { symbol, a, b }),
+  updateTrendline: (symbol, id, patch) => ipcRenderer.invoke('trendlines:update', { symbol, id, patch }),
+  removeTrendline: (symbol, id) => ipcRenderer.invoke('trendlines:remove', { symbol, id }),
+  onTrendlinesChanged: (cb) => on('trendlines:changed', cb),
   listVRanges: (symbol) => ipcRenderer.invoke('vranges:list', symbol),
   addVRange: (symbol, from, to) => ipcRenderer.invoke('vranges:add', { symbol, from, to }),
   updateVRange: (symbol, id, patch) => ipcRenderer.invoke('vranges:update', { symbol, id, patch }),
