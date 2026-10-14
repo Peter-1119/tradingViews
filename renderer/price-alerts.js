@@ -110,6 +110,7 @@ export class PriceAlertController {
     this.onDown = (event) => {
       this.press = null;
       if (view.activeTool !== 'alert' || event.button !== 0) return;
+      if (view.offChart(event)) return;
       const { x, y } = local(event);
       if (!view.chart.inPlot(x, y)) return;
       this.press = { x, y, ctrl: event.ctrlKey };

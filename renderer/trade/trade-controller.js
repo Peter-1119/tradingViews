@@ -305,6 +305,7 @@ export class TradeController {
       this.press = null;
       if (!this.enabled || event.button !== 0 || event.shiftKey || event.ctrlKey || event.altKey) return;
       if (this.view.activeTool !== 'cursor') return;
+      if (this.view.offChart(event)) return;
       // This click is the one that dismisses a held measure box, nothing more.
       if (this.view.measuring) return;
       const { x, y } = local(event);

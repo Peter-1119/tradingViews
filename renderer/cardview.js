@@ -485,6 +485,8 @@ export class CardView {
     this.activeTool = next;
     this.toolbar.setActive(next);
     this.dismissMeasure();
+    // A line waiting for its second click belongs to the tool being put down.
+    this.cancelTrend();
     // The chart's own cursor would otherwise stay a crosshair over a tool.
     this.chartEl.style.cursor = next === 'cursor' ? '' : 'crosshair';
   }
@@ -518,6 +520,7 @@ export class CardView {
     };
 
     this.onLevelDblClick = async (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       if (event.shiftKey) return; // Shift belongs to the measure tool
       const { x, y } = local(event);
       if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
@@ -535,6 +538,7 @@ export class CardView {
     };
 
     this.onLevelClick = async (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       if (this.activeTool !== 'level' || event.shiftKey) return;
       const { x, y } = local(event);
       if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
@@ -549,6 +553,7 @@ export class CardView {
     };
 
     this.onLevelDown = (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       if (event.button !== 0) return;
       if (event.shiftKey) return; // ditto -- measuring beats grabbing a level
       const { x, y } = local(event);
@@ -1246,7 +1251,30 @@ export class CardView {
     };
     window.addEventListener('keydown', this.onResetKey);
 
+    // Escape puts any armed tool down and goes back to the cursor -- and gives
+    // up a trend line drawn halfway (the measure box and open panels have
+    // their own Escape, which still runs).
+    this.onToolEscape = (event) => {
+      if (event.key !== 'Escape' || lastActive !== this) return;
+      this.cancelTrend();
+      if (this.activeTool !== 'cursor') this.setActiveTool('cursor');
+    };
+    window.addEventListener('keydown', this.onToolEscape);
+
     this.offViewport = this.chart.onViewportChange(() => this.syncResetButton());
+  }
+
+  /**
+   * True for a pointer event on something laid over the chart inside its
+   * element -- the tool rail, the reset button, the funding chip -- rather
+   * than on the chart itself. The drawing gestures listen on the chart
+   * element in the capture phase, so without this a click on the rail was
+   * also a click on the chart: with the trend tool armed, pressing the rail's
+   * cursor button placed (or finished) a line under the rail.
+   */
+  offChart(event) {
+    const root = this.chart && this.chart.chart.chartElement();
+    return !root || !root.contains(event.target);
   }
 
   resetView() {
@@ -1299,6 +1327,7 @@ export class CardView {
     const prim = () => this.chart.rects;
 
     this.onRectDown = (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       if (event.button !== 0 || event.shiftKey) return;
       // Other armed tools own the pointer; only the cursor and rect tools may
       // grab or draw rectangles.
@@ -1409,6 +1438,7 @@ export class CardView {
     };
 
     this.onRectDblClick = async (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       const { x, y } = local(event);
       const hit = prim().hitTest(x, y);
       if (!hit) return;
@@ -1508,7 +1538,11 @@ export class CardView {
       this.draggingLevel || this.measuring || this.drawingFib || this.draggingFib || this.drawingRect || this.draggingRect;
 
     this.onTrendDown = (event) => {
-      if (event.button !== 0 || event.shiftKey) return;
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
+      if (event.button !== 0) return;
+      // Shift is the measure gesture -- except with the trend tool armed, where
+      // it straightens the line instead.
+      if (event.shiftKey && this.activeTool !== 'trend') return;
       if (this.activeTool !== 'cursor' && this.activeTool !== 'trend') return;
       const { x, y } = local(event);
       if (!this.chart.inPlot(x, y)) return;
@@ -1516,7 +1550,7 @@ export class CardView {
       // The second click of a click-click line places its far end.
       if (this.drawingTrend && this.drawingTrend.awaitingSecond) {
         const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
-        if (anchor) this.drawingTrend.b = anchor;
+        if (anchor) this.drawingTrend.b = event.shiftKey ? this.straighten(this.drawingTrend.a, anchor, x, y) : anchor;
         this.finishTrend();
         event.preventDefault();
         event.stopPropagation();
@@ -1532,7 +1566,7 @@ export class CardView {
           // No magnet on the reference point: it only measures the offset.
           const start = this.chart.anchorAt(x, y);
           if (!start) return;
-          this.draggingTrend = { id: hit.id, mode: 'move', start, orig, next: null };
+          this.draggingTrend = { id: hit.id, mode: 'move', start, startX: x, startY: y, orig, next: null };
         } else {
           this.draggingTrend = { id: hit.id, mode: 'end', end: hit.part, orig, next: null };
         }
@@ -1555,29 +1589,9 @@ export class CardView {
 
     this.onTrendMove = (event) => {
       const { x, y } = local(event);
-      const t = this.drawingTrend;
-      if (t) {
-        const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
-        if (!anchor) return;
-        t.b = anchor;
-        prim().setDraft({ id: '__draft__', a: t.a, b: t.b });
-        return;
-      }
-      const d = this.draggingTrend;
-      if (d) {
-        if (d.mode === 'end') {
-          const anchor = this.chart.anchorAt(x, y, { magnet: event.ctrlKey });
-          if (!anchor) return;
-          d.next = { ...d.orig, [d.end]: anchor };
-        } else {
-          const now = this.chart.anchorAt(x, y);
-          if (!now) return;
-          const dt = now.time - d.start.time;
-          const dp = now.price - d.start.price;
-          const move = (p) => ({ time: Math.round(p.time + dt), price: Number((p.price + dp).toFixed(this.chart.precision)) });
-          d.next = { a: move(d.orig.a), b: move(d.orig.b) };
-        }
-        prim().setDraft({ id: d.id, ...d.next });
+      if (this.drawingTrend || this.draggingTrend) {
+        this.trendPointer = { x, y, ctrlKey: event.ctrlKey };
+        this.updateTrendPointer(x, y, event.ctrlKey, event.shiftKey);
         return;
       }
       // Hover feedback -- never while another tool is mid-gesture.
@@ -1606,6 +1620,7 @@ export class CardView {
       const d = this.draggingTrend;
       if (!d) return;
       this.draggingTrend = null;
+      this.trendPointer = null;
       this.chart.setInteractionEnabled(true);
       // The first click of a double-click arrives here without moving; not
       // an edit, and must not cost an undo step.
@@ -1619,6 +1634,7 @@ export class CardView {
     };
 
     this.onTrendDblClick = async (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       const { x, y } = local(event);
       const hit = prim().hitTest(x, y);
       if (!hit) return;
@@ -1630,8 +1646,16 @@ export class CardView {
       if (line) this.pushUndo({ kind: 'trend-remove', id: line.id, a: { ...line.a }, b: { ...line.b } });
     };
 
+    // Pressing or releasing Shift mid-gesture applies at once, without
+    // waiting for the pointer to move.
     this.onTrendKey = (event) => {
-      if (event.key === 'Escape' && this.drawingTrend) this.cancelTrend();
+      if (event.key === 'Escape' && this.drawingTrend) {
+        this.cancelTrend();
+        return;
+      }
+      const p = this.trendPointer;
+      if (event.key !== 'Shift' || !p || !(this.drawingTrend || this.draggingTrend)) return;
+      this.updateTrendPointer(p.x, p.y, p.ctrlKey, event.type === 'keydown');
     };
 
     el.addEventListener('mousedown', this.onTrendDown, true);
@@ -1639,11 +1663,58 @@ export class CardView {
     window.addEventListener('mousemove', this.onTrendMove);
     window.addEventListener('mouseup', this.onTrendUp);
     window.addEventListener('keydown', this.onTrendKey);
+    window.addEventListener('keyup', this.onTrendKey);
+  }
+
+  /**
+   * Lock `b` to the horizontal or the vertical through `a` -- whichever the
+   * pointer at (x, y) is nearer to -- for Shift. Horizontal keeps a's price,
+   * which is the straight line one usually wants; vertical keeps its time.
+   */
+  straighten(a, b, x, y) {
+    const from = this.chart.anchorToPixel(a);
+    const horizontal = !from || Math.abs(x - from.x) >= Math.abs(y - from.y);
+    return horizontal ? { time: b.time, price: a.price } : { time: a.time, price: b.price };
+  }
+
+  /** One step of drawing or dragging a trend line, pointer at (x, y) in chart coordinates. */
+  updateTrendPointer(x, y, ctrlKey, shiftKey) {
+    const prim = this.chart.trends;
+    const t = this.drawingTrend;
+    if (t) {
+      const anchor = this.chart.anchorAt(x, y, { magnet: ctrlKey });
+      if (!anchor) return;
+      t.b = shiftKey ? this.straighten(t.a, anchor, x, y) : anchor;
+      prim.setDraft({ id: '__draft__', a: t.a, b: t.b });
+      return;
+    }
+    const d = this.draggingTrend;
+    if (!d) return;
+    if (d.mode === 'end') {
+      const anchor = this.chart.anchorAt(x, y, { magnet: ctrlKey });
+      if (!anchor) return;
+      const fixed = d.orig[d.end === 'a' ? 'b' : 'a'];
+      d.next = { ...d.orig, [d.end]: shiftKey ? this.straighten(fixed, anchor, x, y) : anchor };
+    } else {
+      const now = this.chart.anchorAt(x, y);
+      if (!now) return;
+      let dt = now.time - d.start.time;
+      let dp = now.price - d.start.price;
+      // Shift slides the line only sideways or only up and down.
+      if (shiftKey) {
+        if (Math.abs(x - d.startX) >= Math.abs(y - d.startY)) dp = 0;
+        else dt = 0;
+      }
+      const move = (p) => ({ time: Math.round(p.time + dt), price: Number((p.price + dp).toFixed(this.chart.precision)) });
+      d.next = { a: move(d.orig.a), b: move(d.orig.b) };
+    }
+    prim.setDraft({ id: d.id, ...d.next });
   }
 
   async finishTrend() {
     const t = this.drawingTrend;
     this.drawingTrend = null;
+    this.trendPointer = null;
     this.chart.setInteractionEnabled(true);
     this.chart.trends.setDraft(null);
     if (!t || (t.a.time === t.b.time && t.a.price === t.b.price)) return;
@@ -1775,6 +1846,7 @@ export class CardView {
     };
 
     this.onVRangeDown = (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       if (event.button !== 0 || event.shiftKey || event.defaultPrevented) return;
       if (this.activeTool !== 'cursor' && this.activeTool !== 'vrange') return;
       const { x, y } = local(event);
@@ -1877,6 +1949,7 @@ export class CardView {
     };
 
     this.onVRangeDblClick = async (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       const { x, y } = local(event);
       const hit = prim().hitTest(x, y);
       if (!hit) return;
@@ -1930,6 +2003,7 @@ export class CardView {
     };
 
     this.onFibDown = (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       if (event.button !== 0 || event.shiftKey) return;
       const { x, y } = local(event);
       if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
@@ -2010,6 +2084,7 @@ export class CardView {
     };
 
     this.onFibDblClick = async (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       const grabbed = this.fibHandleAt(event);
       if (!grabbed) return;
       event.stopPropagation();
@@ -2051,10 +2126,13 @@ export class CardView {
     const el = this.chartEl;
 
     this.onMeasureDown = (event) => {
+      if (this.offChart(event)) return; // the rail, reset button and such are not the chart
       // Shift is the shortcut and works in any mode; the armed tool needs no
       // modifier at all.
       if (event.button !== 0) return;
       if (!event.shiftKey && this.activeTool !== 'measure') return;
+      // With the trend tool armed, Shift straightens the line instead.
+      if (this.activeTool === 'trend') return;
       const { x, y } = local(event);
       if (!this.chart.inPlot(x, y)) return; // the axes belong to the chart
       const from = this.chart.pointAt(x, y, { magnet: event.ctrlKey });
@@ -2175,6 +2253,7 @@ export class CardView {
       window.removeEventListener('mousemove', this.onTrendMove);
       window.removeEventListener('mouseup', this.onTrendUp);
       window.removeEventListener('keydown', this.onTrendKey);
+      window.removeEventListener('keyup', this.onTrendKey);
     }
     if (this.onRectDown) {
       this.chartEl.removeEventListener('mousedown', this.onRectDown, true);
@@ -2186,6 +2265,7 @@ export class CardView {
     }
     if (this.onUndoKey) window.removeEventListener('keydown', this.onUndoKey);
     if (this.onResetKey) window.removeEventListener('keydown', this.onResetKey);
+    if (this.onToolEscape) window.removeEventListener('keydown', this.onToolEscape);
     if (this.offViewport) this.offViewport();
     if (this.onActivate) this.root.removeEventListener('pointerdown', this.onActivate, true);
     if (lastActive === this) lastActive = null;
