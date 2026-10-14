@@ -22,6 +22,7 @@ const state = {
   hub: null,
   cards: new Map(), // cardId -> BrowserWindow
   board: null,
+  journal: null,
   allHidden: false,
   clickThrough: false,
   // Set by shutdown(). Teardown fires the same events as a user closing one
@@ -287,6 +288,53 @@ function destroyCardWindow(cardId) {
     if (store.getCard(cardId)) store.updateCard(cardId, { bounds: win.getBounds() });
     win.destroy();
   }
+}
+
+/* ------------------------------------------------------ journal window */
+
+/**
+ * The paper account's journal: an ordinary framed window, opened from the
+ * settings. Not a card -- it is read, not glanced at -- so it has a title
+ * bar, sits in the taskbar, and is not hidden with the cards.
+ */
+function openJournal() {
+  if (state.journal && !state.journal.isDestroyed()) {
+    if (state.journal.isMinimized()) state.journal.restore();
+    state.journal.show();
+    state.journal.focus();
+    return state.journal;
+  }
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(1100, area.width - 80);
+  const height = Math.min(760, area.height - 80);
+  const win = new BrowserWindow({
+    width,
+    height,
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
+    minWidth: 520,
+    minHeight: 420,
+    title: '模擬交易紀錄',
+    backgroundColor: '#0b0f17',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: baseWebPreferences(),
+  });
+  win.setMenu(null);
+  win.loadURL(url('journal.html'));
+  win.once('ready-to-show', () => {
+    win.show();
+    if (state.openDevTools) win.webContents.openDevTools({ mode: 'detach' });
+  });
+  win.on('closed', () => {
+    state.journal = null;
+  });
+  state.journal = win;
+  return win;
+}
+
+function sendToJournal(channel, payload) {
+  if (canSend(state.journal)) state.journal.webContents.send(channel, payload);
 }
 
 /* -------------------------------------------------------- board window */
@@ -700,4 +748,6 @@ module.exports = {
   windowForCard,
   windowFromEvent,
   contentWindows,
+  openJournal,
+  sendToJournal,
 };

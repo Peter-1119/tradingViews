@@ -19,6 +19,7 @@
  */
 
 import { el } from '../util.js';
+import { envChip } from './env-chip.js';
 
 function priceInput({ placeholder, onInput }) {
   const input = el('input.tk-input__field', {
@@ -158,7 +159,7 @@ export class ReverseSheet {
     this.symbol = symbol;
     this.baseAsset = baseAsset || '';
     this.position = position;
-    this.envEl.hidden = env !== 'testnet';
+    envChip(this.envEl, env);
     this.errorEl.hidden = true;
     this.price = '';
     this.priceInput.value = '';

@@ -20,6 +20,10 @@
  *
  * Testnet first: the default environment is Binance's demo exchange, and
  * switching to live needs an explicit confirmation in the settings.
+ *
+ * A third environment, paper, needs no key at all: paper.js is a local
+ * exchange that answers the FuturesClient's calls against the live market,
+ * with a balance the user sets. Everything below runs on it unchanged.
  */
 
 const { webContents } = require('electron');
@@ -29,6 +33,10 @@ const vault = require('./vault');
 const rules = require('./rules');
 const { FuturesClient, friendly } = require('./client');
 const { UserStream } = require('./stream');
+const paper = require('./paper');
+
+/** paper first: it is the one that needs nothing set up. */
+const ENVS = ['paper', ...vault.ENVS];
 
 const POLL_FAST_MS = 3000; // stream down: polling is all there is
 const POLL_SLOW_MS = 12000; // stream up: polling is only the safety net
@@ -64,7 +72,7 @@ const state = {
 function config() {
   const raw = store.get('trading') || {};
   return {
-    env: vault.ENVS.includes(raw.env) ? raw.env : DEFAULT_CONFIG.env,
+    env: ENVS.includes(raw.env) ? raw.env : DEFAULT_CONFIG.env,
     leverage: clampLeverage(raw.leverage),
     liveConfirmed: raw.liveConfirmed === true,
     pending: raw.pending && typeof raw.pending === 'object' ? raw.pending : {},
@@ -126,7 +134,8 @@ function status() {
     leverage: cfg.leverage,
     liveConfirmed: cfg.liveConfirmed,
     defaultNotional: cfg.defaultNotional,
-    keys: { testnet: vault.describe('testnet'), live: vault.describe('live') },
+    keys: { paper: { configured: true, keyTail: '', type: 'paper' }, testnet: vault.describe('testnet'), live: vault.describe('live') },
+    paper: cfg.env === 'paper' ? paperBrief() : null,
     connection: state.connection,
     error: state.error,
     stream: state.streamState,
@@ -170,8 +179,9 @@ function disconnect() {
 async function connect() {
   const cfg = config();
   if (cfg.env === 'live' && !cfg.liveConfirmed) return false;
-  const creds = vault.get(cfg.env);
-  if (!creds) return false;
+  const isPaper = cfg.env === 'paper';
+  const creds = isPaper ? null : vault.get(cfg.env);
+  if (!isPaper && !creds) return false;
   if (state.client && state.env === cfg.env && state.connection === 'ready') return true;
   if (state.connecting) return state.connecting;
 
@@ -179,7 +189,7 @@ async function connect() {
   state.env = cfg.env;
   state.connection = 'connecting';
   broadcastStatus();
-  state.client = new FuturesClient({ env: cfg.env, ...creds });
+  state.client = isPaper ? paper.client : new FuturesClient({ env: cfg.env, ...creds });
 
   state.connecting = (async () => {
     try {
@@ -199,14 +209,15 @@ async function connect() {
       state.account = account;
       state.connection = 'ready';
       state.error = '';
-      state.stream = new UserStream(client, {
+      const handlers = {
         onEvent: onStreamEvent,
         onState: (s) => {
           state.streamState = s;
           broadcastStatus();
           schedulePolling();
         },
-      });
+      };
+      state.stream = isPaper ? paper.stream(handlers) : new UserStream(client, handlers);
       state.stream.start();
       schedulePolling();
       state.accountTimer = setInterval(refreshAccount, ACCOUNT_MS);
@@ -246,6 +257,10 @@ function watchedSymbols() {
 
 function onStreamEvent(data) {
   const symbols = new Set();
+  if (data.e === 'PAPER_NOTICE') {
+    notice(data.level || 'info', data.text, data.s || null);
+    return;
+  }
   if (data.e === 'ORDER_TRADE_UPDATE' && data.o) {
     symbols.add(data.o.s);
     const o = data.o;
@@ -1074,10 +1089,10 @@ async function closePosition(req) {
 /* ------------------------------------------------------------- settings */
 
 async function setEnv(env, { confirmLive = false } = {}) {
-  if (!vault.ENVS.includes(env)) throw new Error('unknown environment');
+  if (!ENVS.includes(env)) throw new Error('unknown environment');
   const patch = { env };
   if (env === 'live' && confirmLive) patch.liveConfirmed = true;
-  if (env === 'testnet') patch.liveConfirmed = false;
+  if (env !== 'live') patch.liveConfirmed = false;
   saveConfig(patch);
   disconnect();
   broadcastStatus();
@@ -1140,6 +1155,30 @@ async function test() {
   return status();
 }
 
+/* ------------------------------------------------------------------ paper */
+
+function paperBrief() {
+  const s = paper.summary();
+  return { capital: s.capital, settings: s.settings, wallet: s.stats.wallet, net: s.stats.net, returnPct: s.stats.returnPct };
+}
+
+/** Start the paper account over; reconnects so every card sees the new balance. */
+async function paperReset(capital, settings) {
+  paper.reset(capital, settings);
+  if (config().env === 'paper') {
+    disconnect();
+    if (state.watchers.size) await connect();
+  }
+  broadcastStatus();
+  return status();
+}
+
+function paperSetFees(fees) {
+  paper.setFees(fees);
+  broadcastStatus();
+  return status();
+}
+
 /* --------------------------------------------------------------- watchers */
 
 /**
@@ -1197,6 +1236,8 @@ module.exports = {
   setSymbolLeverage,
   setOneWay,
   setDefaultNotional,
+  paperReset,
+  paperSetFees,
   test,
   shutdown,
 };

@@ -15,6 +15,7 @@
  */
 
 import { el } from '../util.js';
+import { envChip } from './env-chip.js';
 
 const CLOSE_ARM_MS = 3000;
 
@@ -80,7 +81,7 @@ export class PositionBar {
   }
 
   setEnv(env) {
-    this.envEl.hidden = env !== 'testnet';
+    envChip(this.envEl, env);
   }
 
   setMark(mark) {

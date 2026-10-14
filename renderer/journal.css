@@ -1,0 +1,294 @@
+/* The paper account's journal: a plain, readable window -- not a card. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0f17;
+  --panel: #111723;
+  --line: rgba(148, 163, 184, 0.14);
+  --ink: #e6edf6;
+  --ink-dim: rgba(203, 213, 225, 0.62);
+  --ink-faint: rgba(203, 213, 225, 0.4);
+  --up: #26c281;
+  --down: #ed5465;
+  --accent: #4f8ff7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Segoe UI', -apple-system, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  font-size: 12px;
+}
+
+#root {
+  height: 100%;
+}
+
+button,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+.jr {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  padding: 16px 18px 0;
+  overflow: hidden;
+}
+
+.jr-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.jr-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.jr-since {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.jr-head__tools {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.jr-btn {
+  padding: 5px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 7px;
+  background: rgba(148, 163, 184, 0.08);
+  cursor: pointer;
+}
+
+.jr-btn:hover {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+/* ---- KPI tiles ---- */
+
+.jr-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.jr-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  min-width: 0;
+}
+
+.jr-kpi__label {
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+.jr-kpi__value {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jr-kpi__sub {
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.is-up {
+  color: var(--up);
+}
+
+.is-down {
+  color: var(--down);
+}
+
+/* ---- equity curve ---- */
+
+.jr-curve {
+  position: relative;
+  flex: 0 0 210px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.jr-curve__label {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  z-index: 2;
+  color: var(--ink-dim);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.jr-curve__chart {
+  position: absolute;
+  inset: 26px 0 0 0;
+}
+
+.jr-curve__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink-faint);
+}
+
+.jr-curve__empty[hidden] {
+  display: none;
+}
+
+/* ---- tables ---- */
+
+.jr-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.jr-tab {
+  padding: 7px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.jr-tab.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+}
+
+.jr-tabs__filter {
+  margin-left: auto;
+  padding: 3px 6px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.jr-table-wrap {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+  margin: 0 -18px;
+  padding: 0 18px 16px;
+}
+
+.jr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.jr-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 8px;
+  background: var(--bg);
+  color: var(--ink-dim);
+  font-weight: 500;
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+
+.jr-table td {
+  padding: 6px 8px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.07);
+}
+
+.jr-table th:nth-child(-n + 3),
+.jr-table td:nth-child(-n + 3),
+.jr-table td.is-text,
+.jr-table th.is-text {
+  text-align: left;
+}
+
+.jr-table tbody tr:hover {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.jr-side {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 650;
+  color: #0b0f17;
+}
+
+.jr-side--long {
+  background: var(--up);
+}
+
+.jr-side--short {
+  background: var(--down);
+}
+
+.jr-empty {
+  padding: 28px 0;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.jr-section-title {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.jr-open[hidden] {
+  display: none;
+}
+
+.jr-open {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jr-open .jr-table-wrap {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding-bottom: 0;
+}

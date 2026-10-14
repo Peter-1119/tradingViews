@@ -22,6 +22,7 @@
  */
 
 import { el } from '../util.js';
+import { envChip } from './env-chip.js';
 
 const ARM_MS = 3000;
 const PREVIEW_DEBOUNCE_MS = 120;
@@ -279,7 +280,7 @@ export class OrderTicket {
     this.baseAsset = baseAsset || symbol.replace(/USDT$|USDC$/, '');
     if (switched || leverage) this.setLeverageInfo({ leverage, max: maxLeverage });
     this.available = available || 0;
-    this.envEl.hidden = env !== 'testnet';
+    envChip(this.envEl, env);
     if (switched) {
       this.tp = '';
       this.sl = '';
@@ -315,7 +316,7 @@ export class OrderTicket {
   setAccount({ available, env, defaultNotional }) {
     if (Number.isFinite(available)) this.available = available;
     if (defaultNotional !== undefined) this.defaultNotional = defaultNotional;
-    if (env) this.envEl.hidden = env !== 'testnet';
+    if (env) envChip(this.envEl, env);
     if (this.isOpen) this.render();
   }
 

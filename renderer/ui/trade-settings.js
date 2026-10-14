@@ -1,6 +1,9 @@
 /**
  * Settings → 交易: environment, API key, leverage, and the account's state.
  *
+ * 模擬（本機） is the paper account: no key, a starting balance the user
+ * picks, fee rates, a reset, and the journal of every closed position.
+ *
  * The secret is write-only from here. Once saved it is encrypted by the main
  * process and this section only ever shows the key's last four characters.
  * Going live takes a deliberate, separate confirmation; the default is the
@@ -12,6 +15,11 @@ import { el } from '../util.js';
 const api = () => window.stockcard.trading;
 
 const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—');
+/** A rate as a percentage for an input: 0.0005 -> "0.05". */
+const pct = (r) => String(Math.round(r * 1e6) / 1e4);
+
+const row = (label, ...children) =>
+  el('div.sc-row', {}, el('div.sc-row__label', { text: label }), el('div.sc-row__control', {}, ...children));
 
 const LINKS = {
   testnet: 'https://demo.binance.com/',
@@ -23,15 +31,64 @@ export class TradeSettings {
     this.status = null;
     this.pendingLive = false;
 
+    const ENV_LABELS = { paper: '模擬（本機）', testnet: '測試網', live: '正式（真實資金）' };
+    const ENV_TIPS = {
+      paper: '本機模擬帳戶：自訂初始資金，用幣安即時行情撮合，計入手續費、滑價、資金費率。不需要 API Key',
+      testnet: '幣安 Demo Trading：需要測試網 API Key，資金由幣安提供',
+      live: '用你的幣安帳戶真實下單',
+    };
     this.envBtns = new Map(
-      ['testnet', 'live'].map((env) => [
+      ['paper', 'testnet', 'live'].map((env) => [
         env,
         el('button.sc-seg__btn', {
           type: 'button',
-          text: env === 'testnet' ? '測試網（模擬資金）' : '正式（真實資金）',
+          text: ENV_LABELS[env],
+          title: ENV_TIPS[env],
           onclick: () => this.chooseEnv(env),
         }),
       ])
+    );
+
+    // ---- paper account ----
+    this.capitalInput = el('input.sc-search__input.ts-num', { type: 'text', inputmode: 'decimal', placeholder: '10000', autocomplete: 'off' });
+    this.resetBtn = el('button.sc-btn', { type: 'button', text: '用這個金額重新開始…', onclick: () => this.askReset() });
+    this.resetGo = el('button.sc-btn.ts-danger', { type: 'button', text: '確定重設', onclick: () => this.doReset() });
+    this.resetText = el('div');
+    this.resetBox = el(
+      'div.ts-warn',
+      { hidden: true },
+      this.resetText,
+      el('div.ts-actions', {}, this.resetGo, el('button.sc-btn', { type: 'button', text: '取消', onclick: () => this.cancelReset() }))
+    );
+    this.makerInput = el('input.sc-search__input.ts-num', { type: 'text', inputmode: 'decimal', autocomplete: 'off' });
+    this.takerInput = el('input.sc-search__input.ts-num', { type: 'text', inputmode: 'decimal', autocomplete: 'off' });
+    this.feeBtn = el('button.sc-btn', { type: 'button', text: '套用', onclick: () => this.saveFees() });
+    this.journalBtn = el('button.sc-btn.ts-primary', { type: 'button', text: '交易紀錄與績效', onclick: () => api().openJournal() });
+    this.paperRows = el(
+      'div.ts-paper',
+      { hidden: true },
+      row('初始資金', el('div.ts-inline', {}, this.capitalInput, el('span.ts-unit', { text: 'USDT' }), this.resetBtn), this.resetBox),
+      row(
+        '手續費',
+        el(
+          'div.ts-inline',
+          {},
+          el('span.ts-unit', { text: 'Maker' }),
+          this.makerInput,
+          el('span.ts-unit', { text: '%　Taker' }),
+          this.takerInput,
+          el('span.ts-unit', { text: '%' }),
+          this.feeBtn
+        ),
+        el('div.ts-help', { text: '預設是幣安一般用戶的 0.02% / 0.05%。限價掛單成交算 Maker，市價、止盈止損、穿價的限價算 Taker。' })
+      ),
+      row(
+        '紀錄',
+        this.journalBtn,
+        el('div.ts-help', {
+          text: '市價單與止盈止損吃真實掛單簿（含滑價）；限價單要價格穿過才成交；資金費率按幣安實際費率結算；全倉維持保證金不足會強平。程式關閉期間會在下次開啟時用 1 分 K 補算。',
+        })
+      )
     );
 
     this.liveConfirm = el('input', { type: 'checkbox' });
@@ -100,8 +157,8 @@ export class TradeSettings {
 
     this.error = el('div.ts-error', { hidden: true });
 
-    const row = (label, ...children) =>
-      el('div.sc-row', {}, el('div.sc-row__label', { text: label }), el('div.sc-row__control', {}, ...children));
+    this.keyRow = row('API Key', this.keySaved, this.keyForm, this.help);
+    this.levRowEl = row('槓桿', this.levRow);
 
     this.root = el(
       'div.ts',
@@ -109,8 +166,9 @@ export class TradeSettings {
       el('div.sc-divider', { text: '交易・幣安 U 本位永續' }),
       row('環境', el('div.sc-seg', {}, [...this.envBtns.values()]), this.liveBox),
       this.statusRow,
-      row('API Key', this.keySaved, this.keyForm, this.help),
-      row('槓桿', this.levRow),
+      this.paperRows,
+      this.keyRow,
+      this.levRowEl,
       this.oneWayBox,
       this.error
     );
@@ -151,6 +209,21 @@ export class TradeSettings {
     this.liveBox.hidden = !this.pendingLive;
     this.liveGo.disabled = !this.liveConfirm.checked;
 
+    const paper = s.env === 'paper' && !this.pendingLive;
+    this.paperRows.hidden = !paper;
+    this.keyRow.hidden = paper;
+    this.levRowEl.hidden = paper;
+    if (paper && s.paper) {
+      // Fill the fields once per change from outside, never under the user's typing.
+      const sig = `${s.paper.capital}|${s.paper.settings.makerFee}|${s.paper.settings.takerFee}`;
+      if (sig !== this.paperSig) {
+        this.paperSig = sig;
+        this.capitalInput.value = String(s.paper.capital);
+        this.makerInput.value = pct(s.paper.settings.makerFee);
+        this.takerInput.value = pct(s.paper.settings.takerFee);
+      }
+    }
+
     const key = s.keys[s.env];
     this.keySaved.hidden = !key.configured;
     this.keyForm.hidden = key.configured;
@@ -161,7 +234,13 @@ export class TradeSettings {
 
     let text = '';
     let tone = 'off';
-    if (!key.configured) text = '尚未設定 API Key';
+    if (paper) {
+      tone = 'ok';
+      const p = s.paper;
+      text = p
+        ? `模擬帳戶 · 資金 ${fmt(p.wallet)} USDT · 損益 ${p.net >= 0 ? '+' : ''}${fmt(p.net)}（${p.returnPct >= 0 ? '+' : ''}${p.returnPct.toFixed(2)}%）`
+        : '模擬帳戶';
+    } else if (!key.configured) text = '尚未設定 API Key';
     else if (s.env === 'live' && !s.liveConfirmed) text = '正式環境尚未確認';
     else if (s.connection === 'ready') {
       tone = 'ok';
@@ -177,10 +256,10 @@ export class TradeSettings {
     } else text = '尚未連線（打開永續合約卡片時自動連線）';
     this.dot.className = `ts-dot is-${tone}`;
     this.statusText.textContent = text;
-    this.retryBtn.hidden = !key.configured;
+    this.retryBtn.hidden = !key.configured || paper;
 
 
-    this.oneWayBox.hidden = s.oneWay !== false;
+    this.oneWayBox.hidden = paper || s.oneWay !== false;
   }
 
   chooseEnv(env) {
@@ -233,6 +312,41 @@ export class TradeSettings {
       this.keyInput.value = '';
       this.secretInput.value = '';
     }
+  }
+
+  askReset() {
+    const cap = Number(this.capitalInput.value.replace(/,/g, ''));
+    if (!(cap >= 10)) {
+      this.error.hidden = false;
+      this.error.textContent = '初始資金至少 10 USDT';
+      return;
+    }
+    this.error.hidden = true;
+    this.resetText.textContent = `重設會平掉所有模擬倉位、取消掛單、清空紀錄，以 ${fmt(cap)} USDT 重新開始。舊的紀錄會另存一份備份檔。`;
+    this.resetBox.hidden = false;
+  }
+
+  cancelReset() {
+    this.resetBox.hidden = true;
+  }
+
+  async doReset() {
+    const cap = Number(this.capitalInput.value.replace(/,/g, ''));
+    this.resetBox.hidden = true;
+    this.paperSig = null;
+    await this.run(() => api().paperReset(cap, Number(this.makerInput.value) / 100, Number(this.takerInput.value) / 100));
+  }
+
+  async saveFees() {
+    const maker = Number(this.makerInput.value) / 100;
+    const taker = Number(this.takerInput.value) / 100;
+    if (!(maker >= 0 && maker < 0.01 && taker >= 0 && taker < 0.01)) {
+      this.error.hidden = false;
+      this.error.textContent = '手續費要在 0% 到 1% 之間';
+      return;
+    }
+    this.paperSig = null;
+    await this.run(() => api().paperFees(maker, taker));
   }
 
   removeKeys() {

@@ -20,6 +20,7 @@ const shortcuts = require('./shortcuts');
 const barStore = require('./bar-store');
 const alerts = require('./alerts');
 const trading = require('./trading/service');
+const paper = require('./trading/paper');
 
 // Toasts are attributed by AppUserModelID; the same id the installer uses,
 // so dev and packaged builds show up as the same app in Windows settings.
@@ -566,6 +567,25 @@ tradingHandle('trading:leverage', (_e, { symbol }) => trading.getLeverage(symbol
 tradingHandle('trading:set-leverage', (_e, { symbol, leverage }) => trading.setSymbolLeverage(symbol, leverage));
 tradingHandle('trading:one-way', () => trading.setOneWay());
 tradingHandle('trading:default-notional', (_e, { value }) => trading.setDefaultNotional(value));
+tradingHandle('paper:reset', (_e, { capital, makerFee, takerFee }) => trading.paperReset(capital, { makerFee, takerFee }));
+tradingHandle('paper:fees', (_e, { makerFee, takerFee }) => trading.paperSetFees({ makerFee, takerFee }));
+tradingHandle('paper:journal', () => paper.journal());
+tradingHandle('paper:open-journal', () => {
+  windows.openJournal();
+  return true;
+});
+tradingHandle('paper:export-csv', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const res = await dialog.showSaveDialog(win, {
+    title: '匯出模擬交易紀錄',
+    defaultPath: `模擬交易紀錄-${stamp}.csv`,
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (res.canceled || !res.filePath) return { canceled: true };
+  fs.writeFileSync(res.filePath, paper.historyCsv(), 'utf8');
+  return { path: res.filePath };
+});
 tradingHandle('trading:test', () => trading.test());
 
 /* ------------------------------------------------------------ lifecycle */
@@ -619,6 +639,15 @@ app.whenReady().then(() => {
 
   protocolSetup.registerHandler();
 
+  // The paper exchange runs whether or not it is the selected environment:
+  // its stops and limit orders must keep working, as Binance's would.
+  paper.init(app.getPath('userData'));
+  let journalTimer = null;
+  paper.onChange(() => {
+    clearTimeout(journalTimer);
+    journalTimer = setTimeout(() => windows.sendToJournal('paper:changed', {}), 400);
+  });
+
   windows.bootstrap();
   tray.create();
 
@@ -650,6 +679,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   trading.shutdown();
+  paper.shutdown();
   windows.shutdown();
   shortcuts.unregisterAll();
   tray.destroy();

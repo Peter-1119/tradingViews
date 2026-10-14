@@ -223,7 +223,7 @@ export class TradeController {
     }
     this.bar.setEnv(status.env);
     this.view.root.classList.toggle('is-trading', this.enabled);
-    this.view.root.classList.toggle('is-trading-testnet', this.enabled && status.env === 'testnet');
+    this.view.root.classList.toggle('is-trading-testnet', this.enabled && status.env !== 'live');
     this.renderAll();
   }
 

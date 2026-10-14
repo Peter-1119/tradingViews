@@ -1064,3 +1064,40 @@
   color: #ffb3bb;
   font-size: 10.5px;
 }
+
+/* ---- settings → 交易 → paper account ---- */
+
+.ts .sc-row[hidden],
+.ts-paper[hidden] {
+  display: none;
+}
+
+.ts-paper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ts-paper .ts-inline {
+  flex-wrap: wrap;
+}
+
+.ts-paper .ts-unit {
+  flex: 0 0 auto;
+}
+
+.ts-num.sc-search__input {
+  width: 58px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ts-paper .ts-inline:first-child .ts-num.sc-search__input {
+  width: 96px;
+}
+
+.ts-primary {
+  background: rgba(79, 143, 247, 0.24);
+  border-color: rgba(79, 143, 247, 0.6);
+  color: #dbe8ff;
+}
