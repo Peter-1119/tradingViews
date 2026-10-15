@@ -555,6 +555,28 @@ async function settleReversal(symbol, snap, p) {
 }
 
 /**
+ * A market reversal as two orders, for when one will not fit the margin:
+ * close the position (reduce-only, so it can never open anything), then open
+ * the same size the other way with the margin that freed. Returns the
+ * opening order. If the open fails the position is flat, not reversed -- the
+ * old side's stops are cleared all the same, and the error says so.
+ */
+async function reverseInTwo(symbol, amt, side, r, clientId) {
+  const qty = rules.roundQty(Math.abs(amt), r, { market: true });
+  await state.client.newOrder({ symbol, side, type: 'MARKET', quantity: qty, reduceOnly: 'true', newClientOrderId: clientId() });
+  try {
+    return await state.client.newOrder({ symbol, side, type: 'MARKET', quantity: qty, newClientOrderId: clientId() });
+  } catch (err) {
+    if (err.unknown) throw err; // may have opened after all: the caller says to check
+    queueRefresh(symbol, 200);
+    await clearStale(symbol, side).catch(() => {});
+    const e = new Error(`已平倉，但開反向倉失敗：${friendly(err)}。目前沒有倉位，請確認後再下單`);
+    e.flat = true;
+    throw e;
+  }
+}
+
+/**
  * Reverse the position: long to short of the same size, or short to long.
  * Market fills now; limit rests on the far side of the market, guarded until
  * it fills. Either way, once flipped, the old side's TP/SL and reduce-only
@@ -591,21 +613,51 @@ async function reversePosition(req) {
       r
     );
     if (plan.errors.length) throw new Error(plan.errors[0]);
-    const params = {
-      symbol,
-      side: plan.side,
-      type: market ? 'MARKET' : 'LIMIT',
-      quantity: plan.qty,
-      newClientOrderId: `sc_rev_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
-    };
-    if (!market) Object.assign(params, { price: plan.price, timeInForce: 'GTC' });
-    const order = await state.client.newOrder(params);
     const from = `${directionWord(amt)} ${Math.abs(amt)}`;
     const to = `${directionWord(plan.target)} ${Math.abs(plan.target)}`;
+    const clientId = () => `sc_rev_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+
+    // A market reversal is one order when the margin allows -- no moment flat,
+    // one round trip. When the opening half will not fit beside the position
+    // still holding its margin, it is two: close, then open. Judged from the
+    // last account read; if that was stale and Binance says -2019 anyway, the
+    // one order did nothing and the two-order way follows.
+    let order = null;
+    let split = false;
+    if (market) {
+      const leverage = (state.symbolConfig.get(symbol) || {}).leverage || config().leverage;
+      const account = state.account ? summarizeAccount(state.account) : null;
+      split = !rules.reverseFitsOneOrder({
+        positionAmt: amt,
+        price: Number(last) || Number(mark),
+        leverage,
+        available: account ? account.availableBalance : undefined,
+      });
+      if (!split) {
+        try {
+          order = await state.client.newOrder({ symbol, side: plan.side, type: 'MARKET', quantity: plan.qty, newClientOrderId: clientId() });
+        } catch (err) {
+          if (err.code !== -2019) throw err;
+          split = true;
+        }
+      }
+      if (split) order = await reverseInTwo(symbol, amt, plan.side, r, clientId);
+    } else {
+      order = await state.client.newOrder({
+        symbol,
+        side: plan.side,
+        type: 'LIMIT',
+        quantity: plan.qty,
+        price: plan.price,
+        timeInForce: 'GTC',
+        newClientOrderId: clientId(),
+      });
+    }
 
     if (market) {
       const avg = Number(order.avgPrice) > 0 ? `，均價 ${order.avgPrice}` : '';
-      notice('fill', `${symbol} 已市價反手：${from} → ${to}${avg}`, symbol);
+      const how = split ? '（保證金不足以一筆反手，已分成平倉＋開倉兩筆）' : '';
+      notice('fill', `${symbol} 已市價反手：${from} → ${to}${avg}${how}`, symbol);
       const now = await state.client.positionRisk(symbol);
       const nrow = (now || []).find((p) => p.symbol === symbol && Number(p.positionAmt) !== 0);
       const namt = nrow ? Number(nrow.positionAmt) : 0;
@@ -634,6 +686,10 @@ async function reversePosition(req) {
     queueRefresh(symbol, 200);
     return { ok: true, orderId: String(order.orderId) };
   } catch (err) {
+    if (err.flat) {
+      notice('warn', `${symbol} ${err.message}`, symbol);
+      throw err;
+    }
     if (err.unknown) {
       queueRefresh(symbol, 500);
       throw new Error('反手結果不明（逾時或幣安忙碌），請確認倉位與掛單後再操作');

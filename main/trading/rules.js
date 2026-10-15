@@ -244,6 +244,28 @@ function planReverse({ positionAmt, market, price, lastPrice, markPrice, tp = nu
 }
 
 /**
+ * Can a market reversal go as one order, margin-wise? The old position's
+ * margin is only freed once the order fills, so the order's opening half has
+ * to fit in what is available *beside* it -- plus the taker fee on the whole
+ * doubled order. A position that already uses half the balance cannot. Those
+ * go as two orders instead: close, then open (see reversePosition).
+ *
+ * A margin of `headroom` is kept for the price moving and fees rounding in
+ * the moment between reading the account and the order landing. Without an
+ * account or a leverage to judge by, it says yes: one order, and Binance's
+ * own -2019 still sends it the two-order way.
+ */
+function reverseFitsOneOrder({ positionAmt, price, leverage, available, takerFee = 0.0005, headroom = 0.02 }) {
+  const size = Math.abs(Number(positionAmt)) || 0;
+  const p = Number(price) || 0;
+  const lev = Number(leverage) || 0;
+  const avail = Number(available);
+  if (!size || !(p > 0) || !(lev > 0) || !Number.isFinite(avail)) return true;
+  const need = (size * p) / lev + 2 * size * p * takerFee;
+  return need * (1 + headroom) <= avail;
+}
+
+/**
  * Is a working reversal still the one that was placed? The position must be
  * where the order's own fills put it: where it started, moved by what has
  * filled. Anything else -- a stop that triggered, a manual close -- means the
@@ -341,6 +363,7 @@ module.exports = {
   reduceQuantity,
   planReverse,
   reverseIntact,
+  reverseFitsOneOrder,
   positionAfter,
   estimateLiquidation,
   pnlAt,

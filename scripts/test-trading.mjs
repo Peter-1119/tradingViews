@@ -233,6 +233,19 @@ t('a reversal too big for one market order says so', () => {
   assert.ok(plan.errors.some((e) => /單筆上限/.test(e)));
 });
 
+t('a reversal goes as one order only while its opening half fits beside the position', () => {
+  // 0.01 BTC at 80000, 10x: the new half needs 80 USDT, the fee on 0.02 is 0.8.
+  const base = { positionAmt: 0.01, price: 80000, leverage: 10 };
+  assert.equal(r.reverseFitsOneOrder({ ...base, available: 200 }), true, 'plenty');
+  assert.equal(r.reverseFitsOneOrder({ ...base, available: 80 }), false, 'the fee and headroom do not fit');
+  assert.equal(r.reverseFitsOneOrder({ ...base, positionAmt: -0.01, available: 80 }), false, 'a short too');
+  assert.equal(r.reverseFitsOneOrder({ ...base, available: 83 }), true, 'just fits');
+  // Half the balance in the position: the other half cannot open the same again.
+  assert.equal(r.reverseFitsOneOrder({ positionAmt: 0.0625, price: 80000, leverage: 10, available: 500 }), false);
+  assert.equal(r.reverseFitsOneOrder({ ...base, available: undefined }), true, 'no account: try one, -2019 falls back');
+  assert.equal(r.reverseFitsOneOrder({ ...base, leverage: null, available: 10 }), true, 'no leverage known');
+});
+
 t('no position, nothing to reverse', () => {
   assert.ok(/沒有倉位/.test(r.planReverse({ positionAmt: 0, market: true, lastPrice: 1 }, BTC).errors[0]));
 });
