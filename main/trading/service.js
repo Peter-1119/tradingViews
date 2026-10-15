@@ -436,7 +436,8 @@ async function settlePending(symbol, snap) {
     setPending(p.orderId, null);
     state.flipCleared.delete(p.orderId);
     if (p.reverse) {
-      if (filled && snap.position) await settleReversal(symbol, snap, p);
+      if (p.reverse.split) await settleSplitReversal(symbol, p, order);
+      else if (filled && snap.position) await settleReversal(symbol, snap, p);
       continue;
     }
     if (filled && snap.position) {
@@ -555,6 +556,50 @@ async function settleReversal(symbol, snap, p) {
 }
 
 /**
+ * The first half of a limit reversal in two -- the reduce-only close -- is
+ * done. Filled in full and flat: clear the old side's stops and put the open
+ * in at the close's price, carrying the reversal's TP/SL as an ordinary
+ * limit entry's (placed once it fills). Through the market by now, it fills
+ * at once at that price or better; otherwise it rests there.
+ *
+ * Anything else -- cancelled, part filled, a position that is not flat --
+ * means the reversal is off, and the open is not sent.
+ */
+async function settleSplitReversal(symbol, p, order) {
+  const r = rulesFor(symbol);
+  const { side, qty } = p.reverse;
+  const done = Number(order.executedQty) || 0;
+  if (Math.abs(done - Number(qty)) > Number(r.stepSize) / 2) {
+    if (done > 0) notice('warn', `${symbol} 反手的平倉限價單只成交了 ${done}／${qty}，沒有開反向倉，請確認倉位`, symbol);
+    return;
+  }
+  const risk = await state.client.positionRisk(symbol).catch(() => null);
+  const row = (risk || []).find((x) => x.symbol === symbol && Number(x.positionAmt) !== 0);
+  if (row) {
+    notice('warn', `${symbol} 反手的平倉單成交了，但倉位還有 ${row.positionAmt}，沒有開反向倉，請確認`, symbol);
+    return;
+  }
+  await clearStale(symbol, side);
+  const price = order.price;
+  try {
+    const open = await state.client.newOrder({
+      symbol,
+      side,
+      type: 'LIMIT',
+      price,
+      quantity: qty,
+      timeInForce: 'GTC',
+      newClientOrderId: `sc_rev_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
+    });
+    if (p.tp || p.sl) setPending(String(open.orderId), { symbol, tp: p.tp, sl: p.sl, at: Date.now() });
+    notice('fill', `${symbol} 反手第一步平倉已成交；第二步限價${side === 'SELL' ? '賣出' : '買入'} ${qty} @ ${price} 已送出`, symbol);
+  } catch (err) {
+    notice('warn', `${symbol} 已平倉，但反手的開倉限價單失敗：${friendly(err)}。目前沒有倉位，請確認後再下單`, symbol);
+  }
+  queueRefresh(symbol, 200);
+}
+
+/**
  * A market reversal as two orders, for when one will not fit the margin:
  * close the position (reduce-only, so it can never open anything), then open
  * the same size the other way with the margin that freed. Returns the
@@ -617,22 +662,25 @@ async function reversePosition(req) {
     const to = `${directionWord(plan.target)} ${Math.abs(plan.target)}`;
     const clientId = () => `sc_rev_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
 
-    // A market reversal is one order when the margin allows -- no moment flat,
-    // one round trip. When the opening half will not fit beside the position
+    // A reversal is one order when the margin allows -- no moment flat, one
+    // round trip. When the opening half will not fit beside the position
     // still holding its margin, it is two: close, then open. Judged from the
     // last account read; if that was stale and Binance says -2019 anyway, the
     // one order did nothing and the two-order way follows.
+    //
+    // A limit reversal in two rests a reduce-only close at the price; once it
+    // has filled, the open goes in at the same price (settleSplitReversal).
     let order = null;
-    let split = false;
+    const leverage = (state.symbolConfig.get(symbol) || {}).leverage || config().leverage;
+    const account = state.account ? summarizeAccount(state.account) : null;
+    let split = !rules.reverseFitsOneOrder({
+      positionAmt: amt,
+      price: market ? Number(last) || Number(mark) : Number(plan.price),
+      leverage,
+      available: account ? account.availableBalance : undefined,
+    });
+    const closeQty = rules.roundQty(Math.abs(amt), r, { market });
     if (market) {
-      const leverage = (state.symbolConfig.get(symbol) || {}).leverage || config().leverage;
-      const account = state.account ? summarizeAccount(state.account) : null;
-      split = !rules.reverseFitsOneOrder({
-        positionAmt: amt,
-        price: Number(last) || Number(mark),
-        leverage,
-        available: account ? account.availableBalance : undefined,
-      });
       if (!split) {
         try {
           order = await state.client.newOrder({ symbol, side: plan.side, type: 'MARKET', quantity: plan.qty, newClientOrderId: clientId() });
@@ -643,15 +691,17 @@ async function reversePosition(req) {
       }
       if (split) order = await reverseInTwo(symbol, amt, plan.side, r, clientId);
     } else {
-      order = await state.client.newOrder({
-        symbol,
-        side: plan.side,
-        type: 'LIMIT',
-        quantity: plan.qty,
-        price: plan.price,
-        timeInForce: 'GTC',
-        newClientOrderId: clientId(),
-      });
+      const limit = (extra) =>
+        state.client.newOrder({ symbol, side: plan.side, type: 'LIMIT', price: plan.price, timeInForce: 'GTC', newClientOrderId: clientId(), ...extra });
+      if (!split) {
+        try {
+          order = await limit({ quantity: plan.qty });
+        } catch (err) {
+          if (err.code !== -2019) throw err;
+          split = true;
+        }
+      }
+      if (split) order = await limit({ quantity: closeQty, reduceOnly: 'true' });
     }
 
     if (market) {
@@ -675,11 +725,14 @@ async function reversePosition(req) {
         tp,
         sl,
         at: Date.now(),
-        reverse: { from: amt, side: plan.side, qty: plan.qty },
+        reverse: split ? { from: amt, side: plan.side, qty: closeQty, split: true } : { from: amt, side: plan.side, qty: plan.qty },
       });
+      const verb = plan.side === 'SELL' ? '賣出' : '買入';
       notice(
         'info',
-        `${symbol} 反手限價${plan.side === 'SELL' ? '賣出' : '買入'} ${plan.qty} @ ${plan.price} 已掛單，成交後 ${from} → ${to}`,
+        split
+          ? `${symbol} 保證金不足以一筆反手，改分兩步：先掛只減倉限價${verb} ${closeQty} @ ${plan.price}，成交後再以同價掛開倉單，完成後 ${from} → ${to}`
+          : `${symbol} 反手限價${verb} ${plan.qty} @ ${plan.price} 已掛單，成交後 ${from} → ${to}`,
         symbol
       );
     }

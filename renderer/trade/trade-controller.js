@@ -693,7 +693,7 @@ export class TradeController {
         dash: [2, 3],
         axis: true,
         label: {
-          text: `${o.reduceOnly ? '減倉' : reversal ? '反手' : '限價'}${buy ? '買' : '賣'} ${o.qty - o.filled}`,
+          text: `${reversal ? (o.reduceOnly ? '反手·平' : '反手') : o.reduceOnly ? '減倉' : '限價'}${buy ? '買' : '賣'} ${o.qty - o.filled}`,
           color: buy ? COLORS.long : COLORS.short,
           cancel: { kind: 'order', id: o.id },
         },
