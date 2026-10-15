@@ -115,7 +115,11 @@ export function counterpartSymbol(symbol, source, target) {
   return null;
 }
 
-/** Binance kline array -> our Bar. */
+/**
+ * Binance kline array -> our Bar. Besides OHLCV a kline carries the taker-buy
+ * volume (k[9]: what aggressive buyers took -- the rest was sellers hitting
+ * bids) and the volume in quote currency (k[7]).
+ */
 function toBar(k) {
   return {
     time: Math.floor(k[0] / 1000),
@@ -124,6 +128,8 @@ function toBar(k) {
     low: Number(k[3]),
     close: Number(k[4]),
     volume: Number(k[5]),
+    buyVolume: Number(k[9]),
+    quoteVolume: Number(k[7]),
     closed: true,
   };
 }
@@ -137,6 +143,8 @@ function toBarFromStream(k) {
     low: Number(k.l),
     close: Number(k.c),
     volume: Number(k.v),
+    buyVolume: Number(k.V),
+    quoteVolume: Number(k.q),
     closed: k.x === true,
   };
 }
@@ -848,7 +856,12 @@ export class BinanceProvider extends DataProvider {
         if (price > live.high) live.high = price;
         if (price < live.low) live.low = price;
         // Drift here is bounded by one kline frame, which overwrites it outright.
-        if (Number.isFinite(qty)) live.volume += qty;
+        if (Number.isFinite(qty)) {
+          live.volume += qty;
+          // `m`: the buyer was the maker, so the taker sold.
+          if (data.m === false && Number.isFinite(live.buyVolume)) live.buyVolume += qty;
+          if (Number.isFinite(live.quoteVolume)) live.quoteVolume += qty * price;
+        }
 
         this.deliverBar(sub);
       }

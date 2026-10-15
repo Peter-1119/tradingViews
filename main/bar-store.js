@@ -5,19 +5,28 @@
  *
  * Layout
  * ------
- *   userData/bars/{SYMBOL}/{interval}/{chunk}.bin          spot
- *   userData/bars/_perp/{SYMBOL}/{interval}/{chunk}.bin    USD-M perpetuals
- *   userData/bars/_perp/{SYMBOL}/oi_1m/{chunk}.bin         open interest, recorded here
- *   userData/bars/_perp/{SYMBOL}/oi_5m/{chunk}.bin         open interest, exchange history
+ *   userData/bars2/{SYMBOL}/{interval}/{chunk}.bin          spot
+ *   userData/bars2/_perp/{SYMBOL}/{interval}/{chunk}.bin    USD-M perpetuals
+ *   userData/bars2/_perp/{SYMBOL}/oi_1m/{chunk}.bin         open interest, recorded here
+ *   userData/bars2/_perp/{SYMBOL}/oi_5m/{chunk}.bin         open interest, exchange history
  *
  * Perpetuals get their own tree because BTCUSDT names both, and their candles
  * differ -- by the basis, and in volume by a wide margin. Spot keeps the
  * original layout, so a cache written before perpetuals existed stays valid.
  * The underscore keeps `_perp` from ever colliding with a symbol directory.
  *
- * Each record is 48 bytes -- six float64, little endian:
+ * Each record is 64 bytes -- eight float64, little endian:
  *
- *   [ time, open, high, low, close, volume ]
+ *   [ time, open, high, low, close, volume, buyVolume, quoteVolume ]
+ *
+ * buyVolume is the taker-buy volume (what aggressive buyers took; the rest of
+ * `volume` was taken by sellers) and quoteVolume the volume in USDT. Both are
+ * NaN where a series has none -- open interest -- and read back as absent.
+ *
+ * The records were six fields wide until buyVolume and quoteVolume came in.
+ * The cache moved to `bars2` rather than mixing widths: a bar cached without
+ * the taker split would have kept its blank forever, since a cached range is
+ * never asked of the network again. The old `bars` directory is deleted.
  *
  * float64 throughout, including the timestamp, so a whole file is one
  * Float64Array and reading it is a memcpy rather than a parse. A float64 holds
@@ -44,7 +53,7 @@ const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
 
-const FIELDS = 6;
+const FIELDS = 8;
 const RECORD = FIELDS * 8;
 
 /**
@@ -57,7 +66,11 @@ const MONTHLY = new Set(['1m', '5m']);
 let rootDir = null;
 
 function root() {
-  if (!rootDir) rootDir = path.join(app.getPath('userData'), 'bars');
+  if (!rootDir) {
+    rootDir = path.join(app.getPath('userData'), 'bars2');
+    // The six-field cache this one replaced; it is only a cache.
+    fs.rm(path.join(app.getPath('userData'), 'bars'), { recursive: true, force: true }, () => {});
+  }
   return rootDir;
 }
 
@@ -101,6 +114,8 @@ function encode(bars) {
     a[o + 3] = b.low;
     a[o + 4] = b.close;
     a[o + 5] = b.volume;
+    a[o + 6] = Number.isFinite(b.buyVolume) ? b.buyVolume : NaN;
+    a[o + 7] = Number.isFinite(b.quoteVolume) ? b.quoteVolume : NaN;
   }
   return Buffer.from(a.buffer, a.byteOffset, a.byteLength);
 }
@@ -113,7 +128,7 @@ function decode(buf) {
   const a = new Float64Array(buf.buffer, buf.byteOffset, count * FIELDS);
   for (let i = 0; i < count; i++) {
     const o = i * FIELDS;
-    out[i] = {
+    const bar = {
       time: a[o],
       open: a[o + 1],
       high: a[o + 2],
@@ -122,6 +137,9 @@ function decode(buf) {
       volume: a[o + 5],
       closed: true,
     };
+    if (Number.isFinite(a[o + 6])) bar.buyVolume = a[o + 6];
+    if (Number.isFinite(a[o + 7])) bar.quoteVolume = a[o + 7];
+    out[i] = bar;
   }
   return out;
 }
@@ -180,7 +198,7 @@ function latest(symbol, interval, market = 'spot') {
  * Persist closed bars.
  *
  * Bars newer than everything in their chunk append, which is the live case and
- * costs one ~48-byte write. Anything landing inside a chunk's existing span
+ * costs one ~64-byte write. Anything landing inside a chunk's existing span
  * rewrites just that chunk -- bounded by the chunk size, and rare, since
  * backfill normally opens older chunks that do not exist yet.
  */

@@ -7,8 +7,10 @@
  *
  * Shapes exchanged across this boundary:
  *
- *   Bar    { time, open, high, low, close, volume, closed }
+ *   Bar    { time, open, high, low, close, volume, buyVolume?, quoteVolume?, closed }
  *            `time` is UNIX **seconds** (what lightweight-charts expects).
+ *            `buyVolume` is the taker-buy part of `volume`; `quoteVolume`
+ *            the volume in quote currency. Either may be missing.
  *            `closed` mirrors Binance's kline `x` flag: the bar is final.
  *
  *   Ticker { symbol, last, changePercent, high, low, volume }

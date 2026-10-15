@@ -14,7 +14,6 @@ import {
   CandlestickSeries,
   LineSeries,
   AreaSeries,
-  HistogramSeries,
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
@@ -28,6 +27,7 @@ import { MeasurePrimitive } from './measure-primitive.js';
 import { ExtremesPrimitive } from './extremes-primitive.js';
 import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
+import { VolumePane, SqueezeBandsPrimitive } from './volume-pane.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -301,7 +301,10 @@ export class CardChart {
     container.addEventListener('mouseleave', this.onPointerLeave);
 
     this.priceSeries = null;
-    this.volumeSeries = null;
+    /** @type {VolumePane | null} */
+    this.volume = null;
+    /** Thin volume: threshold as a rank (null = off), filter memory in bars, bar length. */
+    this.volumeOpts = { threshold: 0.05, memory: 1000, intervalSec: 60 };
     this.oiSeries = null;
     this.showOI = false;
     /** OHLC records aligned to `bars`, from open-interest.js; the line plots close. */
@@ -329,6 +332,7 @@ export class CardChart {
 
     this.htf = new HtfPrimitive(this);
     this.htf.setColors(this.colors);
+    this.squeezeBands = new SqueezeBandsPrimitive(this);
     this.vp = new VolumeProfilePrimitive(this);
     this.vranges = new VRangePrimitive(this);
     this.rects = new RectPrimitive(this);
@@ -429,6 +433,7 @@ export class CardChart {
     this.priceSeries = this.chart.addSeries(this.seriesDefinition(), this.priceSeriesOptions());
     // Primitives belong to a series and die with it, so a chart-type switch
     // has to re-attach -- this is the one place every new series comes from.
+    this.priceSeries.attachPrimitive(this.squeezeBands);
     this.priceSeries.attachPrimitive(this.htf);
     this.priceSeries.attachPrimitive(this.vp);
     this.priceSeries.attachPrimitive(this.vranges);
@@ -454,27 +459,15 @@ export class CardChart {
    * any change keeps the order fixed; both are re-fed from data we hold.
    */
   syncSubPanes() {
-    if (this.volumeSeries) this.chart.removeSeries(this.volumeSeries);
+    if (this.volume) this.volume.destroy();
     if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
-    this.volumeSeries = null;
+    this.volume = null;
     this.oiSeries = null;
 
     let pane = 1;
     if (this.showVolume) {
-      this.volumeSeries = this.chart.addSeries(
-        HistogramSeries,
-        {
-          priceFormat: { type: 'volume' },
-          priceLineVisible: false,
-          lastValueVisible: false,
-        },
-        pane++
-      );
-      this.volumeSeries.priceScale().applyOptions({
-        scaleMargins: { top: 0.15, bottom: 0 },
-        borderVisible: false,
-      });
-      this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
+      this.volume = new VolumePane(this, pane++, this.volumeOpts);
+      this.volume.render();
     }
     if (this.showOI) {
       this.oiSeries = this.chart.addSeries(
@@ -564,15 +557,6 @@ export class CardChart {
     return { time: bar.time, value: bar.close };
   }
 
-  toVolumePoint(bar) {
-    const rising = bar.close >= bar.open;
-    return {
-      time: bar.time,
-      value: bar.volume,
-      color: withAlpha(rising ? this.colors.up : this.colors.down, 0.4),
-    };
-  }
-
   /**
    * Splice older bars onto the front, preserving the viewport.
    *
@@ -623,7 +607,8 @@ export class CardChart {
     if (!bar || !Number.isFinite(bar.time)) return;
 
     const last = this.bars[this.bars.length - 1];
-    if (!last || bar.time > last.time) {
+    const isNew = !last || bar.time > last.time;
+    if (isNew) {
       this.bars.push(bar);
       // Keep memory bounded on a widget that may run for days.
       if (this.bars.length > 1500) this.bars.splice(0, this.bars.length - 1000);
@@ -639,7 +624,7 @@ export class CardChart {
     }
 
     this.priceSeries.update(this.toPricePoint(bar));
-    if (this.volumeSeries) this.volumeSeries.update(this.toVolumePoint(bar));
+    if (this.volume) this.volume.update(bar, isNew);
   }
 
   render() {
@@ -648,9 +633,7 @@ export class CardChart {
       return;
     }
     this.priceSeries.setData(this.bars.map((b) => this.toPricePoint(b)));
-    if (this.volumeSeries) {
-      this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
-    }
+    if (this.volume) this.volume.render();
     if (this.oiSeries) {
       this.oiSeries.setData(this.oiSeriesData());
     }
@@ -678,9 +661,9 @@ export class CardChart {
     // the OI pane, on OI's scale: a price of 2,670 against an axis running to
     // 2.3M, flat along the bottom. Clear them, swap the price series in the
     // (now empty) top pane, and rebuild them underneath from the data held.
-    if (this.volumeSeries) this.chart.removeSeries(this.volumeSeries);
+    if (this.volume) this.volume.destroy();
     if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
-    this.volumeSeries = null;
+    this.volume = null;
     this.oiSeries = null;
     this.chart.removeSeries(this.priceSeries);
     this.levels.clear();
@@ -1037,6 +1020,17 @@ export class CardChart {
     this.chart.applyOptions({ crosshair: { mode: next } });
   }
 
+  /**
+   * Thin-volume settings: `threshold` a rank (0.05 = 5%) or null for none,
+   * `memory` the filter's memory in bars, `intervalSec` the bar length.
+   */
+  setVolumeOptions(opts) {
+    const next = { ...this.volumeOpts, ...opts };
+    if (JSON.stringify(next) === JSON.stringify(this.volumeOpts)) return;
+    this.volumeOpts = next;
+    if (this.volume) this.volume.setOptions(next);
+  }
+
   setVolumeVisible(visible) {
     const next = visible === true;
     if (next === this.showVolume) return;
@@ -1107,9 +1101,7 @@ export class CardChart {
     this.upDownColor = next;
     this.priceSeries.applyOptions(this.priceSeriesOptions());
     this.htf.setColors(this.colors);
-    if (this.volumeSeries) {
-      this.volumeSeries.setData(this.bars.map((b) => this.toVolumePoint(b)));
-    }
+    if (this.volume) this.volume.render();
   }
 
   /**
@@ -1194,7 +1186,7 @@ export class CardChart {
   resetView() {
     if (!this.priceSeries) return;
     this.priceSeries.priceScale().setAutoScale(true);
-    if (this.volumeSeries) this.volumeSeries.priceScale().setAutoScale(true);
+    if (this.volume) this.volume.total.priceScale().setAutoScale(true);
     const ts = this.chart.timeScale();
     ts.applyOptions({ barSpacing: DEFAULT_BAR_SPACING, rightOffset: DEFAULT_RIGHT_OFFSET });
     // A jump, not scrollToRealTime(): that animates for 400ms from wherever
@@ -1292,7 +1284,7 @@ export class CardChart {
     }
     this.chart = null;
     this.priceSeries = null;
-    this.volumeSeries = null;
+    this.volume = null;
     this.oiSeries = null;
     this.bars = [];
     this.oiData = [];

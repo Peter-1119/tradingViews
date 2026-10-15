@@ -29,6 +29,15 @@ t('round-trips exactly, including volume', () => {
   assert.equal(back[1].close, 100.5);
 });
 
+t('the taker-buy and quote volume round-trip; a series without them reads back without', () => {
+  const t0 = Date.UTC(2026, 11, 1) / 1000;
+  store.write('XRPUSDT', '1m', [{ ...bar(t0, 10), buyVolume: 6.25, quoteVolume: 1005 }, bar(t0 + 60, 3)]);
+  const [a, b] = store.read('XRPUSDT', '1m', 0, 1e12);
+  assert.equal(a.buyVolume, 6.25);
+  assert.equal(a.quoteVolume, 1005);
+  assert.ok(!('buyVolume' in b) && !('quoteVolume' in b), 'absent, not NaN');
+});
+
 t('unclosed bars are never persisted', () => {
   const n = store.read('BTCUSDT', '1m', 0, 1e12).length;
   store.write('BTCUSDT', '1m', [{ ...bar(SEP + 180), closed: false }]);

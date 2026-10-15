@@ -121,7 +121,26 @@ export const TOOLS = [
       { value: 'both', label: '兩者' },
     ],
   },
-  { id: 'volume', label: '成交量', hint: '成交量副圖', toggle: true },
+  {
+    id: 'volume',
+    label: '成交量',
+    hint: '成交量副圖：主動買／賣拆分與縮量標示',
+    toggle: true,
+    menu: [
+      { value: 'off', label: '關閉' },
+      { value: 'on', label: '顯示成交量' },
+      { heading: '縮量門檻 PR ≤' },
+      { value: 'sq:off', group: 'sq', label: '不標示' },
+      { value: 'sq:2', group: 'sq', label: '2%' },
+      { value: 'sq:3', group: 'sq', label: '3%' },
+      { value: 'sq:5', group: 'sq', label: '5%' },
+      { value: 'sq:10', group: 'sq', label: '10%' },
+      { heading: '分布記憶長度' },
+      { value: 'mem:500', group: 'mem', label: '約 500 根' },
+      { value: 'mem:1000', group: 'mem', label: '約 1000 根' },
+      { value: 'mem:2000', group: 'mem', label: '約 2000 根' },
+    ],
+  },
   // Hidden on spot cards: there is no open interest to show.
   { id: 'oi', label: '未平倉量', hint: '未平倉量 (OI) 副圖，約每 3 秒更新', toggle: true },
 ];

@@ -203,6 +203,10 @@ function sanitizeCard(raw, index = 0) {
     cardOpacity: clampNumber(card.cardOpacity, 0.1, 1, 0.75),
     windowOpacity: clampNumber(card.windowOpacity, 0.2, 1, 1),
     showVolume: card.showVolume === true,
+    // Thin volume in the volume pane: the rank (in %) at or under which a bar
+    // is thin, and the memory of the filtered distribution it ranks against.
+    volSqueeze: pick(card.volSqueeze, ['off', '2', '3', '5', '10'], '5'),
+    volMemory: pick(card.volMemory, ['500', '1000', '2000'], '1000'),
     // Was a boolean; `true` meant today's UTC-session profile, which is what
     // 'day' is now. Old configs keep showing what they showed.
     volumeProfile: pick(

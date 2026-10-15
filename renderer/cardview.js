@@ -31,7 +31,8 @@ import {
   formatCountdown,
 } from './util.js';
 
-const HISTORY_LIMIT = 500;
+// 1000: enough closed bars to seed the thin-volume distribution (volume-stats.js).
+const HISTORY_LIMIT = 1000;
 
 /** How far back Ctrl+Z reaches. Plenty for "I just grabbed the wrong line". */
 const UNDO_DEPTH = 50;
@@ -361,6 +362,7 @@ export class CardView {
       timezone: this.prefs.timezone,
     });
     this.chart.setOIVisible(this.oiApplies());
+    this.applyVolumeOptions();
 
     // Each market has its own connection and so its own health; the dot
     // reports the one this card is on.
@@ -474,7 +476,10 @@ export class CardView {
     }
     // Sub-panes, the same switches as in the settings panel, one click away.
     if (id === 'volume') {
-      this.onPatch({ showVolume: !this.card.showVolume });
+      // A threshold or memory choice turns the pane on too: it is what shows them.
+      if (value.startsWith('sq:')) this.onPatch({ showVolume: true, volSqueeze: value.slice(3) });
+      else if (value.startsWith('mem:')) this.onPatch({ showVolume: true, volMemory: value.slice(4) });
+      else this.onPatch({ showVolume: value === 'on' });
       return;
     }
     if (id === 'oi') {
@@ -868,6 +873,17 @@ export class CardView {
 
   /* --------------------------------------------------------- open interest */
 
+  /** Thin-volume settings from the card, and the bar length its live estimate needs. */
+  applyVolumeOptions() {
+    if (!this.chart) return;
+    const sq = this.card.volSqueeze || '5';
+    this.chart.setVolumeOptions({
+      threshold: sq === 'off' ? null : Number(sq) / 100,
+      memory: Number(this.card.volMemory) || 1000,
+      intervalSec: intervalToMs(this.card.interval) / 1000,
+    });
+  }
+
   oiApplies() {
     return this.card.market === 'perp' && this.card.showOI === true;
   }
@@ -877,7 +893,9 @@ export class CardView {
     this.toolbar.setMenuValue('opens', this.card.showOpens ? this.card.levelAnchor : 'off');
     this.toolbar.setMenuValue('opens', `which:${this.card.opensWhich || 'current'}`, 'which');
     this.toolbar.setMenuValue('hilo', this.card.hilo);
-    this.toolbar.setToggled('volume', this.card.showVolume);
+    this.toolbar.setMenuValue('volume', this.card.showVolume ? 'on' : 'off');
+    this.toolbar.setMenuValue('volume', `sq:${this.card.volSqueeze || '5'}`, 'sq');
+    this.toolbar.setMenuValue('volume', `mem:${this.card.volMemory || '1000'}`, 'mem');
     this.toolbar.setToggled('oi', this.card.showOI);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
   }
@@ -2660,6 +2678,9 @@ export class CardView {
     if (this.chart) {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
+      if (next.volSqueeze !== prev.volSqueeze || next.volMemory !== prev.volMemory || next.interval !== prev.interval) {
+        this.applyVolumeOptions();
+      }
       if (next.volumeProfile !== prev.volumeProfile) this.applyVolumeProfile(next.volumeProfile);
       if (next.vpDetail !== prev.vpDetail) this.applyVpDetail();
       // A symbol or market change reloads opens below. An interval change does
