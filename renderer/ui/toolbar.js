@@ -48,6 +48,9 @@ const ICONS = {
   volume: '<path d="M1.5 12.5h11"/><path d="M3.5 10.5V8" stroke-width="2.2"/>'
     + '<path d="M7 10.5V3.5" stroke-width="2.2"/><path d="M10.5 10.5V6" stroke-width="2.2"/>',
   // The letters: no glyph says "open interest", and traders read OI at a glance.
+  // A candle split down the middle, rows of selling left and buying right.
+  footprint: '<path d="M7 1.5v11"/><path d="M6 3.5H3.5"/><path d="M8 3.5h2"/><path d="M6 6H2"/>'
+    + '<path d="M8 6h4.5"/><path d="M6 8.5H4"/><path d="M8 8.5h3"/><path d="M6 11H5"/><path d="M8 11h1.5"/>',
   oi: '<text x="7" y="10.2" text-anchor="middle" font-size="7.5" font-weight="700" letter-spacing="-0.2"'
     + ' font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">OI</text>',
 };
@@ -139,6 +142,21 @@ export const TOOLS = [
       { value: 'mem:500', group: 'mem', label: '約 500 根' },
       { value: 'mem:1000', group: 'mem', label: '約 1000 根' },
       { value: 'mem:2000', group: 'mem', label: '約 2000 根' },
+    ],
+  },
+  {
+    id: 'footprint',
+    label: '足跡圖',
+    hint: '足跡圖：每根 K 棒裡各價位的主動賣（左）和主動買（右）。K 棒夠寬時顯示數字，底下是 Delta（買 − 賣）',
+    toggle: true,
+    menu: [
+      { value: 'off', label: '關閉' },
+      { value: 'on', label: '顯示足跡圖' },
+      { value: 'focus', group: 'act', label: '放大到最近 30 根' },
+      { heading: '失衡倍數（斜對角）' },
+      { value: 'ratio:2', group: 'ratio', label: '2 倍' },
+      { value: 'ratio:3', group: 'ratio', label: '3 倍' },
+      { value: 'ratio:4', group: 'ratio', label: '4 倍' },
     ],
   },
   // Hidden on spot cards: there is no open interest to show.

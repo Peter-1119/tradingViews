@@ -18,6 +18,7 @@ const windows = require('./windows');
 const tray = require('./tray');
 const shortcuts = require('./shortcuts');
 const barStore = require('./bar-store');
+const footprintStore = require('./footprint-store');
 const alerts = require('./alerts');
 const trading = require('./trading/service');
 const paper = require('./trading/paper');
@@ -480,6 +481,17 @@ ipcMain.handle('bars:stats', () => barStore.stats());
 
 ipcMain.handle('bars:clear', (_event, symbol) => barStore.clear(symbol));
 
+/* ------------------------------------------------- IPC: footprint cache */
+
+// Only the hub collects footprints, so only it reads and writes them.
+ipcMain.handle('footprint:read', (_event, { market, symbol, from, to } = {}) =>
+  footprintStore.read(symbol, from, to, store.pickMarket(market))
+);
+
+ipcMain.handle('footprint:write', (_event, { market, symbol, records } = {}) =>
+  footprintStore.write(symbol, records, store.pickMarket(market))
+);
+
 /* ------------------------------------------------------- IPC: datafeed */
 
 ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) => {
@@ -490,6 +502,7 @@ ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) =>
     'getTicker',
     'getFunding',
     'getOpenInterestHist',
+    'setFootprint',
     'getStatus',
     'counterpart',
   ];

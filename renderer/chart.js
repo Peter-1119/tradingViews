@@ -17,6 +17,7 @@ import {
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
+import { FootprintPrimitive } from './footprint-primitive.js';
 import { VRangePrimitive } from './vrange-primitive.js';
 import { RectPrimitive } from './rect-primitive.js';
 import { TrendPrimitive } from './trend-primitive.js';
@@ -334,6 +335,10 @@ export class CardChart {
     this.htf.setColors(this.colors);
     this.squeezeBands = new SqueezeBandsPrimitive(this);
     this.vp = new VolumeProfilePrimitive(this);
+    /** Per-price taker sells and buys inside each candle; off until given a book. */
+    this.footprint = new FootprintPrimitive(this);
+    this.footprint.setColors(this.colors);
+    this.footprintOn = false;
     this.vranges = new VRangePrimitive(this);
     this.rects = new RectPrimitive(this);
     this.trends = new TrendPrimitive(this);
@@ -406,9 +411,11 @@ export class CardChart {
       };
     }
 
+    // Hollow while the footprint is on: its rows live where the body would be.
+    const hollow = this.footprintOn ? 'rgba(0, 0, 0, 0)' : null;
     return {
-      upColor: up,
-      downColor: down,
+      upColor: hollow || up,
+      downColor: hollow || down,
       borderUpColor: up,
       borderDownColor: down,
       wickUpColor: withAlpha(up, 0.8),
@@ -436,6 +443,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.squeezeBands);
     this.priceSeries.attachPrimitive(this.htf);
     this.priceSeries.attachPrimitive(this.vp);
+    this.priceSeries.attachPrimitive(this.footprint);
     this.priceSeries.attachPrimitive(this.vranges);
     this.priceSeries.attachPrimitive(this.rects);
     this.priceSeries.attachPrimitive(this.trends);
@@ -1095,12 +1103,44 @@ export class CardChart {
     this.oiSeries.update({ time: record.time, value: record.close });
   }
 
+  /**
+   * Footprint on (a FootprintBook) or off (null). `ratio` is the diagonal
+   * imbalance multiple.
+   */
+  setFootprint(book, ratio = 3) {
+    const on = !!book;
+    this.footprint.setRatio(ratio);
+    this.footprint.setBook(book);
+    if (on === this.footprintOn) return;
+    this.footprintOn = on;
+    this.priceSeries.applyOptions(this.priceSeriesOptions());
+  }
+
+  /** The book has new minutes: repaint. */
+  footprintChanged() {
+    this.footprint.update();
+  }
+
+  /**
+   * Zoom so the newest `count` bars fill the plot, right edge at the newest:
+   * where the footprint has room for its rows.
+   */
+  focusRecent(count) {
+    const width = this.plotWidth();
+    if (!width || !this.bars.length) return;
+    const ts = this.chart.timeScale();
+    const spacing = Math.max(4, Math.min(160, width / (count + DEFAULT_RIGHT_OFFSET)));
+    ts.applyOptions({ barSpacing: spacing, rightOffset: DEFAULT_RIGHT_OFFSET });
+    ts.scrollToRealTime();
+  }
+
   setUpDownColor(mode) {
     const next = mode === 'redUp' ? 'redUp' : 'greenUp';
     if (next === this.upDownColor) return;
     this.upDownColor = next;
     this.priceSeries.applyOptions(this.priceSeriesOptions());
     this.htf.setColors(this.colors);
+    this.footprint.setColors(this.colors);
     if (this.volume) this.volume.render();
   }
 

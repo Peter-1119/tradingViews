@@ -34,6 +34,7 @@ export class RemoteProvider extends DataProvider {
     this.bridge.onTicker(route('onTicker', 'ticker'));
     this.bridge.onFunding(route('onFunding', 'funding'));
     this.bridge.onOI(route('onOI', 'oi'));
+    this.bridge.onFootprint(route('onFootprint', 'footprint'));
 
     this.bridge.onStatus(({ market, status }) => {
       if (market !== this.market || this.status === status) return;
@@ -70,6 +71,14 @@ export class RemoteProvider extends DataProvider {
   /** Perpetuals only: [{time (ms), value, valueUsd}], 5m and up, 30 days deep. */
   getOpenInterestHist(symbol, period, startMs, endMs) {
     return this.call('getOpenInterestHist', [symbol, period, startMs, endMs]);
+  }
+
+  /**
+   * Footprint for a subscription, on or off. On, resolves with the minutes
+   * held from `fromSec`; the subscription's onFootprint then hears changes.
+   */
+  setFootprint(subId, enabled, fromSec) {
+    return this.call('setFootprint', [subId, enabled, fromSec]);
   }
 
   searchSymbols(query) {

@@ -220,6 +220,10 @@ function sanitizeCard(raw, index = 0) {
     // Open interest sub-pane. Perpetuals only; a spot card keeps the setting
     // and shows it again when switched back to perp.
     showOI: card.showOI === true,
+    // Footprint inside the candles (per-price taker sells and buys), and the
+    // diagonal imbalance multiple it marks.
+    footprint: card.footprint === true,
+    fpRatio: pick(card.fpRatio, ['2', '3', '4'], '3'),
     // Daily / weekly / monthly open rays.
     showOpens: card.showOpens === true,
     // Where the day, week and month start for opens and highs/lows: UTC (the

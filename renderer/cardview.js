@@ -13,6 +13,7 @@ import { TradeController } from './trade/trade-controller.js';
 import { PriceAlertController } from './price-alerts.js';
 import { Toolbar } from './ui/toolbar.js';
 import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchlist.js';
+import { FootprintBook } from './footprint.js';
 import { buildPeriodProfiles, sessionBounds, PERIOD_4H, ProfileSource, rangeInterval } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
 import { oiPoints, bucketOI, historyRecords, OI_MAX_GAP_SEC } from './open-interest.js';
@@ -72,6 +73,16 @@ const OI_LIVE_KEEP_SEC = 2 * 3600;
 /** Head, tail and holes fetched per load; the rest wait for the next one. */
 const OI_MAX_FETCH_RANGES = 8;
 
+/**
+ * Footprint: the newest this-many bars, and never further back than the
+ * cap -- it is minute data at full price resolution, kept in memory twice
+ * (hub and card), and short-term entries are what it is for.
+ */
+const FOOTPRINT_BARS = 30;
+const FOOTPRINT_MAX_SEC = 6 * 3600;
+/** Below this bar spacing the rows have no room; turning it on zooms in. */
+const FOOTPRINT_MIN_SPACING = 8;
+
 export class CardView {
   /**
    * @param {{
@@ -113,6 +124,9 @@ export class CardView {
     /** Cache holes already asked of the exchange this session; see backfillOIHistory. */
     this.oiHolesTried = new Set();
     this.oiSeq = 0;
+    /** Footprint minutes from the hub, merged into bars on draw. */
+    this.fpBook = new FootprintBook();
+    this.fpSeq = 0;
     /** {key, promise} -- the other market's name for this symbol, being looked up. */
     this.counterpartJob = null;
     this.status = this.feed.getStatus();
@@ -484,6 +498,22 @@ export class CardView {
     }
     if (id === 'oi') {
       this.onPatch({ showOI: !this.card.showOI });
+      return;
+    }
+    if (id === 'footprint') {
+      if (value.startsWith('ratio:')) {
+        this.onPatch({ footprint: true, fpRatio: value.slice(6) });
+      } else if (value === 'focus') {
+        if (!this.card.footprint) this.onPatch({ footprint: true });
+        if (this.chart) this.chart.focusRecent(FOOTPRINT_BARS);
+      } else {
+        const on = value === 'on';
+        this.onPatch({ footprint: on });
+        // Too narrow to show anything: bring the bars it covers into view.
+        if (on && this.chart && this.chart.chart.timeScale().options().barSpacing < FOOTPRINT_MIN_SPACING) {
+          this.chart.focusRecent(FOOTPRINT_BARS);
+        }
+      }
       return;
     }
     const next = id === this.activeTool ? 'cursor' : id;
@@ -898,6 +928,52 @@ export class CardView {
     this.toolbar.setMenuValue('volume', `mem:${this.card.volMemory || '1000'}`, 'mem');
     this.toolbar.setToggled('oi', this.card.showOI);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
+    this.toolbar.setMenuValue('footprint', this.card.footprint ? 'on' : 'off');
+    this.toolbar.setMenuValue('footprint', `ratio:${this.card.fpRatio || '3'}`, 'ratio');
+  }
+
+  /* ------------------------------------------------------------ footprint */
+
+  /**
+   * Turn the footprint on or off for what the card shows now. On, it asks
+   * the hub for the newest FOOTPRINT_BARS bars' minutes; the hub answers with
+   * what it has (memory and disk) and then streams the rest -- live minutes,
+   * and the ones it fetches -- through onFootprint.
+   */
+  async loadFootprint() {
+    const seq = ++this.fpSeq;
+    this.fpBook.clear();
+    this.fpBook.setInterval(intervalToMs(this.card.interval) / 1000);
+    if (!this.chart) return;
+    if (!this.card.footprint) {
+      this.chart.setFootprint(null);
+      this.feed.setFootprint(this.card.id, false).catch(() => {});
+      return;
+    }
+    const bars = this.chart.bars;
+    if (!bars.length) return;
+    this.chart.setFootprint(this.fpBook, Number(this.card.fpRatio) || 3);
+    try {
+      const records = await this.feed.setFootprint(this.card.id, true, this.footprintFrom());
+      if (seq !== this.fpSeq || this.destroyed) return;
+      if (this.fpBook.put(records)) this.chart.footprintChanged();
+    } catch (err) {
+      console.error('[card] footprint failed', err);
+    }
+  }
+
+  /** The earliest bar the footprint covers, in seconds. */
+  footprintFrom() {
+    const bars = this.chart.bars;
+    const first = bars[Math.max(0, bars.length - FOOTPRINT_BARS)].time;
+    return Math.max(first, Math.floor(Date.now() / 1000 - FOOTPRINT_MAX_SEC));
+  }
+
+  /** Minutes from the hub: the forming one, a closed one, or a fetched one. */
+  applyFootprint(records) {
+    if (this.destroyed || !this.card.footprint || !this.chart || !this.chart.bars.length) return;
+    this.fpBook.trim(this.footprintFrom() - 60);
+    if (this.fpBook.put(records)) this.chart.footprintChanged();
   }
 
   /** Forget the OI of the previous symbol or market. */
@@ -2346,6 +2422,7 @@ export class CardView {
         if (this.card.volumeProfile === 'session4h') this.loadPeriodProfiles();
       }, 0);
       this.subscribe();
+      if (this.card.footprint) this.loadFootprint();
 
       feed
         .getTicker(symbol)
@@ -2400,6 +2477,7 @@ export class CardView {
       onOI: (oi) => {
         if (!this.destroyed) this.applyLiveOI(oi);
       },
+      onFootprint: (records) => this.applyFootprint(records),
     });
   }
 
@@ -2698,6 +2776,11 @@ export class CardView {
         this.chart.setOIVisible(this.oiApplies());
         // A symbol or market change reloads it with the bars, below.
         if (!symbolChanged && this.oiApplies()) this.loadOI();
+      }
+      // A symbol, market or interval change reloads it with the bars, below.
+      if ((next.footprint !== prev.footprint || next.fpRatio !== prev.fpRatio) && !symbolChanged) {
+        if (next.footprint !== prev.footprint) this.loadFootprint();
+        else this.chart.setFootprint(this.fpBook, Number(next.fpRatio) || 3);
       }
       if (next.showHtf !== prev.showHtf && !marketChanged) {
         this.toolbar.setToggled('htf', next.showHtf);

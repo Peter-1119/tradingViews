@@ -35,6 +35,11 @@ for (const [market, provider] of providers) {
       console.error('[hub] OI write failed', symbol, err);
     });
   };
+  // Footprint minutes are likewise kept by the hub, which collects them once.
+  provider.footprintStore = {
+    read: (symbol, from, to) => hub.readFootprint(market, symbol, from, to),
+    write: (symbol, records) => hub.writeFootprint(market, symbol, records),
+  };
 }
 
 /** subId -> {ownerId, market}. */
@@ -87,6 +92,7 @@ hub.onSubscribe(({ subId, market, symbol, interval, ownerId }) => {
     onTicker: (ticker) => hub.emit(ownerId, 'datafeed:ticker', { subId, market, ticker }),
     onFunding: (funding) => hub.emit(ownerId, 'datafeed:funding', { subId, market, funding }),
     onOI: (oi) => hub.emit(ownerId, 'datafeed:oi', { subId, market, oi }),
+    onFootprint: (footprint) => hub.emit(ownerId, 'datafeed:footprint', { subId, market, footprint }),
   });
 
   // A card that mounts mid-session needs the current link state right away.

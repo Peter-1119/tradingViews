@@ -16,6 +16,7 @@
  */
 
 import { DataProvider, STATUS, intervalToMs } from './provider.js';
+import { FootprintCollector } from './footprint-collector.js';
 
 /**
  * Everything that differs between the two markets. The paths under each REST
@@ -213,6 +214,14 @@ export class BinanceProvider extends DataProvider {
      * closed OHLC bar of the samples in that minute. The hub persists it.
      */
     this.onOIMinute = null;
+
+    /** symbol -> {collector, subs: Set<subId>}; see setFootprint. */
+    this.footprints = new Map();
+    /**
+     * Where closed footprint minutes are kept: {read(symbol, from, to),
+     * write(symbol, records)}. The hub wires it to the main process.
+     */
+    this.footprintStore = null;
 
     this.handleOnline = () => {
       if (this.status !== STATUS.LIVE && this.streamRefs.size > 0) {
@@ -484,6 +493,61 @@ export class BinanceProvider extends DataProvider {
     m.volume += 1;
   }
 
+  /* ------------------------------------------------------------ footprint */
+
+  /**
+   * Turn a subscription's footprint on or off. On, it resolves -- once what
+   * is on disk has been read -- with every minute held from `fromSec`;
+   * after that the subscription's `onFootprint` hears each minute as it
+   * changes, including the ones being fetched from REST.
+   *
+   * One collector per symbol however many cards draw it, fed by the
+   * aggTrade stream the subscription already has.
+   */
+  async setFootprint(subId, enabled, fromSec) {
+    const sub = this.subs.get(subId);
+    if (!enabled || !sub) {
+      this.releaseFootprint(subId);
+      return [];
+    }
+    const symbol = sub.symbol;
+    let entry = this.footprints.get(symbol);
+    if (!entry) {
+      const store = this.footprintStore;
+      const collector = new FootprintCollector({
+        symbol,
+        market: this.market,
+        rest: this.config.rest,
+        store: store && {
+          read: (from, to) => store.read(symbol, from, to),
+          write: (records) => store.write(symbol, records),
+        },
+        onUpdate: (records) => {
+          const current = this.footprints.get(symbol);
+          if (!current) return;
+          for (const id of current.subs) {
+            const s = this.subs.get(id);
+            if (s && s.handlers.onFootprint) s.handlers.onFootprint(records);
+          }
+        },
+        logger: this.logger,
+      });
+      entry = { collector, subs: new Set() };
+      this.footprints.set(symbol, entry);
+    }
+    entry.subs.add(subId);
+    await entry.collector.want(fromSec);
+    return entry.collector.snapshot(Number(fromSec) || 0);
+  }
+
+  releaseFootprint(subId) {
+    for (const [symbol, entry] of [...this.footprints]) {
+      if (!entry.subs.delete(subId) || entry.subs.size) continue;
+      entry.collector.stop();
+      this.footprints.delete(symbol);
+    }
+  }
+
   /* --------------------------------------------------------- symbol list */
 
   async loadSymbols() {
@@ -553,6 +617,8 @@ export class BinanceProvider extends DataProvider {
     const previous = this.subs.get(subId);
 
     if (previous) this.cancelPendingTick(previous);
+    // The card asks again for the new symbol once its bars are in.
+    if (previous && previous.symbol !== upper) this.releaseFootprint(subId);
 
     this.subs.set(subId, {
       symbol: upper,
@@ -616,6 +682,7 @@ export class BinanceProvider extends DataProvider {
     if (!sub) return;
     this.subs.delete(subId);
     this.cancelPendingTick(sub);
+    this.releaseFootprint(subId);
     if (this.config.openInterest) this.releaseOI(sub.symbol);
 
     const removed = [];
@@ -833,6 +900,8 @@ export class BinanceProvider extends DataProvider {
     }
 
     if (data.e === 'aggTrade') {
+      const footprint = this.footprints.get(data.s);
+      if (footprint) footprint.collector.trade(data);
       const price = Number(data.p);
       if (!Number.isFinite(price)) return;
       const qty = Number(data.q);
@@ -943,6 +1012,8 @@ export class BinanceProvider extends DataProvider {
     window.removeEventListener('online', this.handleOnline);
     window.removeEventListener('offline', this.handleOffline);
     for (const sub of this.subs.values()) this.cancelPendingTick(sub);
+    for (const entry of this.footprints.values()) entry.collector.stop();
+    this.footprints.clear();
     this.subs.clear();
     for (const entry of this.oiPolls.values()) clearTimeout(entry.timer);
     this.oiPolls.clear();
