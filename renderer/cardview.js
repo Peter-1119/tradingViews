@@ -72,6 +72,17 @@ const OI_MINUTES_SEC = 3 * 24 * 3600;
 const OI_LIVE_KEEP_SEC = 2 * 3600;
 /** Head, tail and holes fetched per load; the rest wait for the next one. */
 const OI_MAX_FETCH_RANGES = 8;
+/**
+ * Binance revises its OI history after the fact. On 2026-10-15, roughly
+ * 10:55-18:00 UTC, it served wrong samples for every symbol -- XRP 36% low,
+ * then back -- and later corrected them; but a cached sample is never asked
+ * for again, so ours kept the wrong ones and drew a 10-60% cliff. So the last
+ * day is fetched again now and then and written over what is cached, and the
+ * whole 30 days once per symbol for each OI_VERIFY_KEY (bump it to re-verify).
+ */
+const OI_RECHECK_SEC = 24 * 3600;
+const OI_RECHECK_EVERY_MS = 30 * 60 * 1000;
+const OI_VERIFY_KEY = 'oiHistoryVerified:2026-10-19';
 
 /**
  * Footprint: the newest this-many bars, and never further back than the
@@ -82,6 +93,24 @@ const FOOTPRINT_BARS = 30;
 const FOOTPRINT_MAX_SEC = 6 * 3600;
 /** Below this bar spacing the rows have no room; turning it on zooms in. */
 const FOOTPRINT_MIN_SPACING = 8;
+
+/** Has this symbol's whole OI history been fetched again under OI_VERIFY_KEY? */
+function oiVerified(symbol) {
+  try {
+    return JSON.parse(localStorage.getItem(OI_VERIFY_KEY) || '[]').includes(symbol);
+  } catch {
+    return true; // no storage: do not re-fetch 30 days on every load
+  }
+}
+
+function markOiVerified(symbol) {
+  try {
+    const list = JSON.parse(localStorage.getItem(OI_VERIFY_KEY) || '[]');
+    if (!list.includes(symbol)) localStorage.setItem(OI_VERIFY_KEY, JSON.stringify([...list, symbol]));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 export class CardView {
   /**
@@ -123,6 +152,8 @@ export class CardView {
     this.oiLive = [];
     /** Cache holes already asked of the exchange this session; see backfillOIHistory. */
     this.oiHolesTried = new Set();
+    /** symbol -> when its recent OI history was last fetched again. */
+    this.oiRecheckedAt = new Map();
     this.oiSeq = 0;
     /** Footprint minutes from the hub, merged into bars on draw. */
     this.fpBook = new FootprintBook();
@@ -1041,8 +1072,12 @@ export class CardView {
   async backfillOIHistory(symbol, from, now, cached) {
     const want = Math.max(from, now - OI_HISTORY_SEC);
     const have = cached.filter((r) => r.time >= want);
-    const ranges = [];
-    if (!have.length) {
+    let ranges = [];
+    const verified = oiVerified(symbol);
+    if (!verified) {
+      // Everything the exchange still has, over whatever is cached.
+      ranges.push([now - OI_HISTORY_SEC, now]);
+    } else if (!have.length) {
       ranges.push([want, now]);
     } else {
       if (have[0].time > want + 300) ranges.push([want, have[0].time - 1]);
@@ -1060,6 +1095,14 @@ export class CardView {
       ranges.push([have[have.length - 1].time + 1, now]);
     }
 
+    // The last day again, over the cache, to pick up the exchange's corrections.
+    const recheckAt = this.oiRecheckedAt.get(symbol) || 0;
+    if (verified && Date.now() - recheckAt > OI_RECHECK_EVERY_MS) {
+      this.oiRecheckedAt.set(symbol, Date.now());
+      const since = Math.max(want, now - OI_RECHECK_SEC);
+      ranges = [[since, now], ...ranges.filter(([start]) => start < since).map(([a, b]) => [a, Math.min(b, since - 1)])];
+    }
+
     const records = [];
     for (const [start, end] of ranges.slice(0, OI_MAX_FETCH_RANGES)) {
       // Samples land on 5m boundaries, a few minutes late; nothing new yet.
@@ -1068,6 +1111,7 @@ export class CardView {
       records.push(...historyRecords(rows));
     }
     if (records.length) window.stockcard.writeBars('perp', symbol, 'oi_5m', records);
+    if (!verified && records.length) markOiVerified(symbol);
     return records;
   }
 
