@@ -81,6 +81,8 @@ const api = {
     ipcRenderer.invoke('bars:read', { market, symbol, interval, from, to }),
   writeBars: (market, symbol, interval, bars) =>
     ipcRenderer.invoke('bars:write', { market, symbol, interval, bars }),
+  replaceBars: (market, symbol, interval, from, to, bars) =>
+    ipcRenderer.invoke('bars:replace', { market, symbol, interval, from, to, bars }),
   barCacheStats: () => ipcRenderer.invoke('bars:stats'),
   clearBarCache: (symbol) => ipcRenderer.invoke('bars:clear', symbol),
 

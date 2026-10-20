@@ -249,6 +249,47 @@ function write(symbol, interval, bars, market = 'spot') {
   return written;
 }
 
+/**
+ * Make [fromSec, toSec] hold exactly `bars`: whatever was stored in that span
+ * goes, including records `write` would have kept because nothing landed on
+ * their time. For a source that revises its past -- the exchange's open
+ * interest history was once served wrong, then corrected, and a merge alone
+ * leaves the wrong samples that fall between the corrected ones.
+ */
+function replace(symbol, interval, fromSec, toSec, bars, market = 'spot') {
+  const from = Number(fromSec);
+  const to = Number(toSec);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) return 0;
+  const incoming = (Array.isArray(bars) ? bars : []).filter(
+    (b) => b && b.closed === true && Number.isFinite(b.time) && Number.isFinite(b.close) && b.time >= from && b.time <= to
+  );
+
+  const byChunk = new Map();
+  for (const key of chunkKeys(symbol, interval, market)) byChunk.set(key, []);
+  for (const bar of incoming) {
+    const key = chunkKey(interval, bar.time);
+    if (!byChunk.has(key)) byChunk.set(key, []);
+    byChunk.get(key).push(bar);
+  }
+
+  fs.mkdirSync(chunkDir(symbol, interval, market), { recursive: true });
+  let changed = 0;
+  for (const [key, fresh] of byChunk) {
+    const existing = readChunk(symbol, interval, key, market);
+    const kept = existing.filter((b) => b.time < from || b.time > to);
+    if (kept.length === existing.length && !fresh.length) continue;
+    const merged = new Map();
+    for (const bar of kept) merged.set(bar.time, bar);
+    for (const bar of fresh) merged.set(bar.time, bar);
+    const sorted = [...merged.values()].sort((a, b) => a.time - b.time);
+    const file = chunkPath(symbol, interval, key, market);
+    if (sorted.length) fs.writeFileSync(file, encode(sorted));
+    else fs.rmSync(file, { force: true });
+    changed += 1;
+  }
+  return changed;
+}
+
 function stats() {
   let files = 0;
   let bytes = 0;
@@ -291,6 +332,7 @@ module.exports = {
   chunkKey,
   read,
   write,
+  replace,
   latest,
   chunkKeys,
   stats,

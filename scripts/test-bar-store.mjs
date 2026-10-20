@@ -104,6 +104,19 @@ t('open interest series chunk by month like 1m bars', () => {
   assert.equal(store.read('BTCUSDT', '1m', t0, t0 + 60, 'perp').length, 0, 'OI must not leak into price bars');
 });
 
+t('replace makes a span hold exactly the given records', () => {
+  const t0 = Date.UTC(2026, 9, 15) / 1000;
+  // A good sample, a bad one off the 5m grid, a wrong one on it, and one outside the span.
+  store.write('ETHUSDT', 'oi_5m', [bar(t0, 100), bar(t0 + 301, 999), bar(t0 + 600, 50), bar(t0 + 3600, 7)], 'perp');
+  const changed = store.replace('ETHUSDT', 'oi_5m', t0, t0 + 900, [bar(t0, 100), bar(t0 + 300, 101), bar(t0 + 600, 102), bar(t0 + 900, 103)], 'perp');
+  assert.equal(changed, 1);
+  const rows = store.read('ETHUSDT', 'oi_5m', 0, 1e12, 'perp');
+  assert.deepEqual(rows.map((r) => [r.time - t0, r.volume]), [[0, 100], [300, 101], [600, 102], [900, 103], [3600, 7]]);
+  // A span left empty loses what it held, and an emptied chunk goes away.
+  store.replace('ETHUSDT', 'oi_5m', 0, 1e12, [], 'perp');
+  assert.deepEqual(store.chunkKeys('ETHUSDT', 'oi_5m', 'perp'), []);
+});
+
 t('stats and clear', () => {
   const s = store.stats();
   assert.ok(s.files >= 3 && s.bytes > 0, JSON.stringify(s));

@@ -16,7 +16,7 @@ import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchl
 import { FootprintBook } from './footprint.js';
 import { buildPeriodProfiles, sessionBounds, PERIOD_4H, ProfileSource, rangeInterval } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
-import { oiPoints, bucketOI, historyRecords, OI_MAX_GAP_SEC } from './open-interest.js';
+import { oiPoints, bucketOI, historyRecords, onHistoryGrid, OI_MAX_GAP_SEC, OI_HISTORY_STEP_SEC } from './open-interest.js';
 import { WINDOWS as POSITION_WINDOWS } from './position.js';
 import { periodStart, periodLevels, updateCurrentExtremes, barsIntervalFor } from './sessions.js';
 import {
@@ -76,13 +76,19 @@ const OI_MAX_FETCH_RANGES = 8;
  * Binance revises its OI history after the fact. On 2026-10-15, roughly
  * 10:55-18:00 UTC, it served wrong samples for every symbol -- XRP 36% low,
  * then back -- and later corrected them; but a cached sample is never asked
- * for again, so ours kept the wrong ones and drew a 10-60% cliff. So the last
- * day is fetched again now and then and written over what is cached, and the
- * whole 30 days once per symbol for each OI_VERIFY_KEY (bump it to re-verify).
+ * for again, so ours kept the wrong ones and drew a 10-60% cliff. So the
+ * whole 30 days is checked against the exchange once a session per symbol
+ * (recheckOIHistory), and the last day fetched again now and then and written
+ * over what is cached, for corrections that land while the app runs.
  */
 const OI_RECHECK_SEC = 24 * 3600;
 const OI_RECHECK_EVERY_MS = 30 * 60 * 1000;
-const OI_VERIFY_KEY = 'oiHistoryVerified:2026-10-19';
+/**
+ * A recheck replaces the cached span only when the exchange answered with at
+ * least this share of the samples the span should hold -- a short answer is
+ * more likely a hiccup than a better history, and must not wipe the cache.
+ */
+const OI_RECHECK_MIN_SHARE = 0.9;
 
 /**
  * Footprint: the newest this-many bars, and never further back than the
@@ -93,24 +99,6 @@ const FOOTPRINT_BARS = 30;
 const FOOTPRINT_MAX_SEC = 6 * 3600;
 /** Below this bar spacing the rows have no room; turning it on zooms in. */
 const FOOTPRINT_MIN_SPACING = 8;
-
-/** Has this symbol's whole OI history been fetched again under OI_VERIFY_KEY? */
-function oiVerified(symbol) {
-  try {
-    return JSON.parse(localStorage.getItem(OI_VERIFY_KEY) || '[]').includes(symbol);
-  } catch {
-    return true; // no storage: do not re-fetch 30 days on every load
-  }
-}
-
-function markOiVerified(symbol) {
-  try {
-    const list = JSON.parse(localStorage.getItem(OI_VERIFY_KEY) || '[]');
-    if (!list.includes(symbol)) localStorage.setItem(OI_VERIFY_KEY, JSON.stringify([...list, symbol]));
-  } catch {
-    /* storage unavailable */
-  }
-}
 
 export class CardView {
   /**
@@ -154,6 +142,8 @@ export class CardView {
     this.oiHolesTried = new Set();
     /** symbol -> when its recent OI history was last fetched again. */
     this.oiRecheckedAt = new Map();
+    /** Symbols whose whole cached history was checked against the exchange this session. */
+    this.oiRechecked = new Set();
     this.oiSeq = 0;
     /** Footprint minutes from the hub, merged into bars on draw. */
     this.fpBook = new FootprintBook();
@@ -1033,7 +1023,9 @@ export class CardView {
     const from = bars[0].time - OI_MAX_GAP_SEC;
 
     try {
-      let history = await window.stockcard.readBars('perp', symbol, 'oi_5m', from, now);
+      // Off-grid records are the exchange's bad samples of 2026-10-15; until
+      // the recheck below drops them from disk, they are skipped here.
+      let history = (await window.stockcard.readBars('perp', symbol, 'oi_5m', from, now)).filter(onHistoryGrid);
       const fetched = await this.backfillOIHistory(symbol, from, now, history);
       if (fetched.length) {
         const byTime = new Map(history.map((r) => [r.time, r]));
@@ -1053,7 +1045,54 @@ export class CardView {
       this.chart.setOIData(bucketOI(this.oiPoints, this.chart.bars.map((b) => b.time), step));
     } catch (err) {
       console.error('[card] open interest failed', err);
+      return;
     }
+    if (!this.oiRechecked.has(symbol)) {
+      this.oiRechecked.add(symbol);
+      this.recheckOIHistory(symbol)
+        .then((changed) => {
+          if (changed && !this.destroyed && key === this.dataKey()) this.loadOI();
+        })
+        .catch((err) => console.error('[card] open interest recheck failed', err));
+    }
+  }
+
+  /**
+   * Once a session per symbol, after the pane is drawn: fetch the whole
+   * history the exchange still has and make the cache match it.
+   *
+   * The cache otherwise only grows -- a span stored once is never asked for
+   * again. That is right for history that does not change, and wrong when it
+   * does: on 2026-10-15 the exchange served bad samples for hours (see
+   * onHistoryGrid) and corrected them later, and the cache kept the bad ones,
+   * drawing ETH's OI falling from 2.31M to 1.88M when it had barely moved.
+   *
+   * 30 days of 5m is 18 requests at weight 0 against their own per-IP
+   * limit (1000 per 5 minutes), so once per session is cheap. Resolves to
+   * true when the cache changed.
+   */
+  async recheckOIHistory(symbol) {
+    const now = Math.floor(Date.now() / 1000);
+    const start = now - OI_HISTORY_SEC;
+    const cached = await window.stockcard.readBars('perp', symbol, 'oi_5m', start, now);
+    if (!cached.length) return false;
+    const rows = await this.feed.getOpenInterestHist(symbol, '5m', start * 1000, now * 1000);
+    const records = historyRecords(rows);
+    if (!records.length) return false;
+
+    const from = records[0].time;
+    const to = records[records.length - 1].time;
+    const expected = Math.floor((to - from) / OI_HISTORY_STEP_SEC) + 1;
+    if (records.length < expected * OI_RECHECK_MIN_SHARE) return false;
+
+    // Nothing to do when the span already holds exactly these values.
+    const stored = cached.filter((r) => r.time >= from && r.time <= to);
+    const byTime = new Map(stored.map((r) => [r.time, r.close]));
+    const same =
+      stored.length === records.length && records.every((r) => byTime.get(r.time) === r.close);
+    if (same) return false;
+    await window.stockcard.replaceBars('perp', symbol, 'oi_5m', from, to, records);
+    return true;
   }
 
   /**
@@ -1073,11 +1112,7 @@ export class CardView {
     const want = Math.max(from, now - OI_HISTORY_SEC);
     const have = cached.filter((r) => r.time >= want);
     let ranges = [];
-    const verified = oiVerified(symbol);
-    if (!verified) {
-      // Everything the exchange still has, over whatever is cached.
-      ranges.push([now - OI_HISTORY_SEC, now]);
-    } else if (!have.length) {
+    if (!have.length) {
       ranges.push([want, now]);
     } else {
       if (have[0].time > want + 300) ranges.push([want, have[0].time - 1]);
@@ -1097,7 +1132,7 @@ export class CardView {
 
     // The last day again, over the cache, to pick up the exchange's corrections.
     const recheckAt = this.oiRecheckedAt.get(symbol) || 0;
-    if (verified && Date.now() - recheckAt > OI_RECHECK_EVERY_MS) {
+    if (have.length && Date.now() - recheckAt > OI_RECHECK_EVERY_MS) {
       this.oiRecheckedAt.set(symbol, Date.now());
       const since = Math.max(want, now - OI_RECHECK_SEC);
       ranges = [[since, now], ...ranges.filter(([start]) => start < since).map(([a, b]) => [a, Math.min(b, since - 1)])];
@@ -1111,7 +1146,6 @@ export class CardView {
       records.push(...historyRecords(rows));
     }
     if (records.length) window.stockcard.writeBars('perp', symbol, 'oi_5m', records);
-    if (!verified && records.length) markOiVerified(symbol);
     return records;
   }
 

@@ -477,6 +477,12 @@ ipcMain.handle('bars:write', (_event, { market, symbol, interval, bars } = {}) =
   store.get('cacheBars') === false ? 0 : barStore.write(symbol, interval, bars, market)
 );
 
+// For a series whose source revises its past: the span ends up holding
+// exactly these records. See barStore.replace.
+ipcMain.handle('bars:replace', (_event, { market, symbol, interval, from, to, bars } = {}) =>
+  store.get('cacheBars') === false ? 0 : barStore.replace(symbol, interval, from, to, bars, market)
+);
+
 ipcMain.handle('bars:stats', () => barStore.stats());
 
 ipcMain.handle('bars:clear', (_event, symbol) => barStore.clear(symbol));

@@ -85,10 +85,24 @@ export function bucketOI(points, barTimes, stepSec) {
   return out;
 }
 
+/** The 5m history's samples sit on 5-minute boundaries. */
+export const OI_HISTORY_STEP_SEC = 300;
+
+/**
+ * A history record that can be trusted: on the period's grid. On 2026-10-15
+ * the exchange served samples every second or two for hours, without their
+ * USD value, at levels its own corrected history later disowned (ETH ~2.33M
+ * jumping about by 1%, after a stretch at ~1.9M). None of them was on a
+ * 5-minute boundary, which is what gives them away.
+ */
+export function onHistoryGrid(record) {
+  return record.time % OI_HISTORY_STEP_SEC === 0;
+}
+
 /** Binance history rows -> records for the oi_5m cache (one sample each). */
 export function historyRecords(rows) {
   return rows
-    .filter((r) => Number.isFinite(r.time) && Number.isFinite(r.value))
+    .filter((r) => Number.isFinite(r.time) && Number.isFinite(r.value) && r.time % (OI_HISTORY_STEP_SEC * 1000) === 0)
     .map((r) => {
       const time = Math.floor(r.time / 1000);
       // O=H=L=C: a point sample. Volume carries the USD value, which is free

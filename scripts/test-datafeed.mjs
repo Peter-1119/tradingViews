@@ -759,6 +759,16 @@ await test('bucketing: 1m OHLC passes through, 5m history steps across 1m bars',
   assert.equal(bars[4].open, 50, 'a bar opens where the previous one closed');
 });
 
+await test('history: samples off the 5m grid are dropped', () => {
+  const T = 1_790_000_100 - (1_790_000_100 % 300);
+  const rows = [
+    { time: T * 1000, value: 50, valueUsd: 5 },
+    { time: (T + 1) * 1000, value: 9999 },
+    { time: (T + 300) * 1000, value: 60, valueUsd: 6 },
+  ];
+  assert.deepEqual(historyRecords(rows).map((r) => r.close), [50, 60]);
+});
+
 await test('bucketing: coarse bars aggregate, and long gaps stay empty', () => {
   const T = 1_790_006_400 - (1_790_006_400 % 3600);
   const rows = [];
