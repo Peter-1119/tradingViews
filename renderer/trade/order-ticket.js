@@ -15,20 +15,27 @@
  * Sending takes two presses: the first turns the button into a summary
  * ("確認做多 0.005 BTC @ 84,213.4") with a 3s fuse; the second sends.
  *
+ * Above the liquidation estimate, which side is leaning: the funding rate
+ * (who pays whom, what this amount pays or earns per settlement, and the
+ * countdown) and the exchange's long/short ratios.
+ *
  * 只減倉 (reduce-only) turns it into a closing ticket: the side that closes
  * the position, sized as a share of it (100% is its exact size), no margin,
  * no TP/SL. Binance exempts these from the minimum notional, so a remainder
  * too small to trade can still be closed.
  */
 
-import { el } from '../util.js';
+import { el, formatFundingRate, formatCountdown } from '../util.js';
 import { envChip } from './env-chip.js';
+import { fundingSummary, MOOD_TEXT, share } from './market-mood.js';
 
 const ARM_MS = 3000;
 const PREVIEW_DEBOUNCE_MS = 120;
 const PCTS = [10, 25, 50, 100];
 /** Shares of the position, when reduce-only. */
 const REDUCE_PCTS = [25, 50, 75, 100];
+/** The exchange recomputes its long/short ratios every 5 minutes. */
+const RATIO_REFRESH_MS = 5 * 60 * 1000;
 
 function fmt(n, digits = 2) {
   if (n === null || n === undefined || !Number.isFinite(Number(n))) return '—';
@@ -66,6 +73,8 @@ export class OrderTicket {
    *   onClose: () => void,
    *   onDraft: (draft) => void,   // price/TP/SL/liq lines to preview on the chart
    *   getMarket: () => {last: number, mark: number},
+   *   getFunding: () => {fundingRate, nextFundingTime, intervalHours}|null,
+   *   onLongShort: (symbol) => Promise<{accounts, top}|null>,
    * }} hooks
    */
   constructor(hooks) {
@@ -89,6 +98,10 @@ export class OrderTicket {
     /** USDT the ticket opens with (from the main process); null for none. */
     this.defaultNotional = null;
     this.previews = { BUY: null, SELL: null };
+    /** The long/short ratios for `ratioSymbol`; null until they arrive. */
+    this.ratio = null;
+    this.ratioSymbol = '';
+    this.ratioTimer = null;
     this.armed = null;
     this.sending = false;
     this.seq = 0;
@@ -184,6 +197,41 @@ export class OrderTicket {
       el('div.tk-note', { text: '以標記價格觸發，整個倉位平倉。限價單會在成交後才掛上。' })
     );
 
+    this.fundRateEl = el('span.tk-mood__rate');
+    this.fundMoodEl = el('span.tk-mood__tag');
+    this.fundTimeEl = el('span.tk-mood__time');
+    this.fundPayEl = el('div.tk-mood__line.tk-mood__pay');
+    this.ratioEl = el('span.tk-mood__ratio');
+    this.moodBox = el(
+      'div.tk-mood',
+      {},
+      el(
+        'div.tk-mood__line',
+        {
+          title:
+            '資金費率：正的由多方付給空方，負的由空方付給多方。\n' +
+            '基準是每 8 小時 0.01%（永續價格貼著現貨時就是這個值）。\n' +
+            '高於基準＝多方願意多付錢持有，多方偏熱；低於基準（即使還是正的）＝永續比現貨便宜，空方偏熱。',
+        },
+        el('span.tk-mood__label', { text: '資金費率' }),
+        this.fundRateEl,
+        this.fundMoodEl,
+        this.fundTimeEl
+      ),
+      this.fundPayEl,
+      el(
+        'div.tk-mood__line',
+        {
+          title:
+            '多空比（幣安每 5 分鐘更新）：\n' +
+            '人數＝有倉位的帳戶裡，淨做多的比例（散戶居多）。\n' +
+            '大戶＝保證金前 20% 的帳戶，持倉量裡做多的比例。',
+        },
+        el('span.tk-mood__label', { text: '多空比' }),
+        this.ratioEl
+      )
+    );
+
     this.liqLong = el('span');
     this.liqShort = el('span');
     this.errorEl = el('div.tk-error', { hidden: true, role: 'alert' });
@@ -233,6 +281,7 @@ export class OrderTicket {
           el('label.tk-check', {}, this.tpslToggle, el('span', { text: '止盈 / 止損' })),
           this.tpslBody
         )),
+        this.moodBox,
         (this.liqBox = el(
           'div.tk-liq',
           { title: '成交後的預估強平價（全倉，依目前錢包餘額估算）' },
@@ -301,6 +350,9 @@ export class OrderTicket {
       this.setPrice(price, { silent: true });
     }
     this.disarm();
+    if (switched || !this.ratio) this.loadRatio();
+    clearInterval(this.ratioTimer);
+    this.ratioTimer = setInterval(() => this.loadRatio(), RATIO_REFRESH_MS);
     this.render();
     this.refresh();
     this.notionalInput.focus();
@@ -309,6 +361,8 @@ export class OrderTicket {
 
   close() {
     this.root.hidden = true;
+    clearInterval(this.ratioTimer);
+    this.ratioTimer = null;
     this.disarm();
     this.hooks.onDraft(null);
   }
@@ -318,6 +372,71 @@ export class OrderTicket {
     if (defaultNotional !== undefined) this.defaultNotional = defaultNotional;
     if (env) envChip(this.envEl, env);
     if (this.isOpen) this.render();
+  }
+
+  /* --------------------------------------------------------------- mood */
+
+  /** The card's funding moved (once a second, with the mark price). */
+  setFunding() {
+    if (this.isOpen) this.renderMood();
+  }
+
+  async loadRatio() {
+    const symbol = this.symbol;
+    if (!symbol || !this.hooks.onLongShort) return;
+    if (this.ratioSymbol !== symbol) {
+      this.ratio = null;
+      this.ratioSymbol = symbol;
+    }
+    try {
+      const ratio = await this.hooks.onLongShort(symbol);
+      if (symbol !== this.symbol) return;
+      this.ratio = ratio;
+    } catch {
+      /* keep the last one; the line says so by its age */
+    }
+    if (this.isOpen) this.renderMood();
+  }
+
+  renderMood() {
+    const f = this.hooks.getFunding ? this.hooks.getFunding() : null;
+    const notional = this.reduceOnly ? 0 : Number(this.notional) || 0;
+    const sum = fundingSummary(f, notional);
+    this.moodBox.hidden = this.reduceOnly || (!sum && !this.ratio);
+    if (sum) {
+      this.fundRateEl.textContent = formatFundingRate(sum.rate);
+      this.fundRateEl.className = `tk-mood__rate is-${sum.payer || 'none'}`;
+      this.fundMoodEl.textContent = MOOD_TEXT[sum.mood];
+      this.fundMoodEl.className = `tk-mood__tag is-${sum.mood}`;
+      this.fundMoodEl.title = `基準 ${formatFundingRate(sum.neutral)}（每 ${sum.intervalHours} 小時結算）`;
+      const left = f.nextFundingTime - Date.now();
+      this.fundTimeEl.textContent = left > 0 ? formatCountdown(left) : '結算中';
+      const who = sum.payer === 'long' ? '多方付給空方' : sum.payer === 'short' ? '空方付給多方' : '這次不收不付';
+      const each = `每 ${sum.intervalHours} 小時結算一次`;
+      this.fundPayEl.title = each;
+      if (sum.payer && sum.perSettle > 0) {
+        // What this amount pays (−) or earns (+) per settlement, by side.
+        const amt = fmt(sum.perSettle, sum.perSettle < 1 ? 3 : 2);
+        const longSign = sum.payer === 'long' ? '−' : '+';
+        const shortSign = sum.payer === 'long' ? '+' : '−';
+        this.fundPayEl.textContent = `${who} · 這筆 多 ${longSign}${amt} / 空 ${shortSign}${amt} U`;
+        this.fundPayEl.title = `${each}。以目前費率和這筆金額估算：做多${longSign === '−' ? '付出' : '收到'} ${amt}、做空${shortSign === '−' ? '付出' : '收到'} ${amt} USDT`;
+      } else {
+        this.fundPayEl.textContent = `${who}（${each}）`;
+      }
+    } else {
+      this.fundRateEl.textContent = '—';
+      this.fundMoodEl.textContent = '';
+      this.fundTimeEl.textContent = '';
+      this.fundPayEl.textContent = '';
+    }
+    const r = this.ratio;
+    if (r && r.accounts) {
+      const top = r.top ? ` · 大戶持倉 多 ${share(r.top.long)}` : '';
+      this.ratioEl.textContent = `人數 多 ${share(r.accounts.long)}${top}`;
+    } else {
+      this.ratioEl.textContent = '載入中…';
+    }
   }
 
   /* ------------------------------------------------------------ leverage */
@@ -567,6 +686,7 @@ export class OrderTicket {
     } else {
       this.qtyEl.textContent = `名目價值 USDT · ${avail}`;
     }
+    this.renderMood();
     this.liqLong.textContent = buy && buy.liq ? fmt(buy.liq, this.priceDigits()) : '—';
     this.liqShort.textContent = sell && sell.liq ? fmt(sell.liq, this.priceDigits()) : '—';
 
@@ -675,6 +795,7 @@ export class OrderTicket {
   }
 
   destroy() {
+    clearInterval(this.ratioTimer);
     clearTimeout(this.armTimer);
     clearTimeout(this.previewTimer);
     this.root.remove();

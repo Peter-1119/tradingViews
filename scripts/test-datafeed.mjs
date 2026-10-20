@@ -546,6 +546,7 @@ await test('markPriceUpdate reaches onFunding, and a late subscriber gets it at 
     markPrice: 84238.8,
     fundingRate: 0.00001462,
     nextFundingTime: 1790265600000,
+    intervalHours: 8,
   });
 
   const late = [];
@@ -782,6 +783,34 @@ await test('bucketing: coarse bars aggregate, and long gaps stay empty', () => {
   // Nothing for a day after the last sample: the next bars must not be invented.
   const later = bucketOI(pts, [T + 3600, T + 3600 + OI_MAX_GAP_SEC + 60, T + 86400], 60);
   assert.deepEqual(later.map((b) => b.time), [T + 3600], 'only the bar within the gap limit');
+});
+
+/* ------------------------------------------------------- market mood */
+
+const { fundingSummary } = await import('../renderer/trade/market-mood.js');
+
+await test('funding: read against the neutral 0.01% per 8h, scaled to the interval', () => {
+  assert.equal(fundingSummary(null), null);
+  // Pinned at the interest rate: neutral, longs still pay.
+  let f = fundingSummary({ fundingRate: 0.0001 }, 1000);
+  assert.equal(f.mood, 'neutral');
+  assert.equal(f.payer, 'long');
+  assert.ok(Math.abs(f.perSettle - 0.1) < 1e-12);
+  // Positive but under neutral: the perpetual is at a discount, shorts pressing.
+  f = fundingSummary({ fundingRate: 0.0000245 }, 0);
+  assert.equal(f.mood, 'short');
+  assert.equal(f.payer, 'long');
+  assert.equal(f.perSettle, 0, 'no amount, nothing to pay');
+  assert.equal(fundingSummary({ fundingRate: 0.0003 }).mood, 'long');
+  f = fundingSummary({ fundingRate: -0.0002 }, 500);
+  assert.equal(f.payer, 'short');
+  assert.ok(Math.abs(f.perSettle - 0.1) < 1e-12);
+  // A 4-hour symbol's neutral is half: 0.005%, so 0.008% runs hot there.
+  f = fundingSummary({ fundingRate: 0.00008, intervalHours: 4 });
+  assert.ok(Math.abs(f.neutral - 0.00005) < 1e-12);
+  assert.equal(f.mood, 'long');
+  assert.equal(fundingSummary({ fundingRate: 0.00008 }).mood, 'short', 'the same rate on 8h is under neutral');
+  assert.equal(fundingSummary({ fundingRate: 0 }).payer, null);
 });
 
 /* ----------------------------------------------------- price position */

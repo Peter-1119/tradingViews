@@ -96,6 +96,8 @@ export class TradeController {
       },
       getMarket: () => ({ last: this.lastPrice(), mark: this.mark || 0 }),
       getPosition: () => (this.snapshot && this.snapshot.position) || null,
+      getFunding: () => this.view.funding,
+      onLongShort: (symbol) => this.view.feed.getLongShortRatio(symbol),
     });
     this.bar = new PositionBar({
       onClose: () => this.closePosition(),
@@ -257,6 +259,11 @@ export class TradeController {
     this.mark = mark;
     this.bar.setMark(mark);
     if (this.snapshot && this.snapshot.position) this.renderLines();
+  }
+
+  /** The card's funding moved; the ticket reads it through getFunding. */
+  setFunding() {
+    this.ticket.setFunding();
   }
 
   lastPrice() {

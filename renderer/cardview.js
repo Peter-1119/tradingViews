@@ -2567,7 +2567,10 @@ export class CardView {
   applyFunding(funding) {
     this.funding = funding && this.card.market === 'perp' ? funding : null;
     this.renderFunding();
-    if (this.trade && this.funding) this.trade.setMark(this.funding.markPrice);
+    if (this.trade && this.funding) {
+      this.trade.setMark(this.funding.markPrice);
+      this.trade.setFunding();
+    }
   }
 
   /**

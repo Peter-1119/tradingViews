@@ -171,14 +171,19 @@ function markPriceStream(symbol) {
 }
 
 /** Binance premiumIndex / markPriceUpdate -> our Funding. */
-function toFunding(symbol, markPrice, rate, nextTime) {
+function toFunding(symbol, markPrice, rate, nextTime, intervalHours = 8) {
   return {
     symbol,
     markPrice: Number(markPrice),
     fundingRate: Number(rate),
     nextFundingTime: Number(nextTime),
+    // 8 for most; some symbols settle every 4 hours or every hour.
+    intervalHours,
   };
 }
+
+/** How long the funding-interval table is trusted; Binance changes it rarely. */
+const FUNDING_INFO_TTL_MS = 60 * 60 * 1000;
 
 export class BinanceProvider extends DataProvider {
   constructor({ logger = console, market = 'spot' } = {}) {
@@ -205,6 +210,9 @@ export class BinanceProvider extends DataProvider {
     // Last ticker per symbol, so a newly-mounted card gets a value immediately.
     this.tickerCache = new Map();
     this.fundingCache = new Map();
+    /** symbol -> funding interval in hours, for the symbols not on 8; see fundingIntervals(). */
+    this.fundingHours = new Map();
+    this.fundingHoursAt = 0;
     this.symbols = null;
 
     /** symbol -> {refs, timer, last, minute}; one poller however many cards watch it. */
@@ -359,10 +367,56 @@ export class BinanceProvider extends DataProvider {
   async getFunding(symbol) {
     if (!this.config.funding) return null;
     const upper = symbol.toUpperCase();
-    const raw = await this.fetchJson(`/premiumIndex?symbol=${encodeURIComponent(upper)}`);
-    const funding = toFunding(upper, raw.markPrice, raw.lastFundingRate, raw.nextFundingTime);
+    const [raw] = await Promise.all([
+      this.fetchJson(`/premiumIndex?symbol=${encodeURIComponent(upper)}`),
+      this.fundingIntervals().catch(() => {}),
+    ]);
+    const funding = toFunding(upper, raw.markPrice, raw.lastFundingRate, raw.nextFundingTime, this.fundingHours.get(upper) || 8);
     this.fundingCache.set(upper, funding);
     return funding;
+  }
+
+  /**
+   * The funding interval of every symbol that is not on the default 8 hours
+   * (`/fundingInfo` lists only those, plus a few at 8). Without it a 4-hour
+   * symbol's rate would be read against the 8-hour neutral level, and look
+   * twice as hot as it is.
+   */
+  async fundingIntervals() {
+    if (Date.now() - this.fundingHoursAt < FUNDING_INFO_TTL_MS) return;
+    this.fundingHoursAt = Date.now();
+    try {
+      const rows = await this.fetchJson('/fundingInfo');
+      this.fundingHours = new Map(rows.map((r) => [r.symbol, Number(r.fundingIntervalHours) || 8]));
+    } catch (err) {
+      this.fundingHoursAt = 0;
+      throw err;
+    }
+  }
+
+  /**
+   * Who is long and who is short, from the exchange's trading statistics
+   * (refreshed every 5 minutes there). Perpetuals only.
+   *
+   *   accounts  share of all accounts holding a position that are net long
+   *   top       share of the top 20% of accounts' position size that is long
+   *
+   * @returns {Promise<null|{symbol, time, accounts: {long, short}, top: {long, short}|null}>}
+   */
+  async getLongShortRatio(symbol) {
+    if (!this.config.dataRest) return null;
+    const upper = encodeURIComponent(symbol.toUpperCase());
+    const ask = (path) =>
+      this.fetchJson(`/${path}?symbol=${upper}&period=5m&limit=1`, { base: this.config.dataRest }).then((rows) =>
+        Array.isArray(rows) && rows.length ? rows[rows.length - 1] : null
+      );
+    const [accounts, top] = await Promise.all([
+      ask('globalLongShortAccountRatio'),
+      ask('topLongShortPositionRatio').catch(() => null),
+    ]);
+    if (!accounts) return null;
+    const pair = (row) => (row ? { long: Number(row.longAccount), short: Number(row.shortAccount) } : null);
+    return { symbol: symbol.toUpperCase(), time: Number(accounts.timestamp), accounts: pair(accounts), top: pair(top) };
   }
 
   /* ------------------------------------------------------ open interest */
@@ -957,7 +1011,7 @@ export class BinanceProvider extends DataProvider {
     }
 
     if (data.e === 'markPriceUpdate') {
-      const funding = toFunding(data.s, data.p, data.r, data.T);
+      const funding = toFunding(data.s, data.p, data.r, data.T, this.fundingHours.get(data.s) || 8);
       this.fundingCache.set(data.s, funding);
       for (const sub of this.subs.values()) {
         if (sub.symbol !== data.s) continue;

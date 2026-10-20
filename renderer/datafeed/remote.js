@@ -68,6 +68,11 @@ export class RemoteProvider extends DataProvider {
     return this.call('getFunding', [symbol]);
   }
 
+  /** Perpetuals only: {symbol, time, accounts: {long, short}, top: {long, short}|null}. */
+  getLongShortRatio(symbol) {
+    return this.call('getLongShortRatio', [symbol]);
+  }
+
   /** Perpetuals only: [{time (ms), value, valueUsd}], 5m and up, 30 days deep. */
   getOpenInterestHist(symbol, period, startMs, endMs) {
     return this.call('getOpenInterestHist', [symbol, period, startMs, endMs]);
