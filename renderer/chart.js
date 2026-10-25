@@ -28,7 +28,7 @@ import { MeasurePrimitive } from './measure-primitive.js';
 import { ExtremesPrimitive } from './extremes-primitive.js';
 import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
-import { VolumePane, SqueezeBandsPrimitive } from './volume-pane.js';
+import { VolumePane, SqueezeBandsPrimitive, OVERLAY_SHARE } from './volume-pane.js';
 import { locale as uiLocale, isEnglish } from './i18n.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
@@ -325,7 +325,7 @@ export class CardChart {
     /** @type {VolumePane | null} */
     this.volume = null;
     /** Thin volume: threshold as a rank (null = off), filter memory in bars, bar length. */
-    this.volumeOpts = { threshold: 0.05, memory: 1000, intervalSec: 60 };
+    this.volumeOpts = { threshold: 0.05, memory: 1000, intervalSec: 60, color: 'split', overlay: false };
     this.oiSeries = null;
     this.showOI = false;
     /** OHLC records aligned to `bars`, from open-interest.js; the line plots close. */
@@ -493,8 +493,14 @@ export class CardChart {
     this.oiSeries = null;
 
     let pane = 1;
+    const overlay = this.showVolume && this.volumeOpts.overlay;
+    // Overlaid volume takes the bottom of the price pane: lift the candles
+    // off most of it, as TradingView does, leaving a little overlap.
+    this.chart.priceScale('right').applyOptions({
+      scaleMargins: { top: 0.14, bottom: overlay ? OVERLAY_SHARE * 0.9 : 0.12 },
+    });
     if (this.showVolume) {
-      this.volume = new VolumePane(this, pane++, this.volumeOpts);
+      this.volume = new VolumePane(this, overlay ? 0 : pane++, this.volumeOpts);
       this.volume.render();
     }
     if (this.showOI) {
@@ -1100,13 +1106,17 @@ export class CardChart {
 
   /**
    * Thin-volume settings: `threshold` a rank (0.05 = 5%) or null for none,
-   * `memory` the filter's memory in bars, `intervalSec` the bar length.
+   * `memory` the filter's memory in bars, `intervalSec` the bar length; and
+   * how it looks: `color` 'split' | 'candle', `overlay` on the price pane.
    */
   setVolumeOptions(opts) {
     const next = { ...this.volumeOpts, ...opts };
     if (JSON.stringify(next) === JSON.stringify(this.volumeOpts)) return;
+    const moved = next.overlay !== this.volumeOpts.overlay;
     this.volumeOpts = next;
-    if (this.volume) this.volume.setOptions(next);
+    // Another pane, another scale: rebuild rather than restyle.
+    if (moved) this.syncSubPanes();
+    else if (this.volume) this.volume.setOptions(next);
   }
 
   setVolumeVisible(visible) {

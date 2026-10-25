@@ -144,11 +144,17 @@ export const TOOLS = [
   {
     id: 'volume',
     label: t('成交量'),
-    hint: t('成交量副圖：主動買／賣拆分與縮量標示'),
+    hint: t('成交量：主動買／賣拆分或跟 K 棒同色、疊在 K 線圖底部或獨立副圖，與縮量標示'),
     toggle: true,
     menu: [
       { value: 'off', label: t('關閉') },
       { value: 'on', label: t('顯示成交量') },
+      { heading: t('顏色') },
+      { value: 'col:split', group: 'col', label: t('主動買／賣拆分') },
+      { value: 'col:candle', group: 'col', label: t('跟 K 棒同色') },
+      { heading: t('位置') },
+      { value: 'lay:overlay', group: 'lay', label: t('疊在 K 線圖底部') },
+      { value: 'lay:pane', group: 'lay', label: t('獨立副圖') },
       { heading: t('縮量門檻 PR ≤') },
       { value: 'sq:off', group: 'sq', label: t('不標示') },
       { value: 'sq:2', group: 'sq', label: '2%' },

@@ -18,6 +18,13 @@
  *
  * Bars cached before the taker split was recorded have no buy part; they are
  * drawn whole in their candle's colour, as before.
+ *
+ * Two choices on top (the toolbar's volume menu):
+ *   - colour: 'split' (the above) or 'candle', each bar whole in its
+ *     candle's colour, red under a red candle -- the classic look;
+ *   - layout: its own pane below, or overlaid on the bottom of the price pane
+ *     as TradingView does, on a scale of its own, so the candles keep the
+ *     whole height of the card.
  */
 
 import { HistogramSeries, LineSeries } from './vendor/lightweight-charts.mjs';
@@ -26,6 +33,8 @@ import { formatCompact } from './util.js';
 import { t } from './i18n.js';
 
 const SLATE = '#8494b0';
+/** Overlaid on the price pane, volume takes its bottom this much. */
+export const OVERLAY_SHARE = 0.22;
 const READOUT_FONT = "10px 'Segoe UI', -apple-system, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif";
 
 export function withAlpha(hex, alpha) {
@@ -68,11 +77,13 @@ class VolumeOverlayRenderer {
         }
       }
 
-      // The readout, top right, clear of the rail on the left.
+      // The readout, top right, clear of the rail on the left. Overlaid, the
+      // top of the pane is the price's: it goes just above the volume instead.
       const parts = pane.readout();
       if (parts.length) {
         ctx.font = READOUT_FONT;
         ctx.textBaseline = 'top';
+        const top = pane.opts.overlay ? Math.round(mediaSize.height * (1 - OVERLAY_SHARE)) - 18 : 2;
         let x = mediaSize.width - 6;
         for (let k = parts.length - 1; k >= 0; k--) {
           const p = parts[k];
@@ -80,11 +91,11 @@ class VolumeOverlayRenderer {
           x -= w;
           if (p.chip) {
             ctx.fillStyle = withAlpha(SLATE, 0.22);
-            roundRect(ctx, x - 4, 2, w + 8, 14, 3);
+            roundRect(ctx, x - 4, top, w + 8, 14, 3);
             ctx.fill();
           }
           ctx.fillStyle = p.color;
-          ctx.fillText(p.text, x, 4);
+          ctx.fillText(p.text, x, top + 2);
           x -= p.chip ? 12 : 8;
         }
       }
@@ -196,8 +207,10 @@ export class VolumePane {
   /**
    * @param {import('./chart.js').CardChart} card
    * @param {number} paneIndex
-   * @param {{threshold: number|null, memory: number, intervalSec: number}} opts
-   *        threshold as a rank (0.05 = 5%), null for no thin-volume marking
+   * @param {{threshold: number|null, memory: number, intervalSec: number,
+   *          color?: 'split'|'candle', overlay?: boolean}} opts
+   *        threshold as a rank (0.05 = 5%), null for no thin-volume marking;
+   *        `overlay` means paneIndex is the price pane's (see OVERLAY_SHARE)
    */
   constructor(card, paneIndex, opts) {
     this.card = card;
@@ -205,7 +218,10 @@ export class VolumePane {
     this.stats = null;
     this.hover = null; // logical index under the crosshair
     const chart = card.chart;
-    const common = { priceFormat: { type: 'volume' }, priceLineVisible: false, lastValueVisible: false };
+    // Overlaid, a scale of its own: any id but 'left'/'right' is an overlay
+    // scale, drawn without an axis.
+    const scale = opts.overlay ? { priceScaleId: 'volume' } : {};
+    const common = { priceFormat: { type: 'volume' }, priceLineVisible: false, lastValueVisible: false, ...scale };
     this.total = chart.addSeries(HistogramSeries, common, paneIndex);
     this.buy = chart.addSeries(HistogramSeries, common, paneIndex);
     this.line = chart.addSeries(
@@ -218,10 +234,14 @@ export class VolumePane {
         lastValueVisible: false,
         crosshairMarkerVisible: false,
         priceFormat: { type: 'volume' },
+        ...scale,
       },
       paneIndex
     );
-    this.total.priceScale().applyOptions({ scaleMargins: { top: 0.22, bottom: 0 }, borderVisible: false });
+    this.total.priceScale().applyOptions({
+      scaleMargins: opts.overlay ? { top: 1 - OVERLAY_SHARE, bottom: 0 } : { top: 0.22, bottom: 0 },
+      borderVisible: false,
+    });
     this.overlay = new VolumeOverlay(this);
     this.total.attachPrimitive(this.overlay);
 
@@ -290,22 +310,27 @@ export class VolumePane {
     this.overlay.redraw();
   }
 
-  /** The two histogram points of one bar. */
+  /**
+   * The two histogram points of one bar. Near-opaque: at 40% the bars sank
+   * into the background. Overlaid on the candles a little lighter, so a
+   * candle crossing the volume still reads.
+   */
   points(bar, level) {
     const { up, down } = this.card.colors;
-    const split = Number.isFinite(bar.buyVolume);
+    const a = this.opts.overlay ? 0.7 : 0.85;
+    const split = this.opts.color !== 'candle' && Number.isFinite(bar.buyVolume);
     if (level) {
       return [
-        { time: bar.time, value: bar.volume, color: withAlpha(SLATE, 0.4) },
-        split ? { time: bar.time, value: bar.buyVolume, color: withAlpha(SLATE, 0.7) } : { time: bar.time },
+        { time: bar.time, value: bar.volume, color: withAlpha(SLATE, a * 0.6) },
+        split ? { time: bar.time, value: bar.buyVolume, color: withAlpha(SLATE, a) } : { time: bar.time },
       ];
     }
     if (!split) {
-      return [{ time: bar.time, value: bar.volume, color: withAlpha(bar.close >= bar.open ? up : down, 0.4) }, { time: bar.time }];
+      return [{ time: bar.time, value: bar.volume, color: withAlpha(bar.close >= bar.open ? up : down, a) }, { time: bar.time }];
     }
     return [
-      { time: bar.time, value: bar.volume, color: withAlpha(down, 0.45) },
-      { time: bar.time, value: bar.buyVolume, color: withAlpha(up, 0.55) },
+      { time: bar.time, value: bar.volume, color: withAlpha(down, a) },
+      { time: bar.time, value: bar.buyVolume, color: withAlpha(up, a) },
     ];
   }
 

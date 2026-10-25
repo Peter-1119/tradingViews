@@ -523,6 +523,8 @@ export class CardView {
       // A threshold or memory choice turns the pane on too: it is what shows them.
       if (value.startsWith('sq:')) this.onPatch({ showVolume: true, volSqueeze: value.slice(3) });
       else if (value.startsWith('mem:')) this.onPatch({ showVolume: true, volMemory: value.slice(4) });
+      else if (value.startsWith('col:')) this.onPatch({ showVolume: true, volColor: value.slice(4) });
+      else if (value.startsWith('lay:')) this.onPatch({ showVolume: true, volLayout: value.slice(4) });
       else this.onPatch({ showVolume: value === 'on' });
       return;
     }
@@ -1074,6 +1076,8 @@ export class CardView {
       threshold: sq === 'off' ? null : Number(sq) / 100,
       memory: Number(this.card.volMemory) || 1000,
       intervalSec: intervalToMs(this.card.interval) / 1000,
+      color: this.card.volColor === 'candle' ? 'candle' : 'split',
+      overlay: this.card.volLayout !== 'pane',
     });
   }
 
@@ -1089,6 +1093,8 @@ export class CardView {
     this.toolbar.setMenuValue('volume', this.card.showVolume ? 'on' : 'off');
     this.toolbar.setMenuValue('volume', `sq:${this.card.volSqueeze || '5'}`, 'sq');
     this.toolbar.setMenuValue('volume', `mem:${this.card.volMemory || '1000'}`, 'mem');
+    this.toolbar.setMenuValue('volume', `col:${this.card.volColor || 'split'}`, 'col');
+    this.toolbar.setMenuValue('volume', `lay:${this.card.volLayout || 'overlay'}`, 'lay');
     this.toolbar.setToggled('oi', this.card.showOI);
     this.toolbar.setMenuValue('htf', this.card.showHtf ? this.htfInterval() : 'off');
     this.toolbar.setToggled('drawings', this.card.hideDrawings);
@@ -3058,7 +3064,8 @@ export class CardView {
     if (this.chart) {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);
-      if (next.volSqueeze !== prev.volSqueeze || next.volMemory !== prev.volMemory || next.interval !== prev.interval) {
+      const volChanged = ['volSqueeze', 'volMemory', 'volColor', 'volLayout', 'interval'].some((k) => next[k] !== prev[k]);
+      if (volChanged) {
         this.applyVolumeOptions();
       }
       if (next.volumeProfile !== prev.volumeProfile) this.applyVolumeProfile(next.volumeProfile);

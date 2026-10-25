@@ -213,6 +213,10 @@ function sanitizeCard(raw, index = 0) {
     // is thin, and the memory of the filtered distribution it ranks against.
     volSqueeze: pick(card.volSqueeze, ['off', '2', '3', '5', '10'], '5'),
     volMemory: pick(card.volMemory, ['500', '1000', '2000'], '1000'),
+    // Volume bars: taker buys over sells ('split'), or whole in the candle's
+    // colour ('candle'); overlaid on the price pane (the default) or below it.
+    volColor: pick(card.volColor, ['split', 'candle'], 'split'),
+    volLayout: pick(card.volLayout, ['overlay', 'pane'], 'overlay'),
     // Was a boolean; `true` meant today's UTC-session profile, which is what
     // 'day' is now. Old configs keep showing what they showed.
     volumeProfile: pick(
