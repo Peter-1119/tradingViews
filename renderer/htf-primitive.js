@@ -189,9 +189,11 @@ export class HtfPrimitive {
         high: yHigh,
         low: yLow,
         live,
-        fill: rgba(color, live ? 0.2 : 0.13),
-        stroke: rgba(color, live ? 0.75 : 0.4),
-        wick: rgba(color, 0.4),
+        // Strong enough to read zoomed out, where a box is a few pixels of
+        // fill behind many candles; the candles are drawn on top regardless.
+        fill: rgba(color, live ? 0.3 : 0.24),
+        stroke: rgba(color, live ? 0.95 : 0.75),
+        wick: rgba(color, 0.7),
       });
     }
     return out;

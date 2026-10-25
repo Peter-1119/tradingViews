@@ -57,7 +57,8 @@ const HISTORY_PREFETCH_BARS = 20;
  * frame a session on a 1m chart, short enough that ten of them still mean
  * something. Only drawn under 4h -- on a 4h chart the box is the candle.
  */
-const HTF_COUNT = 10;
+/** Higher-timeframe candles kept and drawn: enough to read a trend, and cheap. */
+const HTF_COUNT = 50;
 /** Card intervals a 4h block is more than one candle on (the 4H-session profile). */
 const BELOW_4H = ['1m', '5m', '15m', '1h'];
 

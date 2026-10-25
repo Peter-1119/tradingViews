@@ -313,7 +313,7 @@
   "把 {amt} USDT 存成預設金額，之後每次開下單票都會自動帶入（目前預設 {def}）": "Save {amt} USDT as the default amount, filled in every time the ticket opens (current default {def})",
   "把 {name} 加入常用清單（並監控 4H / 24H / 72H 位置）": "Add {name} to the watchlist (and track its 4H / 24H / 72H position)",
   "把 {name} 從常用清單移除": "Remove {name} from the watchlist",
-  "把最近 10 根大週期 K 棒（1H / 4H / 1D / 1W）疊在小週期圖上，未收盤的那根會跟著跳（點一下選週期）。只在比它小的週期顯示": "Overlay the last 10 higher-timeframe candles (1H / 4H / 1D / 1W) on a lower-interval chart; the open one updates live (click to pick the interval). Shown only on intervals below it",
+  "把最近 50 根大週期 K 棒（1H / 4H / 1D / 1W）疊在小週期圖上，未收盤的那根會跟著跳（點一下選週期）。只在比它小的週期顯示": "Overlay the last 50 higher-timeframe candles (1H / 4H / 1D / 1W) on a lower-interval chart; the open one updates live (click to pick the interval). Shown only on intervals below it",
   "折線": "Line",
   "拖曳可改價（Esc 取消）": "Drag to change the price (Esc cancels)",
   "拖曳可移動提醒": "Drag to move the alert",
