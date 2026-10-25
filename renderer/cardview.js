@@ -57,10 +57,9 @@ const HISTORY_PREFETCH_BARS = 20;
  * frame a session on a 1m chart, short enough that ten of them still mean
  * something. Only drawn under 4h -- on a 4h chart the box is the candle.
  */
-const HTF_INTERVAL = '4h';
-const HTF_SECONDS = 4 * 3600;
 const HTF_COUNT = 10;
-const HTF_BELOW = ['1m', '5m', '15m', '1h'];
+/** Card intervals a 4h block is more than one candle on (the 4H-session profile). */
+const BELOW_4H = ['1m', '5m', '15m', '1h'];
 
 const MARKET_IDS = Object.keys(MARKET_LABELS);
 const otherMarket = (market) => (market === 'perp' ? 'spot' : 'perp');
@@ -460,7 +459,6 @@ export class CardView {
     this.loadVRanges();
     this.applyVolumeProfile(this.card.volumeProfile || 'off');
     this.applyVpDetail();
-    this.toolbar.setToggled('htf', this.card.showHtf);
     if (this.card.showHtf) this.setHtfEnabled(true);
     this.renderRail();
     this.periodLevelsData = [];
@@ -494,9 +492,8 @@ export class CardView {
       return;
     }
     if (id === 'htf') {
-      const next = !this.card.showHtf;
-      this.toolbar.setToggled('htf', next);
-      window.stockcard.updateCard(this.card.id, { showHtf: next });
+      // A display layer with a choice of interval; 'off' keeps the interval.
+      this.onPatch(value === 'off' ? { showHtf: false } : { showHtf: true, htfInterval: value });
       return;
     }
     if (id === 'opens') {
@@ -804,17 +801,24 @@ export class CardView {
 
   /* ------------------------------------------------- higher timeframe */
 
+  /** The overlay's interval: 1h, 4h (the default), 1d or 1w. */
+  htfInterval() {
+    return this.card.htfInterval || '4h';
+  }
+
+  /** Only over a finer chart: on a 4h chart a 4h box is the candle itself. */
   htfApplies() {
-    return this.card.showHtf && HTF_BELOW.includes(this.card.interval);
+    return this.card.showHtf && intervalToMs(this.card.interval) < intervalToMs(this.htfInterval());
   }
 
   /**
-   * The last N 4h candles, drawn as translucent boxes over the lower timeframe.
+   * The last N higher-timeframe candles (1h, 4h, 1d or 1w), drawn as
+   * translucent boxes over the lower timeframe.
    *
-   * The forming one is fed by its own subscription on the 4h stream rather than
-   * being aggregated out of the card's own bars: the card may be showing 1m,
-   * where 500 bars is only eight hours, and the exchange's own 4h candle is
-   * authoritative anyway. Streams are ref-counted in the hub, so a second
+   * The forming one is fed by its own subscription on that interval's stream
+   * rather than being aggregated out of the card's own bars: the card may be
+   * showing 1m, where 500 bars is only eight hours, and the exchange's own
+   * candle is authoritative anyway. Streams are ref-counted in the hub, so a second
    * subscription on the same symbol costs one extra kline stream, not a second
    * connection.
    */
@@ -826,7 +830,7 @@ export class CardView {
       return;
     }
     await this.loadHtf();
-    this.feed.subscribe(`${this.card.id}:htf`, this.card.symbol, HTF_INTERVAL, {
+    this.feed.subscribe(`${this.card.id}:htf`, this.card.symbol, this.htfInterval(), {
       onBar: (bar) => {
         if (this.destroyed || !this.htfApplies()) return;
         const last = this.htfBars[this.htfBars.length - 1];
@@ -843,12 +847,14 @@ export class CardView {
   async loadHtf() {
     const key = this.dataKey();
     try {
-      const bars = await this.feed.getHistory(this.card.symbol, HTF_INTERVAL, HTF_COUNT);
-      if (this.destroyed || key !== this.dataKey()) return;
+      const interval = this.htfInterval();
+      const bars = await this.feed.getHistory(this.card.symbol, interval, HTF_COUNT);
+      // The overlay's interval may have been switched while this was in flight.
+      if (this.destroyed || key !== this.dataKey() || interval !== this.htfInterval()) return;
       this.htfBars = bars.slice(-HTF_COUNT);
       this.renderHtf();
     } catch (err) {
-      console.error('[card] 4h overlay failed', err);
+      console.error('[card] higher-timeframe overlay failed', err);
     }
   }
 
@@ -859,7 +865,7 @@ export class CardView {
    */
   renderHtf() {
     if (!this.chart) return;
-    this.chart.setHtf(this.htfBars, this.htfApplies());
+    this.chart.setHtf(this.htfBars, this.htfApplies(), intervalToMs(this.htfInterval()) / 1000);
   }
 
   /* -------------------------------------------------------------- history */
@@ -1010,7 +1016,7 @@ export class CardView {
   async loadPeriodProfiles({ liveOnly = false } = {}) {
     if (!this.chart || this.card.volumeProfile !== 'session4h') return;
     // A 4h block on a 4h-or-coarser chart is a single candle, or less.
-    if (!HTF_BELOW.includes(this.card.interval)) {
+    if (!BELOW_4H.includes(this.card.interval)) {
       this.chart.setPeriodProfiles([]);
       return;
     }
@@ -1078,6 +1084,7 @@ export class CardView {
     this.toolbar.setMenuValue('volume', `sq:${this.card.volSqueeze || '5'}`, 'sq');
     this.toolbar.setMenuValue('volume', `mem:${this.card.volMemory || '1000'}`, 'mem');
     this.toolbar.setToggled('oi', this.card.showOI);
+    this.toolbar.setMenuValue('htf', this.card.showHtf ? this.htfInterval() : 'off');
     this.toolbar.setToggled('drawings', this.card.hideDrawings);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
     this.toolbar.setMenuValue('footprint', this.card.footprint ? 'on' : 'off');
@@ -3008,9 +3015,13 @@ export class CardView {
         else this.chart.setFootprint(this.fpBook, Number(next.fpRatio) || 3);
       }
       if (!!next.hideDrawings !== !!prev.hideDrawings) this.chart.setDrawingsHidden(next.hideDrawings);
-      if (next.showHtf !== prev.showHtf && !marketChanged) {
-        this.toolbar.setToggled('htf', next.showHtf);
-        this.setHtfEnabled(next.showHtf);
+      const htfChanged = next.showHtf !== prev.showHtf || (next.htfInterval || '4h') !== (prev.htfInterval || '4h');
+      if (htfChanged && !marketChanged) {
+        // A new interval is a new stream and new bars: drop the old first.
+        this.feed.unsubscribe(`${this.card.id}:htf`);
+        this.htfBars = [];
+        this.renderHtf();
+        if (next.showHtf) this.setHtfEnabled(true);
       }
     }
 
@@ -3067,7 +3078,6 @@ export class CardView {
         this.applyVolumeProfile(this.card.volumeProfile || 'off');
         // Same ranges, the other market's volume: the data key has changed.
         if (next.symbol === prev.symbol) this.syncVRanges();
-        this.toolbar.setToggled('htf', this.card.showHtf);
         this.htfBars = [];
         this.renderHtf();
         if (this.card.showHtf) this.setHtfEnabled(true);

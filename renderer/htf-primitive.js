@@ -19,7 +19,6 @@
  * so each box hugs exactly the candles it is made of.
  */
 
-const SECONDS = 4 * 3600;
 
 function rgba(hex, alpha) {
   const v = hex.replace('#', '');
@@ -93,6 +92,7 @@ class HtfPaneView {
 export class HtfPrimitive {
   /** @param {import('./chart.js').CardChart} card  for its interpolated conversions */
   constructor(card) {
+    this.seconds = 4 * 3600;
     this.card = card;
     this.bars = [];
     this.enabled = false;
@@ -122,6 +122,13 @@ export class HtfPrimitive {
   }
 
   /* ----------------------------------------------------------- public */
+
+  /** What each box spans, in seconds: the overlay's interval. */
+  setPeriod(seconds) {
+    if (this.seconds === seconds) return;
+    this.seconds = seconds;
+    this.update();
+  }
 
   setBars(bars) {
     this.bars = Array.isArray(bars) ? bars : [];
@@ -154,7 +161,7 @@ export class HtfPrimitive {
     const out = [];
     for (const bar of this.bars) {
       const startLogical = card.logicalFromTime(bar.time);
-      const endLogical = card.logicalFromTime(bar.time + SECONDS);
+      const endLogical = card.logicalFromTime(bar.time + this.seconds);
       if (startLogical === null || endLogical === null) continue;
 
       const live = bar.closed === false;

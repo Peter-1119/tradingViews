@@ -1317,7 +1317,8 @@ export class CardChart {
   }
 
   /** Higher-timeframe candles, drawn by the chart itself beneath the series. */
-  setHtf(bars, enabled) {
+  setHtf(bars, enabled, seconds = 4 * 3600) {
+    this.htf.setPeriod(seconds);
     this.htf.setBars(bars);
     this.htf.setEnabled(enabled);
   }

@@ -16,6 +16,8 @@ const { randomUUID } = require('crypto');
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const CHART_TYPES = ['candlestick', 'line', 'area'];
 const VP_MODES = ['off', 'session4h', 'visible', 'day'];
+/** Higher-timeframe overlay intervals; '1w' is Binance's weekly (Monday 00:00 UTC). */
+const HTF_INTERVALS = ['1h', '4h', '1d', '1w'];
 /** Binance spot, or USD-M perpetuals. */
 const MARKETS = ['spot', 'perp'];
 
@@ -219,6 +221,8 @@ function sanitizeCard(raw, index = 0) {
     // Row height of every volume profile on the card, range ones included.
     vpDetail: pick(card.vpDetail, ['coarse', 'normal', 'fine', 'ultra'], 'normal'),
     showHtf: card.showHtf === true,
+    // The overlay's own interval: what each box spans.
+    htfInterval: pick(card.htfInterval, HTF_INTERVALS, '4h'),
     // The user's drawings hidden for a clean chart; they stay in their stores.
     hideDrawings: card.hideDrawings === true,
     // Open interest sub-pane. Perpetuals only; a spot card keeps the setting

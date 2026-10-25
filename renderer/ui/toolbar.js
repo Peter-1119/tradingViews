@@ -100,9 +100,16 @@ export const TOOLS = [
   },
   {
     id: 'htf',
-    label: t('4H 疊圖'),
-    hint: t('把最近 10 根 4 小時 K 棒疊在小週期圖上，未收盤的那根會跟著跳'),
+    label: t('大週期疊圖'),
+    hint: t('把最近 10 根大週期 K 棒（1H / 4H / 1D / 1W）疊在小週期圖上，未收盤的那根會跟著跳（點一下選週期）。只在比它小的週期顯示'),
     toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: '1h', label: '1H' },
+      { value: '4h', label: '4H' },
+      { value: '1d', label: '1D' },
+      { value: '1w', label: t('1W（7 天）') },
+    ],
   },
   {
     id: 'opens',

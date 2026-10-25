@@ -104,6 +104,8 @@ export const INTERVAL_MS = Object.freeze({
   '1h': 60 * 60_000,
   '4h': 4 * 60 * 60_000,
   '1d': 24 * 60 * 60_000,
+  // Not a card interval either; the higher-timeframe overlay can be weekly.
+  '1w': 7 * 24 * 60 * 60_000,
 });
 
 export function intervalToMs(interval) {
