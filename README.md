@@ -1,356 +1,370 @@
-**繁體中文** | [English](README.en.md)
+**English** | [繁體中文](README.zh-TW.md)
 
 # StockCard
 
-桌面透明行情小卡片。無邊框、半透明、可置頂,即時顯示加密貨幣線圖，現貨與 USDⓈ-M 永續合約一鍵切換。
+Transparent desktop ticker cards. Frameless, translucent, optionally always-on-top, showing live crypto charts, with one-click switching between spot and USDⓈ-M perpetual futures.
 
-**Electron 43 + TradingView Lightweight Charts v5 + Binance 公開行情 API**(免註冊、免 API key)
+**Electron 43 + TradingView Lightweight Charts v5 + Binance public market data API** (no sign-up, no API key)
+
+**Interface language:** the app starts in English. To switch to Traditional Chinese, open a card's settings (gear icon) and, in "Global settings", set the "語言 Language" row to "中文"; the windows reload. The UI labels quoted below are the English ones; the original Chinese label is given in parentheses where it helps.
 
 ---
 
-## 快速開始
+## Quick start
 
 ```bash
-npm install       # 同時把 lightweight-charts 複製到 renderer/vendor/
-npm start         # 執行
-npm run dev       # 執行並把 renderer 的 console 轉到終端機
-npm test          # datafeed 的斷線 / 重連 / 回補測試
-npm run check     # 全樹語法檢查
-npm run dist      # 打包成 Windows 安裝檔 + 免安裝版 -> release/
+npm install       # also copies lightweight-charts into renderer/vendor/
+npm start         # run
+npm run dev       # run, piping the renderer console to the terminal
+npm test          # tests: datafeed (disconnect / reconnect / backfill), bar cache, trading rules,
+                  # paper engine, thin-volume ranking, footprint
+npm run check     # syntax check of the whole tree + i18n check (scripts/check-i18n.mjs)
+npm run dist      # build a Windows installer + portable build -> release/
 ```
 
-第一次啟動會自動開一張 BTCUSDT 1 分 K 線卡片。
+On first launch a BTCUSDT 1-minute candlestick card opens automatically.
 
-## 操作
+## Usage
 
-| 動作 | 方式 |
+| Action | How |
 | --- | --- |
-| 移動卡片 | 拖曳卡片頂端(滑鼠移上去標題列才會浮現) |
-| 調整大小 | 拖曳右下角的斜線把手 |
-| 畫面高低點 | 目前畫面內的最高點和最低點會自動標出價格（K 線看最高價 / 最低價，折線與面積看收盤價），捲動或縮放時即時更新 |
-| 讀取價位 | 十字線跟著游標走,右側價格軸即時顯示游標所在價位 |
-| 縮放時間 | 在圖上滾輪，或拖曳下方時間軸 |
-| 縮放價格 | 在右側價格軸上**滾輪**或**上下拖曳**。拉伸後自動縮放會關閉，這時在圖上拖曳可以上下左右自由平移。**雙擊價格軸**恢復自動縮放 |
-| 重置視圖 | 移動過視圖後，兩軸交角會出現重置鈕；或按 `Alt+R`。恢復自動縮放、預設 K 棒寬度，**一次**跳回最新 K 棒（不管往回拉多遠） |
-| 最新價格 | 價格軸上的價格標籤與虛線永遠是**最新一根**的價格，往回看歷史時也一樣。最新價在畫面範圍外時，標籤會固定在價格軸頂端或底端，顯示 `▲ 價格` / `▼ 價格` |
-| 吸附到 OHLC | 按住 `Ctrl`,十字線會吸到**離游標最近的**開/高/低/收 —— 在 K 棒上方吸 high、下方吸 low |
-| 加支撐壓力線 | 在圖上**雙擊**空白處。按著 `Ctrl` 雙擊會吸到最近的 OHLC |
-| 移動 / 刪除線 | 拖曳線本身移動(按 `Ctrl` 吸附);**雙擊線本身**刪除 |
-| 現貨 / 永續 | 點標題列幣種名稱右邊的「現貨」/「永續」標籤，在同一個幣的現貨與永續合約之間切換；設定面板的「市場」也可以切。名稱不同的會自動對應（現貨 `PEPEUSDT` ↔ 永續 `1000PEPEUSDT`）；對面沒有這個交易對時標籤會變灰，點了會說明原因 |
-| 資金費率 | 永續盤在圖表右上角（價格軸左邊）顯示目前資金費率與距離下次結算的倒數，每秒更新 |
-| 未平倉量 (OI) | 點左側工具列的 **OI** 圖示（或在設定面板勾「顯示未平倉量 (OI) 副圖」），永續卡片底下多一個橘色的 OI 副圖（單位是幣，例如 `94.90K` 顆 BTC），約每 3 秒跟著交易所更新。現貨卡片會保留這個設定，切回永續時再顯示 |
-| 常用幣種 | 標題列幣種名稱左邊的 ☆ 把目前的幣種加入常用清單（最多 10 個，所有卡片共用）。清單會記住市場，同一個幣的現貨和永續是兩列，永續那列有標記。點**幣種名稱**展開清單，顯示即時價格與 24h 漲跌，點一下切換（連市場一起）；滑到某列點 ✕ 移除 |
-| 快速切換幣種 | `Alt+1` ~ `Alt+9` 切到常用清單的第 1~9 個，`Alt+0` 是第 10 個（照鍵盤數字列的順序，第一個放在最順手的 1），市場一起切（作用在最後點過的卡片）。清單裡每列左邊的數字就是它的快捷鍵 |
-| 選工具 | 滑鼠移到卡片上，左側會浮出工具列（游標 / 水平線 / 量測）。再點一次同一個圖示可取消。按 `Esc` 隨時回到游標模式（也會取消畫到一半的趨勢線） |
-| 位置提醒 | 常用清單（☆）裡的幣種，圖表左上角會顯示目前價格在最近 **4H / 24H / 72H** 成交量分布中的位置，例如 `4H 17 · 24H 34 · 72H 23`（80% 以上橘、95% 以上紅、20% 以下淺藍、5% 以下藍）。碰到設定的等級時卡片邊框發光、跳 Windows 通知、工作列閃爍；**點一下卡片**清除。等級在設定面板「位置提醒」的勾選表調整 |
-| 提醒開關 | **系統匣右鍵 →「位置提醒」**是總開關；**「提醒的幣種」**可以逐一勾選。也可以在幣種清單（點幣種名稱）每列的 🔔 / 🔕 切換。總開關與該幣種都開著才會通知；關掉的幣種照樣顯示百分比，重新打開時也不會補發關閉期間的提醒 |
-| 開盤價 | 工具列的**三條往右的線**圖示，點一下選一天從什麼時候開始：**UTC 00:00**（交易所 K 棒的邊界）、**紐約 00:00**、**美股開盤 09:30**、**倫敦 00:00**、**英股開盤 08:00**，或關閉。選單會寫出各自換算成台灣的時間（會跟著夏令時間變）。畫出日開（青綠）、週開（紫）、月開（粉紅）實線，從開盤那根 K 棒往右延伸，價格軸上有同色標籤。不在畫面內的會釘在右上或右下，顯示「↑ 月開 92,500 +10.3%」。選單下半部的「顯示」可以選**本期開**、**前期開**（昨日開、前週開、前月開，同樣的分界時間往前推一期），或**兩者** |
-| 高低點 | 工具列的**上下兩條虛線**圖示：**前一期**（前日／前週／前月的高低，虛線）、**本期至今**（點線，跟著即時報價更新）或兩者。線從創下高低點的那根 K 棒往右畫，分界時區跟開盤價相同。設定面板可以選分界時區，以及只畫日、週、月其中幾種 |
-| 副圖開關 | 工具列最下面兩個圖示：**直條**開關成交量副圖，**OI** 開關未平倉量副圖（只有永續卡片會出現）。跟設定面板裡的開關是同一個設定 |
-| 量測區間 | 按住 `Shift` 拖曳,顯示價差、百分比、K 棒數與時間長度。加按 `Ctrl` 可吸到 OHLC |
-| 關閉量測 | 放開後讀數會留著;點一下空白處或按 `Esc` 清除 |
-| 畫斐波那契 | 工具列選斐波那契，在圖上拖曳畫出波段。拖兩端的圓點可調整，雙擊圓點刪除 |
-| 成交量分布 | 點工具列的成交量分布圖示，右側彈出選單：關閉 / 每 4H 分段 / 可見範圍 / 本日 (UTC)。選單下半部的**精細度**決定每一列在螢幕上的高度：粗 10px / 標準 6px / 細 4px / 極細 2px，放大價格軸時列數會跟著變多，看得到更細的分布 |
-| 區間成交量分布 | 工具列選「區間成交量分布」（兩條虛線夾著橫條的圖示），在圖上**左右拖曳**選出 x1 到 x2，只看時間、不看滑鼠高度。畫完工具會自動切回游標。區間內畫出成交量分布（**青綠是買、紅是賣**，價值區較亮）、POC（橘實線）、VAH / VAL（虛線），上方標籤寫著長度、總量和用哪種 K 棒算的。拖到最新的 K 棒就是**至今**，每分鐘更新。**拖左右邊線**調整範圍、**拖上方標籤**移動、**雙擊**邊線或標籤刪除，`Ctrl+Z` 可撤銷。跟矩形一樣依幣種儲存，現貨和永續共用（量用各自市場的） |
-| 足跡圖 | 工具列的**足跡圖**圖示（中間一條直線、左右各一排橫條）→「顯示足跡圖」。每根 K 棒裡依價位畫出**主動賣（左，下跌色）**和**主動買（右，上漲色）**，K 棒改成空心，橘框是這根成交最多的價位（POC），圖表底部是每根的 **Delta**（主動買 − 主動賣）。K 棒寬度不到 72px 時畫成左右兩排橫條；放大到 72px 以上改成每列「`賣 買`」數字，底色深淺代表量。**失衡**（斜對角比較：某價位的主動買 ≥ 下一格主動賣的 N 倍，或主動賣 ≥ 上一格主動買的 N 倍）畫成實色或粗體，倍數在選單下半部選 2 / 3 / 4 倍。選單的「**放大到最近 30 根**」一鍵把最近 30 根撐滿畫面。涵蓋最近 30 根（最多 6 小時），開啟時從存檔讀回、缺的從交易所補最近 3 小時，補的時候由新往舊，還沒補齊的 K 棒畫淡、Delta 前面加 `~` |
-| 4H 疊圖 | 工具列最下面的開關。把最近 10 根 4 小時 K 棒以半透明方塊疊在小週期圖上；未收盤的那根是虛線框，會跟著即時報價變形 |
-| 畫矩形 | 工具列選矩形，拖曳畫出一個有起訖時間的價格區間。**拖邊框**移動、**拖角**調整大小（對角固定）、**雙擊**刪除。拖曳途中按住 `Shift` 會鎖定方向：拖角只改寬度（時間）或只改高度（價格），拖邊框只水平或只垂直移動，依滑鼠移動較多的方向決定。內部刻意不能抓，所以在框裡照樣可以平移圖表 |
-| 畫趨勢線 | 工具列選**趨勢線**（斜線圖示）：從一點**拖曳**到另一點，或**各點一下**兩個端點（中間線會跟著滑鼠，`Esc` 取消）。兩點之間的實心線段，不延伸成射線。按 `Ctrl` 吸附 OHLC；按住 `Shift` 畫成**水平線或垂直線**（依滑鼠移動較多的方向；拖端點、拖線身時同樣適用，選了趨勢線工具時 `Shift` 不再是量測）。**拖端點**調整、**拖線身**整條移動、**雙擊**刪除，`Ctrl+Z` 可撤銷；依幣種保存，切換週期也會留在同樣的時間與價位 |
-| 價格提醒 | 工具列的**鈴鐺**，再點圖上的價位（按 `Ctrl` 吸附 OHLC）；或滑鼠在圖上直接按 `Alt+A`。價位高於現價就是「漲到」提醒，低於現價就是「跌到」。圖上會畫一條金色虛線，**拖曳標籤**改價格、點 ✕ 刪除 |
-| 到價通知 | 由隱藏的資料視窗監聽，**卡片用 `Ctrl+Alt+S` 隱藏、甚至關掉時也會提醒**；只監聽有掛提醒的幣種。到價時送出 Windows 通知（不出聲）並閃爍工作列（依位置提醒的通知設定），提醒一次後自動移除 |
-| 隱藏繪圖 | 工具列的**眼睛**圖示（或按 `Alt+H`）：一鍵把水平線、趨勢線、斐波那契、矩形和區間成交量分布全部藏起來，看乾淨的盤面；再按一次就全部回來。只是**不畫**，不會刪除，也存在卡片設定裡（重開還是隱藏）。隱藏時線也抓不到，不會拖到看不見的線；隱藏中拿起畫圖工具、新增水平線或 `Ctrl+Z`，會自動顯示，免得新畫的線一放手就消失。價格提醒、持倉 / 掛單線和開盤價、高低點不算繪圖，照常顯示 |
-| 撤銷 | `Ctrl+Z` 撤銷水平線、斐波那契、矩形與區間成交量分布的新增、移動、刪除（例如拉時間軸時不小心拖到線）。每張卡片各自記錄，切換幣別會清空 |
-| 開設定 | 齒輪鈕,或在卡片上按右鍵 |
-| 關閉設定 | `Esc`、再按一次右鍵,或面板右上角 ✕ |
-| 顯示/隱藏全部 | `Ctrl+Alt+S`,或左鍵點系統托盤圖示。有卡片不見的時候(例如被別的程式最小化),按一下一定是**顯示**,不會先把其他卡片藏起來 |
-| 切換滑鼠穿透 | `Ctrl+Alt+C`,或托盤選單 |
-| 切換 Float / Board | 托盤選單 →「顯示模式」 |
-| 新增 / 移除卡片 | 托盤選單,或 Board 模式標題列的 ＋ |
+| Move a card | Drag the top of the card (the title bar only appears on hover) |
+| Resize | Drag the diagonal grip in the bottom-right corner |
+| Visible high / low | The highest and lowest points currently on screen are labeled with their price automatically (candles use high / low; line and area charts use close), updating live as you scroll or zoom |
+| Read a price | The crosshair follows the cursor; the price axis on the right shows the price under it |
+| Zoom time | Mouse wheel on the chart, or drag the time axis below |
+| Zoom price | **Mouse wheel** or **drag up/down** on the price axis on the right. Stretching it turns autoscale off, after which dragging on the chart pans freely in any direction. **Double-click the price axis** to turn autoscale back on |
+| Reset view | After you move the view, a reset button appears where the two axes meet; or press `Alt+R`. Restores autoscale and the default bar width and jumps back to the latest bar **in one step** (however far back you have scrolled) |
+| Last price | The price label and dashed line on the price axis always show the **latest** bar's price, even while you look at history. When the last price is off screen, the label is pinned to the top or bottom of the price axis as `▲ price` / `▼ price` |
+| Snap to OHLC | Hold `Ctrl` and the crosshair snaps to the open/high/low/close **nearest the cursor** — the high above the bar, the low below it |
+| Add a support/resistance line | **Double-click** empty space on the chart. Double-click with `Ctrl` held to snap to the nearest OHLC |
+| Move / delete a line | Drag the line itself to move it (hold `Ctrl` to snap); **double-click the line** to delete it |
+| Spot / perp | Click the "Spot" / "Perp" tag to the right of the symbol name in the title bar to switch between the spot market and the perpetual contract of the same coin; the "Market" setting in the settings panel does the same. Differently named pairs are mapped automatically (spot `PEPEUSDT` ↔ perp `1000PEPEUSDT`); if the other market has no such pair, the tag turns gray and clicking it explains why |
+| Funding rate | On perp cards, the top-right of the chart (left of the price axis) shows the current funding rate and a countdown to the next settlement, updated every second |
+| Open interest (OI) | Click the **OI** icon in the left toolbar (or tick "Show open interest (OI) pane · Perp" in the settings panel) and perp cards get an orange OI pane underneath (in coins, e.g. `94.90K` BTC), updated with the exchange roughly every 3 seconds. Spot cards keep the setting and show the pane again when switched back to perp |
+| Watchlist | The ☆ left of the symbol name in the title bar adds the current symbol to the watchlist (up to 10, shared by all cards). The list remembers the market: spot and perp of the same coin are two rows, with the perp row marked. Click the **symbol name** to open the list with live prices and 24h change; click a row to switch to it (market included); hover a row and click ✕ to remove it |
+| Quick symbol switch | `Alt+1` – `Alt+9` switch to watchlist entries 1–9 and `Alt+0` to the 10th (keyboard order along the number row, so the first entry sits on the handy 1), market included (applies to the card clicked last). The digit at the left of each row in the list is its shortcut |
+| Pick a tool | Hover the card and a toolbar slides out on the left: cursor, horizontal line, trend line, price alert, measure, Fib retracement, rectangle, volume profile, fixed range volume profile, hide drawings, 4H overlay, Opens, Highs/Lows, volume, footprint and OI (OI on perp cards only). Click the same drawing tool again to deselect it. `Esc` returns to the cursor at any time (and also cancels a half-drawn trend line) |
+| Range alerts | For symbols in the watchlist (☆), the top-left of the chart shows where the current price sits in the **4H / 24H / 72H** volume profile, e.g. `4H 17 · 24H 34 · 72H 23` (orange at 80%+, red at 95%+, light blue at 20% and below, blue at 5% and below). When a configured level is hit, the card border glows, a Windows notification pops up and the taskbar flashes; **click the card** to clear it. Choose the levels in the checkbox grid under "Range alerts" in the settings panel |
+| Alert switches | **Tray right-click → "Range alerts"** is the master switch; **"Alert symbols"** lets you tick symbols one by one. You can also toggle 🔔 / 🔕 on each row of the symbol list (click the symbol name). A notification only fires when both the master switch and that symbol are on; muted symbols still show their percentages, and alerts missed while muted are not replayed when you turn them back on |
+| Opens | The toolbar icon with **three lines pointing right**; click it to choose when a day starts: **UTC 00:00** (the exchange's candle boundary), **New York 00:00**, **NYSE open 09:30**, **London 00:00**, **LSE open 08:00**, or off. The menu shows each converted to Taiwan time (tracking daylight saving). Draws solid daily-open (teal), weekly-open (purple) and monthly-open (pink) lines extending right from the opening bar, with matching labels on the price axis. Lines off screen are pinned to the top or bottom right as "↑ Monthly open 92,500 +10.3%". The "Show" section in the lower half of the menu picks **Current**, **Previous** (previous day / week / month open, the same boundary shifted back one period), or **Both** |
+| Highs/Lows | The toolbar icon with **two dashed lines, one above the other**: **Previous** (previous day / week / month high and low, dashed), **Current to date** (dotted, following live prices), or both. Lines start at the bar that set the high or low and extend right, using the same session boundary as Opens. The settings panel lets you choose the boundary and draw only some of daily, weekly and monthly |
+| Pane toggles | Two toolbar icons near the bottom: the **bars** icon opens the volume pane menu (Off / Show volume, plus "Thin volume PR ≤" and "Distribution lookback"); the pane splits each bar into taker buys and taker sells and marks thin-volume bars. **OI** toggles the open interest pane (perp cards only). The on/off switches are the same settings as the toggles in the settings panel |
+| Measure a range | Hold `Shift` and drag to show the price difference, percentage, bar count and duration. Add `Ctrl` to snap to OHLC |
+| Clear a measurement | The readout stays after you release; click empty space or press `Esc` to clear it |
+| Draw a Fib retracement | Pick Fib retracement in the toolbar and drag on the chart to draw the swing. Drag the end dots to adjust; double-click a dot to delete |
+| Volume profile | Click the volume profile icon in the toolbar to open a menu on the right: Off / Per 4H session / Visible range / Today (UTC). **Detail** in the lower half of the menu sets each row's height on screen: Coarse 10px / Normal 6px / Fine 4px / Ultra fine 2px. Zooming in on the price axis adds rows, so you see a finer distribution |
+| Fixed range volume profile | Pick "Fixed range volume profile" in the toolbar (the icon with horizontal bars between two dashed lines) and **drag left/right** on the chart to select x1 to x2 — only time counts, not mouse height. The tool switches back to the cursor when you finish. The range shows a volume profile (**teal for buys, red for sells**, value area brighter), the POC (solid orange) and VAH / VAL (dashed); the label above shows the length, total volume and which bars it was computed from. Drag to the latest bar for **to now**, updated every minute. **Drag the left/right edges** to adjust, **drag the label** to move, **double-click** an edge or the label to delete; `Ctrl+Z` undoes. Saved per symbol like rectangles, shared between spot and perp (each uses its own market's volume) |
+| Footprint | The **footprint** toolbar icon (a vertical line with a row of bars on each side) → "Show footprint". Each candle shows per-price **taker sells (left, down color)** and **taker buys (right, up color)**; candles become hollow, an orange box marks the candle's highest-volume price (POC), and the bottom of the chart shows each candle's **Delta** (taker buys − taker sells). Below 72px bar width it draws two rows of bars; zoomed in to 72px or more, each row shows `sell buy` numbers with shading for volume. **Imbalances** (diagonal comparison: a price's taker buys ≥ N × the taker sells one tick below, or taker sells ≥ N × the taker buys one tick above) are drawn solid or bold; choose 2 / 3 / 4× in the lower half of the menu. "**Zoom to last 30 bars**" in the menu fills the screen with the last 30 bars in one click. Covers the last 30 bars (up to 6 hours); when turned on it loads from disk and backfills the missing last 3 hours from the exchange, newest first. Bars not yet fully backfilled are drawn faded, with `~` before the Delta |
+| 4H overlay | The "4H overlay" toggle in the toolbar. Overlays the last 10 four-hour candles as translucent boxes on lower-timeframe charts; the unclosed one has a dashed outline and reshapes with live prices |
+| Draw a rectangle | Pick rectangle in the toolbar and drag to draw a price zone with a start and end time. **Drag the border** to move, **drag a corner** to resize (the opposite corner stays fixed), **double-click** to delete. Holding `Shift` while dragging locks the direction: a corner changes only the width (time) or only the height (price), the border moves only horizontally or only vertically, depending on which way the mouse has moved more. The inside is deliberately not grabbable, so you can still pan the chart from inside the box |
+| Draw a trend line | Pick **trend line** in the toolbar (the diagonal icon): **drag** from one point to another, or **click** each endpoint (the line follows the mouse in between; `Esc` cancels). A solid segment between the two points, not extended into a ray. `Ctrl` snaps to OHLC; holding `Shift` draws a **horizontal or vertical line** (whichever way the mouse has moved more; also applies when dragging an endpoint or the line body, and with the trend line tool selected `Shift` no longer measures). **Drag an endpoint** to adjust, **drag the line body** to move the whole line, **double-click** to delete, `Ctrl+Z` to undo. Saved per symbol and stays at the same time and price when you change timeframes |
+| Price alert | The **bell** in the toolbar, then click a price on the chart (`Ctrl` snaps to OHLC); or press `Alt+A` with the mouse over the chart. A price above the current price is a "Rose to" alert, below it a "Fell to" alert. A gold dashed line is drawn; **drag the label** to change the price, click ✕ to delete |
+| Price alert notifications | Watched by the hidden data window, so **they fire even when cards are hidden with `Ctrl+Alt+S` or closed**; only symbols with alerts are watched. When the price is reached, a Windows notification is sent (silently) and the taskbar flashes (following the range alert notification settings); each alert fires once and is then removed |
+| Hide drawings | The **eye** icon in the toolbar (or `Alt+H`): hides all horizontal lines, trend lines, Fib retracements, rectangles and fixed range volume profiles at once for a clean chart; press again to bring them all back. They are only **not drawn**, not deleted, and the state is saved in the card settings (still hidden after a restart). Hidden lines can't be grabbed, so you won't drag a line you can't see; picking up a drawing tool, adding a horizontal line or pressing `Ctrl+Z` while hidden shows them again, so a new line doesn't vanish as soon as you let go. Price alerts, position / order lines, Opens and Highs/Lows are not drawings and stay visible |
+| Undo | `Ctrl+Z` undoes adding, moving and deleting horizontal lines, trend lines, Fib retracements, rectangles and fixed range volume profiles (e.g. a line dragged by accident while dragging the time axis). Each card keeps its own history; switching symbols clears it |
+| Open settings | The gear button, or right-click the card |
+| Close settings | `Esc`, right-click again, or the ✕ in the top-right of the panel |
+| Show/hide all | `Ctrl+Alt+S` (the default; both global shortcuts, this and click-through's `Ctrl+Alt+C`, can be changed under Global settings), or left-click the tray icon. If any card is missing (e.g. minimized by another program), one press always **shows**, never hides the other cards first |
+| Toggle click-through | `Ctrl+Alt+C`, or the tray menu |
+| Switch Float / Board | Tray menu → "Display Mode" |
+| Add / remove cards | Tray menu, or the ＋ in the Board mode title bar |
 
-十字線的行為刻意對齊 TradingView:平常自由跟著游標,`Ctrl` 才啟動磁吸,且磁吸目標是最近的 OHLC 而不是只有收盤價(對應 lightweight-charts 的 `CrosshairMode.MagnetOHLC`)。要畫支撐壓力、對齊影線的時候用這個。
+The crosshair deliberately behaves like TradingView's: it follows the cursor freely, magnet mode only kicks in with `Ctrl`, and it snaps to the nearest OHLC rather than just the close (lightweight-charts' `CrosshairMode.MagnetOHLC`). Use it for drawing support/resistance or lining up with wicks.
 
-**時間顯示**預設跟著本機時區(設定面板 →「時間顯示」可切 本機 / 台北 / UTC)。Binance 的時間戳是 UTC epoch,lightweight-charts 預設也用 UTC 算,所以未設定前軸上會比台北慢 8 小時。這裡是改**格式化**而不是平移時間戳 —— 時間戳同時是 datafeed 回補去重(`lastBarTime`)和更新未收盤 K 棒的依據,平移它等於為了外觀去動資料層。唯一修不掉的是 `1d`:Binance 的日 K 本來就是 UTC 日界,在 UTC+8 下會標成 08:00,那是交易所的切分方式,不是顯示錯誤。
+**Time zone** follows the local time zone by default (settings panel → "Time zone" switches between Local / Taipei / UTC). Binance timestamps are UTC epochs and lightweight-charts formats in UTC by default, so without this setting the axis would read 8 hours behind Taipei. This changes the **formatting**, not the timestamps — timestamps are also what the datafeed uses to dedupe backfills (`lastBarTime`) and to update the unclosed bar, so shifting them would mean touching the data layer for cosmetics. The one thing that can't be fixed is `1d`: Binance daily candles use UTC day boundaries, so in UTC+8 they are labeled 08:00. That's how the exchange splits days, not a display bug.
 
-**介面語言**：預設是英文。設定面板 → 全域設定 →「語言 Language」切換中文 / English。切換後卡片、看板和交易紀錄視窗會重新載入，背景的行情連線不會斷。做法是程式裡保留中文原文當作鍵，`t('…')` 到 `renderer/i18n/en.json` 查英文，查不到就顯示中文，所以中文介面完全不受影響。`npm run check` 會檢查每個顯示用的中文字串都有包 `t()`、英文都有翻譯、`{佔位符}` 兩邊一致。
+**Interface language**: English by default; settings panel → Global settings → "語言 Language" switches between 中文 and English. The cards, the board and the journal reload; the market connections in the background stay up. The Chinese source strings stay in the code as keys: `t('…')` looks the English up in `renderer/i18n/en.json` and falls back to the Chinese when a string is missing, so the Chinese interface is unaffected. `npm run check` verifies that every displayed Chinese string goes through `t()`, has an English translation, and uses the same `{placeholders}` on both sides.
 
-**4H 疊圖**只在 1m / 5m / 15m / 1h 下顯示 —— 在 4h 圖上那個方塊就是 K 棒本身。未收盤的那根由**兩條獨立的 4h 訂閱**馀養，而不是拿卡片自己的 K 棒去聚合：卡片可能在看 1m，500 根才 8 小時，而交易所自己的 4h K 棒本來就是權威值。hub 的 stream 是計數的，所以同一個幣別多一條訂閱只多一條 kline stream，不會多一條連線。
+The **4H overlay** only appears on 1m / 5m / 15m / 1h — on a 4h chart that box is the candle itself. The unclosed box is fed by **two separate 4h subscriptions** rather than aggregated from the card's own bars: the card may be on 1m, where 500 bars cover only 8 hours, and the exchange's own 4h candles are the authoritative values anyway. Hub streams are reference-counted, so an extra subscription for the same symbol adds only one more kline stream, not another connection.
 
-**歷史資料快取**：往左滾動到快碰到資料邊緣時，背景自動補更舊的 K 棒，先查本地再打 API，而且抓回來的都會寫進快取。檔案在 `userData/bars/{SYMBOL}/{interval}/{chunk}.bin`（永續在 `userData/bars/_perp/...`，因為 BTCUSDT 在兩個市場同名但 K 棒不同；未平倉量也存在這裡，見下方），固定寬度二進位，每筆 48 bytes（六個 float64：`time, open, high, low, close, volume`）。1m / 5m 按**月**分檔，其餘按**年** —— 回補的舊資料會寫進不同的檔案，所以每個檔永遠只會 append、內部永遠有序，**不需要全域排序，也不需要重寫整份歷史**。只寫已收盤的 K 棒：幣安回傳的最後一根永遠是未收盤的，快取它等於把半根 K 棒永久寫死。實測同一段區間：快取 7.4ms vs 網路 142ms（**19 倍**），內容完全一致。
+**History cache**: when you scroll left close to the edge of the loaded data, older bars are fetched in the background — local cache first, then the API — and everything fetched is written to the cache. Files live in `userData/bars2/{SYMBOL}/{interval}/{chunk}.bin` (perps in `userData/bars2/_perp/...`, since BTCUSDT has the same name in both markets but different bars; open interest is stored here too, see below), fixed-width binary, 64 bytes per record (eight float64s: `time, open, high, low, close, volume, buyVolume, quoteVolume`, i.e. the taker-buy volume and the volume in USDT). Records used to be six fields wide; the wider format moved to `bars2` and the old `bars` folder is deleted. 1m / 5m are split by **month**, everything else by **year** — backfilled older data goes into different files, so each file is only ever appended to and always sorted internally: **no global sort, no rewriting the whole history**. Only closed bars are written: the last bar Binance returns is always unclosed, and caching it would freeze half a candle forever. Measured on the same range: cache 7.4ms vs network 142ms (**19×**), identical content.
 
-**未平倉量 (OI)** 在 Binance 沒有 WebSocket，只有 REST 快照（交易所每 2～5 秒更新一次），以及最細 5 分鐘、最多 30 天的歷史。CoinGlass 那種一分鐘的 OI 就是自己一直記錄出來的，這裡用同樣的做法，存成兩個序列，都沿用 K 棒快取的格式與分檔：
+**Open interest (OI)** has no WebSocket on Binance, only REST snapshots (the exchange updates them every 2–5 seconds) and history at 5-minute resolution at best, going back at most 30 days. The 1-minute OI you see on CoinGlass is simply recorded continuously by them; this app does the same and stores two series, both reusing the bar cache's format and file layout:
 
-| 序列 | 檔案 | 來源 | 誰寫 |
+| Series | File | Source | Writer |
 | --- | --- | --- | --- |
-| `oi_1m` | `bars/_perp/{SYMBOL}/oi_1m/{YYYY-MM}.bin` | hub 每 3 秒抓一次快照，每分鐘收成一筆 OHLC（volume 欄存樣本數） | 只有 hub —— 多張卡片看同一個幣也只寫一次 |
-| `oi_5m` | `bars/_perp/{SYMBOL}/oi_5m/{YYYY-MM}.bin` | 交易所的 5 分鐘歷史，一筆一個樣本（volume 欄存 USD 價值） | 卡片載入時補上距離上次的缺口；每次啟動另外整段重新比對一次（見下） |
+| `oi_1m` | `bars2/_perp/{SYMBOL}/oi_1m/{YYYY-MM}.bin` | The hub takes a snapshot every 3 seconds and rolls each minute into one OHLC record (the volume field holds the sample count) | Only the hub — written once even if several cards show the same symbol |
+| `oi_5m` | `bars2/_perp/{SYMBOL}/oi_5m/{YYYY-MM}.bin` | The exchange's 5-minute history, one sample per record (the volume field holds the USD value) | Cards fill the gap since last time when they load; once per launch the whole range is also re-checked (see below) |
 
-- 15 分、1 時、4 時、1 日**不另外存檔**，顯示時由兩個序列合併、依週期切桶算出來（`renderer/open-interest.js`）。1 分圖在沒有自己紀錄的時段，用前後的 5 分樣本補；兩個樣本相隔超過 10 分鐘（例如 App 關著、又超過 30 天）就留白，不畫一條沒量到的平線。
-- 只要有永續卡片開著，就會記錄那個幣的 OI，**不管 OI 副圖有沒有打開**，這樣副圖一打開歷史就在。
-- 5 分歷史每次只補缺口：實測第二次啟動只打了一個涵蓋 5 分鐘的請求。所以只要至少每 30 天開一次 App，快取就會**累積超過交易所的 30 天**。
-- **交易所會改歷史**：2026-10-15 這個歷史端點有好幾個小時回傳錯的資料（ETH 的 OI 從 2.31M 掉到 1.9M 左右，之後又出現每一兩秒一筆、不在 5 分鐘整點上的樣本），事後 Binance 更正了，但快取已經存了錯的版本，只補缺口的做法永遠不會再去問那一段。所以現在：(1) 不在 5 分鐘整點上的樣本一律不收、不讀；(2) 每次啟動後，每個幣第一次畫完 OI 副圖時，在背景把交易所還有的 30 天整段抓回來比對，有不一樣就以交易所為準覆蓋那一段（`bar-store.js` 的 `replace`，連夾在中間的錯誤樣本一起清掉），30 天以前的快取不動。30 天是 18 個請求，這個端點有自己的額度（每 5 分鐘 1000 次），不影響下單。交易所只回了不到九成的樣本時不覆蓋，免得一次失敗把快取清掉。
-- 注意：這個歷史端點不管 `startTime` 設多早，一律回傳範圍內**最新**的 500 筆，所以要從新往舊翻頁（實測：要 10 天只拿到最後 41 小時）。
-- 大小：`oi_1m` 每個幣每天約 69KB（跟 1 分 K 棒一樣），`oi_5m` 每天約 14KB。
+- 15m, 1h, 4h and 1d are **not stored separately**; they are computed at display time by merging the two series and bucketing by timeframe (`renderer/open-interest.js`). Where the 1m chart has no recording of its own, it fills in from the surrounding 5m samples; if two samples are more than 10 minutes apart (e.g. the app was closed and it's more than 30 days ago) it leaves a gap instead of drawing a flat line that was never measured.
+- As long as a perp card is open, OI for that symbol is recorded **whether or not the OI pane is on**, so the history is there as soon as you open the pane.
+- The 5m history only fills gaps: in testing, the second launch made a single request covering 5 minutes. So as long as you open the app at least once every 30 days, the cache **grows beyond the exchange's 30 days**.
+- **The exchange rewrites history**: on 2026-10-15 this history endpoint returned bad data for several hours (ETH OI dropped from 2.31M to around 1.9M, then samples appeared every second or two, off the 5-minute grid). Binance corrected it afterwards, but the cache had already stored the bad version, and gap-only filling would never ask for that stretch again. So now: (1) samples not on the 5-minute grid are never stored or read; (2) after each launch, the first time a symbol's OI pane finishes drawing, the full 30 days the exchange still has are fetched in the background and compared, and any differences are overwritten with the exchange's version (`replace` in `bar-store.js`, which also clears bad samples sandwiched in between); cache older than 30 days is left alone. 30 days is 18 requests, and this endpoint has its own quota (1000 per 5 minutes), so it doesn't affect order placement. If the exchange returns less than 90% of the samples, nothing is overwritten, so a single failure can't wipe the cache.
+- Note: this history endpoint always returns the **latest** 500 records in the range no matter how early `startTime` is, so you have to page from newest to oldest (in testing, asking for 10 days returned only the last 41 hours).
+- Size: `oi_1m` is about 92KB per symbol per day (same as 1m bars), `oi_5m` about 18KB per day.
 
-**開盤價與高低點**的「一天」從哪裡開始可以選：
+You can choose where a "day" starts for **Opens and Highs/Lows**:
 
-| 選項 | 一天的開始 | 台灣時間（夏令／冬令） |
+| Option | Day starts at | Taiwan time (summer / winter) |
 | --- | --- | --- |
-| UTC 00:00 | 交易所 K 棒的邊界 | 08:00 |
-| 紐約 00:00 | 紐約午夜（midnight open） | 12:00／13:00 |
-| **美股開盤** | 紐約 09:30 | **21:30／22:30** |
-| 倫敦 00:00 | 倫敦午夜 | 07:00／08:00 |
-| **英股開盤** | 倫敦 08:00 | **15:00／16:00** |
+| UTC 00:00 | The exchange's candle boundary | 08:00 |
+| New York 00:00 | New York midnight (midnight open) | 12:00 / 13:00 |
+| **NYSE open** | New York 09:30 | **21:30 / 22:30** |
+| London 00:00 | London midnight | 07:00 / 08:00 |
+| **LSE open** | London 08:00 | **15:00 / 16:00** |
 
-晚上 8:30（夏令）是美國經濟數據的公布時間（紐約 08:30），不是美股開盤。英國和美國換時間的日期不同（2026 年英國 10/25、美國 11/1），中間那週兩個開盤只差 5.5 小時；這些都由 `Intl` 依時區計算，不寫死時差（`renderer/sessions.js`，有測試涵蓋）。**週末也算一天**（幣圈週末照常交易），週六一樣在 09:30 換日；週從週一、月從 1 號的同一時間開始；國定假日不另外處理。
+8:30 PM (summer, Taiwan time) is when US economic data is released (New York 08:30), not the NYSE open. The UK and US change clocks on different dates (in 2026: UK 10/25, US 11/1), and in the week between, the two opens are only 5.5 hours apart; all of this is computed by `Intl` from the time zones, with no hard-coded offsets (`renderer/sessions.js`, covered by tests). **Weekends count as days** (crypto trades on weekends), so Saturday also rolls over at 09:30; weeks start on Monday and months on the 1st at the same time; public holidays are not treated specially.
 
-資料用分界剛好落在上面的 K 棒：美股開盤 09:30 不是整點，用 **30 分 K 棒**；其他都落在 UTC 整點，用 1 小時 K 棒。分界那根的開盤價就是開盤價，一期內 K 棒的極值就是高低點；從上個月月初抓起（約 2～3 個請求），每到下一個日分界自動重抓。
+The data comes from bars whose boundaries line up exactly with the options above: the NYSE open at 09:30 isn't on the hour, so it uses **30-minute bars**; everything else falls on a UTC hour and uses 1-hour bars. The open of the boundary bar is the opening price, and the extremes of the bars within a period are the highs and lows; data is fetched from the start of the previous month (about 2–3 requests) and refetched automatically at each new day boundary.
 
-線的樣式：**顏色代表週期**（日青綠、週紫、月粉紅），**線型代表種類**（開盤實線、前期開盤點虛線、前一期高低虛線、本期高低點線），起點有「前日高」「本週低」這類標籤，非 UTC 時加上「紐」「倫」。刻意跟自己畫的水平線（橫跨整張圖的灰藍色虛線）分開。同價的線合併成一條，例如週一的「日開・週開」，或一路往下那天的「日開・本日高」。畫面外的只顯示最近的 4 個，釘在右上和右下。
+Line styles: **color means period** (daily teal, weekly purple, monthly pink), **line style means type** (opens solid, previous-period opens dash-dotted, previous-period highs/lows dashed, current-period highs/lows dotted), with labels such as "Prev day high" or "Week low" at the start, plus "NY" or "LDN" when not on UTC. They are deliberately distinct from your own horizontal lines (gray-blue dashed lines spanning the whole chart). Lines at the same price merge into one, e.g. "Daily open · Weekly open" on Monday, or "Daily open · Day high" on a day that only went down. Off-screen lines show only the nearest 4, pinned to the top right and bottom right.
 
-**位置提醒**的百分比是「這段時間的成交量有多少比例成交在目前價格以下」，直接從成交量分布數出來，**不做任何分布擬合**。這是量過才選的：用 BTC、ETH 永續最近 30 天的 1 分 K 棒比較，以 VWAP 和標準差假設常態分布，跟實際累積比例平均差 4 個百分點、最差的一成差到約 10 個百分點（實際 70% 會被說成 80%）；而真實的 24H / 72H 分布多半不是單峰（用 BIC 選 1～3 個高斯，大多選到 3 個）。直接數不需要形狀，也就不會把形狀弄錯。
+The **range alert** percentage is "what share of this period's volume traded below the current price", counted directly from the volume profile **with no distribution fitting at all**. This was chosen after measuring: on 30 days of 1m bars for BTC and ETH perps, assuming a normal distribution from VWAP and standard deviation was off from the actual cumulative share by 4 percentage points on average and by about 10 points in the worst tenth (an actual 70% would be reported as 80%); and real 24H / 72H profiles are mostly not unimodal (choosing 1–3 Gaussians by BIC mostly picks 3). Counting directly needs no shape, so it can't get the shape wrong.
 
-- **即時**：分布每根 1 分 K 棒收盤重算一次；目前價格用即時報價（最快每 100ms）去對照，所以是價格**碰到**等級就提醒，不是等收盤。實測只看收盤會漏掉 15～30% 的觸及。
-- **遲滯（像施密特觸發器）**：每個等級響一次，上方（80/90/95）要回到 **50% 以下**才重新啟用，下方（20/10/5）要回到 50% 以上。一次跳過好幾個等級只報最遠的那個；App 啟動時已經在 92% 也不會一開就報 80、90。
-- **預設等級與實測頻率**（每個幣每天）：24H 與 72H 全部六個等級，約 8.5 次與 2.7 次；4H 只開 **5% 和 95%**，約 11 次 —— 4H 全開一天約 45 次，太吵。
-- **在 hub 背景監控**：沒開卡片也照樣監控常用清單的幣種，每個幣保留 72 小時的 1 分 K 棒（啟動時約 5 個請求）。
-- **注意：這不是進場訊號。** 同一份資料裡，價格在 90% 以上之後 4 小時下跌的機率是 44～57%，兩個幣、三個區間的方向都不一致。它的用途是提醒「現在在分布的哪裡」，避免沒注意就追在最差的位置。
-- **通知怎麼送到**：沒有聲音（依需求）。卡片發光在無邊框視窗的遊戲上看得到；Windows 通知在玩遊戲時會被「專注輔助」收進通知中心（實測 Warcraft III 開著時沒有橫幅，但通知中心有）；工作列閃爍時會暫時給卡片一個工作列按鈕，點卡片就停。**全螢幕遊戲時三種都看不到**，詳見 [docs/vanishing-cards.md](docs/vanishing-cards.md) 的情況 G。
+- **Real time**: the profile is recomputed every time a 1m bar closes; the current price is checked against it using live quotes (as fast as every 100ms), so an alert fires when the price **touches** a level, not at the close. In testing, checking only closes missed 15–30% of touches.
+- **Hysteresis (like a Schmitt trigger)**: each level fires once; the upper levels (80/90/95) re-arm only after going back **below 50%**, the lower levels (20/10/5) after going back above 50%. Jumping past several levels at once reports only the furthest; if the app starts with the price already at 92%, it doesn't immediately fire 80 and 90.
+- **Default levels and measured frequency** (per symbol per day): all six levels for 24H and 72H, about 8.5 and 2.7 times; only **5% and 95%** for 4H, about 11 times — all levels on 4H is about 45 a day, too noisy.
+- **Monitored in the background by the hub**: watchlist symbols are monitored even with no card open, keeping 72 hours of 1m bars per symbol (about 5 requests at startup).
+- **Note: this is not an entry signal.** In the same data, the probability of a decline over the next 4 hours after price is above 90% was 44–57%, with no consistent direction across the two coins and three windows. Its purpose is to tell you "where in the distribution you are now", so you don't chase at the worst spot without noticing.
+- **How notifications reach you**: no sound (by request). The card glow is visible over games in borderless windowed mode; Windows notifications are routed to the notification center by Focus Assist while gaming (in testing, with Warcraft III running there was no banner, but it was in the notification center); while the taskbar flashes, the card temporarily gets a taskbar button, and clicking the card stops it. **None of the three are visible in a full-screen game**; see case G in [docs/vanishing-cards.md](docs/vanishing-cards.md).
 
-**成交量分布**有三種模式，從工具列圖示的彈出選單切換：
+**Volume profile** has three modes, switched from the toolbar icon's pop-up menu:
 
-| 模式 | 內容 |
+| Mode | Contents |
 | --- | --- |
-| 每 4H 分段 | 每個 4H 區塊各自一組分布與 POC，放在自己的時間區塊內由左往右長。區塊對齊 UTC 0/4/8/12/16/20 點，跟交易所的 4h K 棒同一個邊界。只在 1h 以下的週期顯示 |
-| 可見範圍 | 只算畫面上看得到的 K 棒，貼右邊畫，平移縮放時即時重算 |
-| 本日 (UTC) | UTC 00:00 至今，貼右邊畫 |
+| Per 4H session | Each 4H block gets its own profile and POC, growing left to right inside its own time block. Blocks align to UTC 0/4/8/12/16/20, the same boundaries as the exchange's 4h candles. Only shown on timeframes below 1h |
+| Visible range | Only the bars visible on screen, drawn against the right edge and recomputed live as you pan and zoom |
+| Today (UTC) | UTC 00:00 to now, drawn against the right edge |
 
-三種都由圖表自己畫（series primitive），跟 K 棒同一幀，縮放卡片不會延遲。每 4H 模式用 5 分 K 棒建置：已收盤的區塊算一次就快取，進行中的那塊每分鐘更新。
+All three are drawn by the chart itself (a series primitive), in the same frame as the candles, so resizing the card doesn't lag. Per 4H session mode is built from 5m bars: closed blocks are computed once and cached, and the block in progress is updated every minute.
 
-**區間成交量分布**（TradingView 的 Fixed Range Volume Profile）是給「關鍵位置」用的：4H、本日、可見範圍都是時鐘決定的區間，但真正想問的常常是圖形決定的區間 —— 衝高前那段、突破前盤整的那一週、急跌低點以來。設計上：
+The **fixed range volume profile** (TradingView's Fixed Range Volume Profile) is for "key zones": 4H, today and visible range are all ranges decided by the clock, but the question you actually want answered is often about a range decided by the chart — the run-up before a spike, the week of consolidation before a breakout, everything since a flush low. Design:
 
-- **只拖時間**：成交量分布本來就涵蓋區間內所有價格，所以手勢只需要 x1、x2，像畫一條橫線。邊界對齊整根 K 棒，兩端的 K 棒都算進去。
-- **用最細的 K 棒算**：挑能讓區間在 3,000 根左右的最細週期 —— 兩天以內用 1 分 K、十天左右用 5 分 K、一個月用 15 分 K。K 棒越細，每根的量攤到的列越少，分布就越接近真實；標籤上會寫是哪一種。已收盤的區間走 K 棒快取，「至今」的區間每分鐘只抓最後一段。
-- **列數跟著螢幕走**：列數 = 分布在螢幕上的高度 ÷ 精細度（6px 等），所以放大價格軸會看到更多細節，而不是更粗的列。所有模式共用同一個精細度。注意 POC 是「最重的那一列」，列切得越細，POC 會落在更窄、更精準的價位，所以切換精細度時 POC 可能會移動。
-- **買賣分色**：K 棒快取沒有主動買量，所以跟 TradingView 的 up/down volume 一樣，收盤 ≥ 開盤的 K 棒算買、反之算賣。用 1 分 K 時這個切分相當有參考價值。
-- **內部不能抓**：跟矩形同樣的理由，區間通常很寬，內部是平移圖表的地方，所以只有邊線和標籤可以拖。
+- **Drag time only**: a volume profile already covers every price in the range, so the gesture only needs x1 and x2, like drawing a horizontal line. Edges snap to whole bars, and the bars at both ends are included.
+- **Computed from the finest bars**: it picks the finest timeframe that keeps the range at around 3,000 bars — 1m bars up to two days, 5m for around ten days, 15m for a month. The finer the bars, the fewer rows each bar's volume is spread across, and the closer the profile is to reality; the label says which was used. Closed ranges go through the bar cache; a "to now" range only fetches the last stretch each minute.
+- **Row count follows the screen**: rows = the profile's height on screen ÷ Detail (6px etc.), so zooming in on the price axis shows more detail instead of coarser rows. All modes share the same Detail setting. Note that the POC is "the heaviest row", so finer rows put the POC on a narrower, more precise price, and it may move when you change Detail.
+- **Buy/sell coloring**: the profile does not use the taker-buy volume in the bar cache; like TradingView's up/down volume, bars that close ≥ open count as buys and the rest as sells. With 1m bars this split is quite informative.
+- **Inside isn't grabbable**: for the same reason as rectangles — ranges are usually wide and the inside is where you pan the chart — only the edges and the label can be dragged.
 
-**成交量分布**跟 TradingView 用同一種方法建置：載入該場次的 **1 分 K 棒**，把每根的量平均攤到它觸及的價格列上。他們官方文件明言這是估計值，不是 tick 級精確值。一天的 1 分 K 棒只要 **2 次 API 請求**；改用 aggTrades 逐筆資料的話 BTCUSDT 一天約 82 萬筆、需要 819 次請求，精確度的差距不值這個價錢。加密貨幣沒有交易時段，所以「場次」指的是交易所自己的日界，Binance 是 00:00 UTC。
+The **volume profile** is built the same way as TradingView's: load the session's **1m bars** and spread each bar's volume evenly across the price rows it touched. Their own documentation states this is an estimate, not tick-accurate. A day of 1m bars takes only **2 API requests**; using aggTrades tick data instead, BTCUSDT has about 820K trades a day and would need 819 requests — the gain in accuracy isn't worth that cost. Crypto has no trading sessions, so "session" means the exchange's own day boundary, which on Binance is 00:00 UTC.
 
-**足跡圖**用的是逐筆成交（aggTrade），跟上面的成交量分布不同，是精確值而不是估計：每筆成交帶著價格、數量和「買方是不是掛單方」（`m`），`m = true` 代表吃單的是賣方，算主動賣。設計上：
+The **footprint** uses individual trades (aggTrade), so unlike the volume profile above it is exact rather than an estimate: each trade carries a price, a quantity and whether the buyer was the maker (`m`); `m = true` means the taker was the seller, so it counts as a taker sell. Design:
 
-- **在 hub 收集一次**：hub 本來就為每張卡訂了 `@aggTrade`，足跡只是在同一個地方多做一次依價位累加。同一個幣種開幾張卡都只有一份，以 **1 分鐘 × 交易所原始價位**（BTC 是 0.1）為單位，5 分、15 分由 1 分鐘相加。卡片畫圖時才依縮放把價位合併成一列，列的邊界對齊整數倍，同一個價位在不同縮放、不同 K 棒都落在同一列。
-- **完整度用成交 ID 判斷**：aggTrade 的 ID 是連續的，中間跳號就是漏收。一分鐘要從頭到尾都在同一段沒斷過的串流裡收到才算完整；卡片剛開時那一分鐘、斷線重連跨過的分鐘，都會在收盤後用 REST 整分鐘重抓、取代串流的版本。
-- **補資料要讓給下單**：`/fapi/v1/aggTrades` 一次權重 20、一分鐘上限 2400，跟下單共用同一個 IP。所以補資料**每秒最多一次**（最多用掉一半額度），回應標頭的已用權重超過 1500 就等下一分鐘，遇到 429 / 418 照 `Retry-After` 暫停。BTC 熱門時一分鐘約 4 次請求，補滿 3 小時大約十來分鐘，由新往舊補，最近的 K 棒最先出現。
-- **存檔很小**：只存收盤且完整的分鐘，每個交易對每小時一個檔，只保留最近 12 小時。價位存成「跟上一格差幾格」、數量存成最小單位的整數，都用變長整數，再 gzip，**完全不失真**。實測 BTCUSDT 永續一分鐘約 1,300 個價位，float64 格式約 25KB，這樣存約 2KB，12 小時約 1.5MB。程式在寫入途中被砍掉，讀檔時會救回斷點之前的分鐘並重寫檔案。
+- **Collected once in the hub**: the hub already subscribes to `@aggTrade` for every card, so the footprint just adds per-price accumulation in the same place. Any number of cards on the same symbol share one copy, stored in units of **1 minute × the exchange's raw tick size** (0.1 for BTC); 5m and 15m are sums of 1m. Cards merge ticks into rows according to zoom only when drawing, with row boundaries aligned to whole multiples, so a given price lands in the same row at any zoom and in any bar.
+- **Completeness is judged by trade ID**: aggTrade IDs are consecutive, so a gap means missed trades. A minute only counts as complete if it was received from start to end within one unbroken stretch of the stream; the minute in which a card was opened, and any minute spanned by a disconnect/reconnect, are refetched in full over REST after they close, replacing the streamed version.
+- **Backfill yields to trading**: `/fapi/v1/aggTrades` costs weight 20 per call with a limit of 2400 per minute, shared with order placement on the same IP. So backfill runs **at most once per second** (using at most half the quota), waits for the next minute if the used weight in the response headers exceeds 1500, and pauses per `Retry-After` on 429 / 418. When BTC is busy a minute takes about 4 requests, so filling 3 hours takes roughly ten-odd minutes, newest first so the most recent bars appear first.
+- **Small on disk**: only closed, complete minutes are stored, one file per pair per hour, keeping only the last 12 hours. Prices are stored as "ticks from the previous level" and quantities as integers in the smallest unit, both as varints, then gzipped — **completely lossless**. In testing, a minute of BTCUSDT perp has about 1,300 price levels: about 25KB as float64, about 2KB this way, about 1.5MB for 12 hours. If the program is killed mid-write, reading the file recovers the minutes before the break and rewrites the file.
 
-**斐波那契**的錨點存的是 **{time, price}** 而不是 K 棒索引 —— 索引只在目前載入的資料範圍內才有意義，换個週期就指到別的 K 棒。回撤比例線橫跨整個圖表寬度，因為在這麼小的卡片上，你想知道的是「現在價格距離這些位置多遠」。
+**Fib retracement** anchors are stored as **{time, price}** rather than bar indices — an index only means something within the currently loaded data range and points at a different bar after changing timeframe. The retracement lines span the full chart width because on a card this small, what you want to know is "how far is the price from these levels now".
 
-卡片太矮、一欄放不下所有圖示時，工具列會自動**排成第二欄**，不會被切掉（預設 220px 高的卡片就是兩欄）。
+When a card is too short to fit every icon in one column, the toolbar automatically **wraps into a second column** instead of getting cut off (a card at the default 220px height has two columns).
 
-**工具列**的顯示規則跟標題列**完全相同** —— 滑鼠移到卡片上就浮出，移開就淡掉。刻意不做成「靠近左邊緣才展開」：這麼小的卡片不該有兩套喚出介面的規則，而且 45% 透明度下最外緣 20px 是最難瞄準的地方。工具列是疊在圖表上的，不佔版面寬度，閒置時成本是 0px。選了工具之後即使工具列淡掉，該工具的圖示仍會留著 —— 否則你會不知道自己還在繪製模式。**手勢在任何模式下都有效**（雙擊加線、`Shift` 拖曳量測），工具列只是讓沒背過手勢的人也找得到，這跟 TradingView 的分工一樣。
+The **toolbar** follows **exactly the same** visibility rule as the title bar — it appears when the mouse is over the card and fades when it leaves. It deliberately doesn't use "expand when near the left edge": a card this small shouldn't have two different rules for summoning UI, and at 45% opacity the outermost 20px is the hardest place to aim. The toolbar overlays the chart and takes no layout width, costing 0px when idle. Once you pick a tool, its icon stays visible even after the toolbar fades — otherwise you wouldn't know you're still in drawing mode. **Gestures work in any mode** (double-click to add a line, `Shift`-drag to measure); the toolbar just lets people who haven't learned the gestures find them, the same division of labor as in TradingView.
 
-**量測工具**刻意做成手勢而不是工具列按鈕 —— TradingView 自己的快速量測也是 `Shift` 拖曳,而在這種尺寸的卡片上,手勢不佔任何畫面空間。量測框的兩個錨點存的是 logical(小數 K 棒索引)而不是像素,所以平移縮放時框會跟著 K 棒跑,而且在最右側那段沒有 K 棒的留白區也定位得到。
+The **measure tool** is first of all a gesture (the toolbar's measure button is there for people who haven't learned it) — TradingView's own quick measure is also `Shift`-drag, and on a card this size a gesture costs no screen space. The measurement box's two anchors are stored as logical coordinates (fractional bar indices) rather than pixels, so the box follows the bars as you pan and zoom, and can also be placed in the empty area to the right of the last bar.
 
-**支撐壓力線**依 **symbol** 儲存,不依卡片也不依週期。所以同一條線會出現在每一張同幣別的卡片上,而且 1 分、15 分、1 日切來切去都在 —— 水平價位本來就沒有時間錨點。相同價格的線會自動去重。
+**Support/resistance lines** are saved per **symbol**, not per card or per timeframe. So the same line appears on every card for that symbol and stays put as you switch between 1m, 15m and 1d — a horizontal price level has no time anchor to begin with. Lines at the same price are deduplicated automatically.
 
-**現貨與永續共用畫線**：水平線、斐波那契、矩形一樣依 symbol 儲存、不分市場。BTCUSDT 現貨和永續的價差通常只有萬分之一、二，同一個支撐位在兩邊都成立，切過去線還在，撤銷紀錄也保留。報價放大過的合約（`1000PEPEUSDT`）本來就是不同的 symbol，所以各自有自己的線 —— 價格差了一千倍，本來就不能共用。
+**Spot and perp share drawings**: horizontal lines, trend lines, Fib retracements, rectangles and fixed range volume profiles are likewise saved per symbol regardless of market. The basis between BTCUSDT spot and perp is usually only one or two basis points, so a support level holds on both sides; the lines are still there when you switch over, and so is the undo history. Contracts with scaled quotes (`1000PEPEUSDT`) are different symbols to begin with, so they have their own lines — prices a thousand times apart couldn't be shared anyway.
 
-**永續合約**走 Binance USDⓈ-M（`fapi.binance.com` / `fstream.binance.com`）。REST 路徑和 stream 名稱都跟現貨相同，所以是同一個 `BinanceProvider` 帶不同的市場設定，重連、回補、100ms 合併全部沿用。要注意的是永續的 WebSocket 要連 **`/market/stream`**：舊的 `/stream` 還是連得上，但已經不送 kline、成交和 ticker，卡片會顯示「即時」卻完全不動。資金費率來自 `@markPrice` stream（每 3 秒），倒數在卡片端每秒自己算，所以兩次推送之間、甚至斷線時也會繼續走。
+**Perpetual futures** go through Binance USDⓈ-M (`fapi.binance.com` / `fstream.binance.com`). REST paths and stream names are the same as spot, so it's the same `BinanceProvider` with a different market config, and reconnect, backfill and 100ms coalescing all carry over. One catch: the perp WebSocket must connect to **`/market/stream`** — the old `/stream` still connects but no longer sends klines, trades or tickers, so the card would show "Live" yet never move. The funding rate comes from the `@markPrice` stream (every 3 seconds); the countdown is computed on the card every second, so it keeps running between pushes and even while disconnected.
 
-**兩種顯示模式**
+**Two display modes**
 
-- **Float**(預設):每張圖各自一個獨立浮動視窗,可分別擺到螢幕任何角落。
-- **Board**:單一視窗、CSS Grid 排多張卡,拖曳卡片標題列可重新排序,右上角可調欄數。
+- **Float** (default): each chart is its own floating window that can be placed anywhere on screen.
+- **Board**: a single window with cards in a CSS Grid; drag a card's title bar to reorder, and set the column count in the top right.
 
-兩種模式共用同一份卡片設定,來回切換不會遺失 symbol / 週期 / 圖型 / 透明度。
+Both modes share the same card settings, so switching back and forth never loses symbol / timeframe / chart type / opacity.
 
-**滑鼠穿透**:開啟後點擊會直接穿到桌面。卡片右下角會出現「解除穿透」小鈕(滑鼠移上去就會恢復可點),按 `Ctrl+Alt+C` 也能強制解除,不會把自己鎖在外面。
+**Click-through**: when on, clicks go straight through to the desktop. A small "Exit click-through" button appears in the card's bottom-right corner (hover over it to make the card clickable again), and `Ctrl+Alt+C` also forces it off, so you can't lock yourself out.
 
-## 下單（幣安 U 本位永續）
+## Trading (Binance USDⓈ-M perpetuals)
 
-> 槓桿交易風險很高。預設是**幣安模擬交易（測試網）**，切到正式環境需要另外勾選確認。想用自訂資金練習、看績效統計，用**模擬（本機）**（見下方「模擬交易」），不需要 API Key。
+> Leveraged trading is very risky. The default is **Binance demo trading (testnet)**; switching to live requires an extra confirmation checkbox. To practice with custom capital and see performance stats, use **Paper (local)** (see "Paper trading" below), which needs no API key.
 
-**設定**：右鍵 → 設定 → 最下面「交易」。
-1. 在[幣安模擬交易](https://demo.binance.com/)（或正式帳戶的 API 管理）建立 API Key：只勾「讀取」與「合約交易」，**不要開提現**，建議綁定 IP。
-2. 依金鑰種類填入，顯示「已連線 · 可用 … USDT」就完成了：
-   - **Self-generated（自行產生，建議）**：貼上 API Key →「**選擇私鑰檔案…**」選你的 `-----BEGIN PRIVATE KEY-----` 那個 `.pem` 檔。支援 **Ed25519** 與 **RSA**。私鑰由主程序在檔案對話框裡讀取，不經過畫面端；Binance 那邊只有你上傳的公鑰。
-   - **System generated（HMAC）**：貼上 API Key 與 Secret Key →「儲存並連線」。
+**Setup**: right-click → Settings → "Trading" at the bottom.
+1. Create an API key on [Binance demo trading](https://demo.binance.com/) (or in API Management on a live account): enable only "Reading" and "Futures trading", **do not enable withdrawals**, and IP restriction is recommended.
+2. Fill it in according to the key type; when it shows "Connected · Available … USDT" you're done:
+   - **Self-generated (recommended)**: paste the API key → "**Choose private key file…**" and select your `.pem` file that starts with `-----BEGIN PRIVATE KEY-----`. **Ed25519** and **RSA** are supported. The private key is read by the main process from the file dialog and never passes through the renderer; Binance only has the public key you uploaded.
+   - **System generated (HMAC)**: paste the API key and secret key → "Save & connect".
 
-   幣安永續合約 REST 的文件只列出 HMAC 和 RSA，但 **Ed25519 已用正式帳戶實測可用**（唯讀查詢，簽名驗證通過）。產生 Ed25519 金鑰：`openssl genpkey -algorithm ed25519 -out stockcard-private.pem`，公鑰：`openssl pkey -in stockcard-private.pem -pubout -out stockcard-public.pem`，把公鑰檔整個（含 BEGIN / END 兩行）貼到幣安。
-3. **槓桿依幣種各自設定**：點下單票標題的「全倉 Nx ▾」，填數字或點快選（只列出這個幣種允許的倍數，最右邊是它的最高槓桿）→「套用」。保證金模式固定為**全倉**、持倉模式為**單向**；如果帳戶是雙向持倉，設定裡會出現切換按鈕。
+   Binance's USDⓈ-M futures REST docs only list HMAC and RSA, but **Ed25519 has been tested and works on a live account** (read-only queries, signature verification passed). To generate an Ed25519 key: `openssl genpkey -algorithm ed25519 -out stockcard-private.pem`; public key: `openssl pkey -in stockcard-private.pem -pubout -out stockcard-public.pem`. Paste the whole public key file (including the BEGIN / END lines) into Binance.
+3. **Leverage is set per symbol**: click "Cross Nx ▾" in the order ticket header, type a number or click a preset (only multiples allowed for this symbol are listed; the rightmost is its maximum leverage) → "Apply". Margin mode is fixed to **cross** and position mode to **one-way**; if the account is in hedge mode, a button to switch appears in the settings.
 
-**槓桿記錄在幣安帳戶上，不在本機**：每個幣種的槓桿本來就是幣安依幣種保存的（`GET /fapi/v1/symbolConfig` 讀、`POST /fapi/v1/leverage` 寫），所以在 App、網頁、手機看到的是同一個數字。每次打開下單票都向幣安重新讀一次，送單時**不會**被改掉 —— 下單票上看到幾倍就是幾倍。每個幣種的最高槓桿不同（BTC 125x，很多小幣 20x 或更低），而且**倉位越大可用的最高槓桿越低**（`GET /fapi/v1/leverageBracket` 的分層）；預估倉位超過目前槓桿允許的名目價值時，下單票會先說明，不會等幣安拒絕。
+**Leverage lives on your Binance account, not locally**: Binance already stores leverage per symbol (read with `GET /fapi/v1/symbolConfig`, written with `POST /fapi/v1/leverage`), so the app, the website and the mobile app all see the same number. It is re-read from Binance every time the order ticket opens and is **not** changed when an order is sent — the leverage shown on the ticket is the leverage you get. Maximum leverage differs per symbol (BTC 125x, many small caps 20x or less), and **the larger the position, the lower the maximum leverage** (the brackets from `GET /fapi/v1/leverageBracket`); if the estimated position exceeds the notional allowed at the current leverage, the ticket tells you up front instead of waiting for Binance to reject it.
 
-金鑰（HMAC 的 Secret，或自行產生的私鑰）用 Windows 的 DPAPI 加密存在 `userData/trading-credentials.bin`，只有主程序讀得到，畫面端只看得到末四碼與金鑰類型。所有下單都在主程序依交易所規則（最小跳動、數量步長、最小名目價值）重新驗證、取整後才送出。
+Keys (the HMAC secret, or the self-generated private key) are encrypted with Windows DPAPI and stored in `userData/trading-credentials.bin`, readable only by the main process; the renderer only sees the last four characters and the key type. Every order is re-validated and rounded in the main process against the exchange's rules (tick size, step size, minimum notional) before it is sent.
 
-| 動作 | 方式 |
+| Action | How |
 | --- | --- |
-| 下單 | 永續卡片上，滑鼠在圖上時價格軸左邊會跟著出現 **＋**，點它就在那個價位開下單票 |
-| 鎖定價位 | 在圖上**單擊**：鎖住那個價位，＋ 會固定在那條虛線上，滑鼠可以自由移過去點。`Esc` 或再點一下解除（雙擊仍然是加水平線，不會鎖定） |
-| 下單票 | 限價 / 市價、金額（**名目價值 USDT**，10% / 25% / 50% / 100% 依可用保證金 × 槓桿）、可選止盈 / 止損。下面即時顯示數量、保證金、做多與做空的**預估強平價**，以及止盈止損會賺 / 賠多少 |
-| 多空傾向 | 下單票的預估強平上面一格：**資金費率**（正的多方付空方、負的空方付多方）、偏熱標籤和結算倒數；有填金額時顯示這筆每次結算做多 / 做空各付或收多少 USDT。偏熱是跟**基準**比，不是跟 0 比：資金費率 = 溢價 + 利息 0.01%（每 8 小時），永續貼著現貨時就停在 0.01%，所以高於基準＝**多方偏熱**，低於基準（就算還是正的）＝永續比現貨便宜，**空方偏熱**。每 4 小時或每 1 小時結算的幣種，基準照比例縮小（從 `/fundingInfo` 取得結算週期）。下一行是幣安的**多空比**：「人數」是有倉位的帳戶裡淨做多的比例（散戶居多），「大戶持倉」是保證金前 20% 帳戶的持倉量裡做多的比例，每 5 分鐘更新，下單票開著時跟著更新 |
-| **預設金額** | 下單票金額欄右邊的「設預設」：輸入金額（例如 200）按一下，之後**每次開下單票都自動帶入** 200 USDT，按鈕變成「預設 ✓」。機會來的時候只剩選方向：按「做多／做空」再按一次確認就送出。所有幣種共用、重開程式也保留；換一個金額再按就覆蓋，金額欄清空再按就清除。只減倉時不帶入 |
-| 送出 | 按「做多 / 做空」一次，按鈕變成摘要（例如「確認做多 0.235 ETH @ 2551.52」），3 秒內再按一次（或 `Enter`）才送出 |
-| 止盈 / 止損 | 以**標記價格**觸發、整倉平倉（幣安的條件單 API）。限價單的止盈止損會在**成交後**才掛上，程式關著時成交的也會在下次開啟時補掛 |
-| 看倉位 | 圖上：均價線（標籤顯示即時盈虧）、強平價線、掛單線、止盈止損線。底部倉位列：方向 / 槓桿、數量、均價、標記價、未實現盈虧與報酬率、強平價。倉位列是卡片排版的**一列**（在時間軸下方），不是浮在圖上：有倉位時圖表讓出 22px，沒倉位時收起來，所以**不會蓋住成交量和 OI 副圖**。卡片窄時先省略次要欄位，盈虧和按鈕一定留著 |
-| **只減倉** | 下單票勾「只減倉」：只會減少現有倉位，不會開新倉或反手。持多倉只能「平多（賣出）」、持空倉只能「平空（買入）」；百分比按鈕變成**倉位的** 25／50／75／100%（100% 是倉位的精確數量，不會留下零頭）；金額超過倉位會先擋下。不需要保證金，止盈止損欄位與預估強平會收起來。**不受最小下單金額限制**（幣安 `-4164` 的原文：「unless you choose reduce only」），所以很小的剩餘倉位也能平掉。送出前會先向幣安重新取一次倉位 |
-| **拖曳改價** | 按住**限價單、止盈、止損的標籤**上下拖，放開就改價；拖曳中標籤即時顯示新價格與止盈止損的預估盈虧。下單票開著時，「下單價／止盈／止損」的標籤拖了會直接改下單票的欄位。真正的委託只能抓標籤、不能抓線 —— 線跟水平線、平移共用同一張圖，誤抓會動到真的委託。**下單票與反手面板的虛線（下單價／止盈／止損／反手價）整條都能抓**：滑鼠移到線上游標變成上下箭頭，按住就拖，線即時跟著滑鼠走（數量、保證金、強平價在背景跟上）；這些線只會改面板裡的數字，還沒送出，所以放寬是安全的 |
-| 拖曳的保護 | 拖過目前價格（限價單會立刻成交）或止盈止損放到會立刻觸發的位置，標籤變紅、放開**不送出**；拖曳中按 `Esc` 取消；移動不到 3px 不算；**拖曳期間價格刻度變了（自動縮放、改視窗大小）也不送出** |
-| 取消掛單 | 點掛單或止盈止損標籤上的 **✕**。按下後標籤立刻變成「取消中…」，幣安確認後線就消失並跳出「已取消」，不用等下一次更新。重複按到已經不在的委託，會說明「已取消或已成交」，不會跳錯誤 |
-| 改止盈止損 | 倉位列「止盈止損」，清空欄位即取消 |
-| 平倉 | 倉位列「平倉」按兩下（市價、只減倉、精確數量）。卡片窄於 460px 時，倉位列的按鈕改用短標籤（TP/SL、限反、市反），把空間留給盈虧 |
-| **市價反手** | 倉位列「**市價反手**」**按兩下**：第一下按鈕變成藍色的「確認反手→空」，3 秒內再按一下立刻反手，不開面板（跟「平倉」一樣的兩下確認）。倉位在兩下之間變了就作廢，要重按 |
-| **限價反手** | 倉位列「**限價反手**」打開反手面板（直接是限價模式），上方寫著「多 0.01 → 空 0.01」。在圖上點一下、輸入或拖曳「反手價」線選價格，持多只能掛在目前價格**上方**賣出、持空只能掛在**下方**買入（放錯邊會立刻成交，面板會擋下並請你改用市價）；掛出去後圖上的標籤寫「反手賣／反手買」，可以拖曳改價、按 ✕ 取消。可勾選**新倉位的止盈止損**（限價反手會在成交後才掛上） |
+| Place an order | On a perp card, a **＋** follows the mouse left of the price axis while you're over the chart; click it to open an order ticket at that price |
+| Lock a price | **Single-click** on the chart: locks that price and pins the ＋ to its dashed line, so you can move the mouse over and click it. `Esc` or another click releases it (double-click still adds a horizontal line and doesn't lock) |
+| Order ticket | Limit / market, amount (**notional in USDT**; 10% / 25% / 50% / 100% of available margin × leverage), optional TP / SL. Below, it shows live quantity, margin, the **estimated liquidation price** for long and short, and how much the TP / SL would make / lose |
+| Long/short bias | The row above the estimated liquidation in the order ticket: the **funding rate** (positive: longs pay shorts; negative: shorts pay longs), a heat tag and the settlement countdown; with an amount entered, it shows how many USDT a long / short would pay or receive per settlement. "Heat" is measured against the **neutral** rate, not 0: funding rate = premium + 0.01% interest (per 8 hours), so when the perp tracks spot it sits at 0.01%; above neutral = **Longs hot**, below it (even if still positive) = the perp is cheaper than spot, **Shorts hot**. For symbols settling every 4 or 1 hours, neutral is scaled down proportionally (the interval comes from `/fundingInfo`). The next line is Binance's **L/S ratio**: "all" is the share of accounts with a position that are net long (mostly retail), "top" is the long share of position size among the top 20% of accounts by margin; updated every 5 minutes, and refreshed while the order ticket is open |
+| **Default amount** | "Set default" to the right of the ticket's amount field: enter an amount (e.g. 200) and click it, and **every order ticket opens pre-filled** with 200 USDT; the button changes to "Default ✓". When an opportunity comes, all that's left is the direction: press "Long / Short", then press again to confirm and send. Shared by all symbols and kept across restarts; enter another amount and click again to overwrite, or clear the field and click to remove it. Not applied in reduce-only mode |
+| Submit | Press "Long / Short" once and the button turns into a summary (e.g. "Confirm long 0.235 ETH @ 2551.52"); press again (or `Enter`) within 3 seconds to send |
+| TP / SL | Triggered by **mark price**, closing the whole position (Binance's conditional order API). TP/SL on a limit order is placed only **after it fills**; fills that happen while the app is closed get their TP/SL placed the next time it opens |
+| View the position | On the chart: entry price line (label shows live PnL), liquidation price line, order lines, TP/SL lines. The position bar at the bottom: side / leverage, size, entry price, mark price, unrealized PnL and ROE, liquidation price. The position bar is a **row** in the card layout (below the time axis), not floating over the chart: with a position the chart gives up 22px, without one it collapses, so it **never covers the volume and OI panes**. On narrow cards secondary fields are dropped first; PnL and the buttons always stay |
+| **Reduce-only** | Tick "Reduce-only" in the order ticket: it can only shrink the existing position, never open a new one or reverse. A long can only "Close long (sell)", a short only "Close short (buy)"; the percentage buttons become 25 / 50 / 75 / 100% **of the position** (100% is the exact position size, leaving no dust); amounts larger than the position are blocked up front. No margin is needed, and the TP/SL fields and estimated liquidation are hidden. **Exempt from the minimum order size** (Binance's `-4164` message: "unless you choose reduce only"), so even tiny leftover positions can be closed. The position is re-fetched from Binance before sending |
+| **Drag to reprice** | Hold the **label of a limit order, TP or SL** and drag up or down; release to change the price. While dragging, the label shows the new price and the estimated TP/SL PnL. With the order ticket open, dragging the "Order price / TP / SL" labels edits the ticket's fields directly. Live orders can only be grabbed by the label, not the line — the line shares the chart with horizontal lines and panning, and a mis-grab would move a real order. **The dashed lines of the order ticket and the reverse panel (order price / TP / SL / reverse price) can be grabbed anywhere along the line**: the cursor becomes an up/down arrow over the line, press and drag, and the line follows the mouse live (quantity, margin and liquidation price catch up in the background); these lines only change numbers in the panel and nothing has been sent yet, so the looser grab is safe |
+| Drag safeguards | Dragging past the current price (a limit order would fill immediately) or putting a TP/SL where it would trigger immediately turns the label red, and releasing **sends nothing**; `Esc` during a drag cancels; moves under 3px don't count; **if the price scale changes during the drag (autoscale, window resize), nothing is sent either** |
+| Cancel an order | Click the **✕** on an order or TP/SL label. The label immediately changes to "Cancelling…", and once Binance confirms, the line disappears and "Canceled" pops up, without waiting for the next refresh. Pressing it again on an order that no longer exists explains "cancelled or filled" instead of showing an error |
+| Edit TP/SL | "TP/SL" on the position bar; clear a field to cancel it |
+| Close | Double-press "Close" on the position bar (market, reduce-only, exact size). On cards narrower than 460px, the position bar buttons use short labels (TP/SL, Lmt rev, Mkt rev) to leave room for PnL |
+| **Market reverse** | **Double-press** "**Market reverse**" on the position bar: the first press turns the button into a blue "Confirm reverse→Short", and a second press within 3 seconds reverses immediately without opening a panel (the same double-press confirmation as "Close"). If the position changes between the two presses, the confirmation is void and you have to start again |
+| **Limit reverse** | "**Limit reverse**" on the position bar opens the reverse panel (directly in limit mode), headed "Long 0.01 → Short 0.01". Choose the price by clicking the chart, typing, or dragging the "Reverse price" line; a long can only sell **above** the current price and a short can only buy **below** it (the wrong side would fill immediately, so the panel blocks it and asks you to use market instead). Once placed, the chart label reads "Rev. sell / Rev. buy", and you can drag it to reprice or press ✕ to cancel. You can optionally add **TP / SL for the new position** (for a limit reverse, placed only after it fills) |
 
-**反手怎麼送出**：只送**一張**反方向、數量是倉位兩倍的單（持多 0.01 就賣出 0.02：前 0.01 平倉、後 0.01 開空），不是「先平倉再開倉」兩張。好處是只成交一次、中間沒有空手的空檔；保證金不夠時整張被幣安拒絕，**倉位完全不變**，不會落到「平倉成功、開倉失敗」變成空手。手續費兩種做法一樣，都是兩倍數量。幾個保護：
+**How a reverse is sent**: just **one** order in the opposite direction for twice the position size (long 0.01 → sell 0.02: the first 0.01 closes, the next 0.01 opens a short), not two orders "close, then open". It fills once, with no flat gap in between; if margin is insufficient, Binance rejects the whole order and **the position is unchanged** — you can't end up flat with "close succeeded, open failed". Fees are the same either way: twice the size. Safeguards:
 
-- **確認的數量就是送出的數量**：面板上看到的是「多 0.01」，送出前會向幣安重新取一次倉位，數量不一樣就不送，請你重新確認。
-- **原倉位的止盈止損與減倉單，在反手成交之後才取消**。多單的止損是「賣出」，反手成空單後它留著沒有意義，所以會自動清掉；但在成交之前它還在保護原倉位，所以限價反手掛著的時候不會先動它。部分成交、已經越過零軸時也會清掉。
-- **限價反手的倉位守衛**：限價反手掛著時，如果倉位先被別的事情改變 —— 例如原本的止損先觸發、或你手動平倉 —— 這張兩倍數量的單一成交就會開出**兩倍的反向倉位**。所以每次更新倉位都會檢查「倉位 = 原倉位 + 這張單已成交的量」，對不上就自動取消反手單並跳出提醒。倉位和掛單是同時讀的，成交剛好落在兩次讀取之間也會看起來對不上，所以發現不一致時會再依序讀一次（委託 → 倉位 → 委託），委託在這段時間沒有變動、而且仍然對不上才會取消。
-- 同一個幣種一次只能有一張反手限價單。
+- **The size you confirm is the size that's sent**: the panel shows "Long 0.01"; the position is re-fetched from Binance before sending, and if the size differs nothing is sent and you're asked to confirm again.
+- **The original position's TP/SL and reduce-only orders are canceled only after the reverse fills.** A long's stop loss is a "sell", which is meaningless once the position is reversed to short, so it's cleaned up automatically; but until the fill it still protects the original position, so a pending limit reverse leaves it alone. It's also cleaned up on a partial fill that has already crossed zero.
+- **Position guard for limit reverses**: while a limit reverse is pending, if the position changes first for some other reason — say the original stop loss triggers, or you close manually — this double-size order would open a **double-size opposite position** when it fills. So every position update checks "position = original position + amount of this order filled so far", and if it doesn't match, the reverse order is canceled automatically with a warning. Positions and orders are read at the same time, and a fill landing between the two reads would also look like a mismatch, so on a mismatch they're read again in order (orders → position → orders); the reverse is canceled only if the orders didn't change in the meantime and it still doesn't match.
+- Only one reverse limit order per symbol at a time.
 
-**委託編號一位都不能錯**：幣安的委託編號可能超過 16 位數，而 JavaScript 的數字只有 15～16 位有效位數，用一般的 `JSON.parse` 讀進來，最後幾位會被四捨五入（`8389765907134201345` 變成 `8389765907134202000`）。線照樣畫得出來（畫線只需要價格），但取消和改價送出的是不存在的編號，幣安回 `-2011 Unknown order sent`。所以交易相關的回應都用 `parseExact` 解析：16 位數以上的整數原樣保留成字串。
+**Order IDs must be exact to the last digit**: Binance order IDs can exceed 16 digits, while JavaScript numbers have only 15–16 significant digits, so reading them with plain `JSON.parse` rounds off the last few digits (`8389765907134201345` becomes `8389765907134202000`). The line still draws (drawing only needs the price), but cancel and reprice send a nonexistent ID and Binance replies `-2011 Unknown order sent`. So all trading responses are parsed with `parseExact`: integers of 16 or more digits are kept verbatim as strings.
 
-**改價怎麼送出**：限價單用 `PUT /fapi/v1/order` **原單修改**（委託編號不變，但會重新排隊，這是幣安的規則）。止盈止損是條件單，幣安**沒有修改的 API**，只能取消再重掛；而同方向的整倉平倉條件單不能同時存在兩張，所以是先取消、再掛新的。新的被拒絕時（例如觸發價已經被穿過），**會立刻把原本的價格掛回去**，不會讓倉位沒有止損；連恢復都失敗才會跳錯誤要你檢查。
+**How repricing is sent**: limit orders are **modified in place** with `PUT /fapi/v1/order` (same order ID, but it loses its queue position — Binance's rule). TP/SL are conditional orders, and Binance has **no modify API** for them, so they can only be canceled and re-placed; and two close-position conditional orders on the same side can't coexist, so it cancels first, then places the new one. If the new one is rejected (e.g. the trigger price has already been crossed), **the original price is immediately re-placed**, so the position is never left without a stop; only if the restore also fails does it show an error asking you to check.
 
-盈虧用每秒更新的標記價格即時計算。倉位與訂單同時走兩條路：幣安的使用者推送（成交當下就更新），以及每 3～12 秒一次的 REST 輪詢當保險 —— 推送斷線時畫面也不會停在舊資料上。
+PnL is computed live from the mark price, updated every second. Positions and orders come through two paths at once: Binance's user data stream (updated the moment a fill happens), plus REST polling every 3–12 seconds as a backup — so the display doesn't freeze on stale data if the stream drops.
 
-開發時可以用 `STOCKCARD_TESTNET_REST` / `STOCKCARD_TESTNET_WS` 把**測試網**指到本機的模擬交易所；正式環境的網址不能被覆寫。
+During development, `STOCKCARD_TESTNET_REST` / `STOCKCARD_TESTNET_WS` can point the **testnet** at a local mock exchange; the live URLs cannot be overridden.
 
-### 模擬交易（本機）
+### Paper trading (local)
 
-用來測試新策略、看自己的實力：**自訂初始資金**，用**幣安正式市場的即時行情**撮合，賺賠、手續費、資金費都算進資金裡，每一筆平倉都留紀錄。不需要 API Key。
+For testing new strategies and seeing how good you really are: **custom starting balance**, matched against **Binance's live market data**, with PnL, fees and funding all applied to your balance and every closed position recorded. No API key needed.
 
-**設定**：右鍵 → 設定 → 交易 → 環境選「**模擬（本機）**」。
-- **初始資金**：輸入金額 →「用這個金額重新開始…」→ 確定。重設會清空模擬倉位、掛單與紀錄，**舊紀錄會另存備份**（`userData/paper-account-<時間>.json`）。
-- **手續費**：Maker / Taker 費率，預設 0.02% / 0.05%（幣安一般用戶）。有 VIP 或 BNB 折抵就改成自己的費率。
-- **交易紀錄與績效**：打開紀錄視窗。
+**Setup**: right-click → Settings → Trading → set Environment to "**Paper (local)**".
+- **Starting balance**: enter an amount → "Restart with this amount…" → confirm. Resetting clears paper positions, orders and history; **the old history is backed up** (`userData/paper-account-<time>.json`).
+- **Fees**: maker / taker rates, default 0.02% / 0.05% (Binance regular user). Change them to your own rates if you have VIP or a BNB discount.
+- **Trade journal & performance**: opens the journal window.
 
-下單票、止盈止損、反手、拖曳改價、預設金額**全部照常使用**，卡片上的標籤寫「模擬」。模擬交易所是照著幣安 API 的介面做的，所以交易程式一行都不用分兩套。
+Order ticket, TP/SL, reverses, drag to reprice and default amount **all work as usual**; labels on the card read "Paper". The paper exchange mimics the Binance API's interface, so the trading code doesn't need a second code path anywhere.
 
-**計入的成本與規則**（盡量貼近真實，寧可保守）：
+**Costs and rules applied** (as close to reality as possible, erring conservative):
 
-| 項目 | 怎麼算 |
+| Item | How it's computed |
 | --- | --- |
-| 手續費 | 每筆成交的名目價值 × 費率。**掛著的限價單成交算 Maker**；市價單、觸發的止盈止損、一送出就成交的限價單算 **Taker** |
-| 滑價 | 市價單和止盈止損**吃幣安真實的掛單簿**（前 50 檔），一檔一檔往下吃算成交均價 —— 單子越大、幣越冷門，滑價越多 |
-| 限價成交 | 要有真實成交價**穿過**掛單價才算成交，只碰到不算（真實情況要排隊，不一定輪得到你），避免高估績效 |
-| 止盈止損 | 以**標記價格**觸發（跟正式設定一樣），觸發後市價吃掛單簿平倉 |
-| 資金費率 | 在每個資金費結算時間，以幣安公布的費率 × 標記價格收付：費率為正時多單付、空單收 |
-| 強平 | 全倉：資金 + 未實現損益 ≤ 維持保證金時，全部倉位以標記價格強平，剩下的維持保證金當作清算費。資金不會變負的 |
-| 槓桿分層 | 沒有 API Key 讀不到各幣種自己的分層，所以所有幣種共用一份以 BTCUSDT 為準的分層（最高 125x） |
+| Fees | Notional of each fill × rate. **A resting limit order that fills is maker**; market orders, triggered TP/SL and limit orders that fill as soon as they're sent are **taker** |
+| Slippage | Market orders and TP/SL **eat through Binance's real order book** (top 50 levels) level by level to get the average fill price — the bigger the order and the thinner the coin, the more slippage |
+| Limit fills | A real trade price has to **cross** the limit price to fill; just touching it doesn't count (in reality you'd have to wait in the queue and might not get filled), to avoid overstating performance |
+| TP / SL | Triggered by **mark price** (same as live), then closed at market against the order book |
+| Funding | At each funding settlement, paid or received at Binance's published rate × mark price: when the rate is positive, longs pay and shorts receive |
+| Liquidation | Cross: when balance + unrealized PnL ≤ maintenance margin, all positions are liquidated at mark price and the remaining maintenance margin is taken as the liquidation fee. The balance never goes negative |
+| Leverage brackets | Without an API key the per-symbol brackets can't be read, so all symbols share one set of brackets based on BTCUSDT (max 125x) |
 
-**程式關著的時候**：真實交易所不會因為你關電腦就不成交，所以模擬也不能停。下次開程式時，會用**1 分 K 與幣安公布的資金費率**把關閉期間補算一遍（最多 30 天）：止損、限價成交、止盈、資金費、強平依時間順序處理，補算出結果會跳提示。同一分鐘內不知道先到高點還是低點，所以**先算止損、再算止盈**（保守）。
+**While the app is closed**: a real exchange doesn't stop filling orders because you turned off your computer, so the paper exchange can't stop either. The next time you open the app, the closed period is replayed (up to 30 days) using **1m bars and Binance's published funding rates**: stop losses, limit fills, take profits, funding and liquidations are processed in time order, and a notice pops up with the result. Within a single minute you can't tell whether the high or the low came first, so **stop losses are evaluated before take profits** (conservative).
 
-**紀錄視窗**：
-- **績效**：目前資金與淨值、淨損益與報酬率、勝率（幾勝幾敗）、盈虧比（總獲利 ÷ 總虧損）、平均獲利 / 平均虧損、每筆期望值、最好 / 最差一筆、最大回撤（從資金高點）、手續費總計、資金費總計、平均持倉時間、多單與空單分開的成績。
-- **資金曲線**：每一次資金變動（已實現損益、手續費、資金費）後的餘額，高於初始資金是綠色、低於是紅色。
-- **持倉中**：還沒平倉的倉位，以及到目前為止付了多少手續費和資金費。
-- **歷史倉位**：每一次從開倉到完全平倉算一筆：方向、最大數量、槓桿、開倉 / 平倉均價、價差損益、手續費、資金費、**淨損益**、ROE、持倉時間、平倉原因（手動 / 平倉鍵 / 限價 / 止盈 / 止損 / 反手 / 強平）。可以只看單一幣種。
-- **資金明細**：每一筆入金、已實現損益、手續費、資金費和當時的餘額。
-- **匯出 CSV**：歷史倉位存成 Excel 打得開的 CSV。
+**Journal window**:
+- **Performance**: current balance and equity, net PnL and return, win rate (wins / losses), profit factor (gross profit ÷ gross loss), average win / average loss, expectancy per trade, best / worst trade, max drawdown (from the balance peak), total fees, total funding, average holding time, and separate results for longs and shorts.
+- **Equity curve**: the balance after each change (realized PnL, fees, funding); green above the starting balance, red below.
+- **Open positions**: positions not yet closed, and the fees and funding paid on them so far.
+- **Position history**: each open-to-fully-closed position is one record: side, max size, leverage, average entry / exit price, price PnL, fees, funding, **net PnL**, ROE, holding time, close reason (Manual / Close button / Limit / TP / SL / Reverse / Liq.). Can be filtered to a single symbol.
+- **Transactions**: every deposit, realized PnL, fee and funding payment with the balance at the time.
+- **Export CSV**: saves the position history as a CSV that opens in Excel.
 
-**反手**在紀錄裡會拆成兩筆：原倉位以「反手」平倉，新倉位從同一個價格開始，手續費按數量比例分給兩筆。
+**Reverses** are split into two records in the history: the original position closed with reason "Reverse", and the new position opened at the same price, with the fee split between the two in proportion to size.
 
-## 架構
+## Architecture
 
 ```
-main/                 Electron 主行程
-  main.js             生命週期、單一實例鎖、全部 IPC
-  windows.js          Float / Board 視窗管理、置頂、穿透、顯示隱藏
-  store.js            electron-store 設定持久化 + 螢幕範圍校正
-  tray.js             系統托盤選單
-  shortcuts.js        全域快捷鍵
-  protocol.js         app:// 自訂協定
-  bar-store.js        K 線快取（固定寬度二進位，依時間分檔）
-  footprint-store.js  足跡快取（每分鐘一個 gzip 段，只留最近 12 小時）
-  trading/            下單：rules（簽名、取整、強平估算）、client（REST）、
-                      stream（使用者推送）、vault（DPAPI 金鑰）、service（狀態與下單）
-preload/preload.js    contextBridge 白名單 API
+main/                 Electron main process
+  main.js             lifecycle, single-instance lock, all IPC
+  windows.js          Float / Board window management, always-on-top, click-through, show/hide
+  store.js            electron-store settings persistence + screen-bounds correction
+  tray.js             system tray menu
+  shortcuts.js        global shortcuts
+  protocol.js         app:// custom protocol
+  i18n.js             interface language for main-process text (tray menu, notifications)
+  alerts.js           range alert delivery (card glow, Windows notification, taskbar flash)
+  bar-store.js        bar cache (fixed-width binary, split by time)
+  footprint-store.js  footprint cache (one gzip segment per minute, last 12 hours only)
+  trading/            trading: rules (signing, rounding, liquidation estimate), client (REST),
+                      stream (user data stream), vault (DPAPI keys), service (state and orders),
+                      paper / paper-engine (local paper exchange and its bookkeeping)
+preload/preload.js    contextBridge allowlisted API
 renderer/
-  hub.html/js         隱藏視窗:持有全部 WebSocket(每個市場最多一條)
-  card.html/js        Float 模式單卡頁面
-  board.html/js       Board 模式多卡頁面
-  cardview.js         卡片元件(兩種模式共用)
-  chart.js            lightweight-charts v5 封裝
+  hub.html/js         hidden window: owns all WebSockets (at most one per market)
+  card.html/js        single-card page for Float mode
+  board.html/js       multi-card page for Board mode
+  cardview.js         card component (shared by both modes)
+  chart.js            lightweight-charts v5 wrapper
+  journal.html/js     paper trading journal window
+  i18n.js             t(): looks up English in i18n/en.json, falls back to the Chinese source string
+  i18n/en.json        Chinese UI string -> English
+  footprint.js        footprint rows, delta, POC, imbalances (footprint-primitive.js draws them)
+  volume-pane.js      volume pane: taker buy/sell split, thin volume (ranked in volume-stats.js)
+  *-primitive.js      chart overlays (Fib, rectangles, trend lines, volume profiles, opens, ...)
   datafeed/
-    provider.js       DataProvider 抽象介面
-    binance.js        Binance 實作(REST 回補 + WS 即時 + 重連)
-    footprint-collector.js  足跡收集：逐筆累加、完整度、REST 補資料
-    remote.js         卡片端 Provider,透過 IPC 轉給 hub
-  ui/                 設定面板、symbol 搜尋
-  trade/              下單票、倉位列、圖上的倉位 / 掛單線（trade-primitive）
-scripts/              圖示產生、vendor 同步、語法檢查、datafeed 測試
+    provider.js       DataProvider abstract interface
+    binance.js        Binance implementation (REST backfill + WS live + reconnect)
+    footprint-collector.js  footprint collection: per-trade accumulation, completeness, REST backfill
+    remote.js         card-side provider, forwards to the hub over IPC
+  ui/                 settings panel, symbol search, toolbar, watchlist, trading settings
+  trade/              order ticket, position bar, on-chart position / order lines (trade-primitive),
+                      reverse panel, long/short bias (market-mood)
+scripts/              icon generation, vendor sync, syntax and i18n checks (check-i18n.mjs),
+                      tests (datafeed, bar cache, trading rules, paper engine, volume, footprint)
 ```
 
-### 兩個實作上的取捨
+### Two implementation tradeoffs
 
-**1. 為什麼有一個隱藏的 hub 視窗**
+**1. Why there is a hidden hub window**
 
-規格同時要求「renderer 直接連 Binance」和「不管幾張卡都只有一條 WebSocket」。Float 模式下每張卡是獨立的 renderer 行程,卡片自己開 socket 就會變成一卡一條連線。
+The spec requires both "the renderer connects to Binance directly" and "only one WebSocket no matter how many cards". In Float mode each card is a separate renderer process, so if cards opened their own sockets there would be one connection per card.
 
-所以連線放在一個常駐隱藏的 renderer(`renderer/hub.js`)裡,卡片透過 IPC 跟它要資料。現貨和永續在不同主機上，不可能共用一條 socket，所以規則是**每個市場最多一條**：沒有卡片在看永續時就不開那條，全部卡片都切到永續時現貨那條也會關掉:
+So the connection lives in a persistent hidden renderer (`renderer/hub.js`), and cards request data from it over IPC. Spot and perps are on different hosts and can't share a socket, so the rule is **at most one per market**: the perp connection isn't opened when no card is showing a perp, and the spot connection closes when every card has switched to perps:
 
 ```
 card --invoke--> main --send--> hub --(WebSocket)--> Binance
 card <--send---- main <--send-- hub
 ```
 
-這樣既維持了「用瀏覽器原生 fetch / WebSocket」,又真的只有一條連線。實測開 4 張卡時 `Get-NetTCPConnection` 只看得到一條 9443 連線。
+This keeps "use the browser's native fetch / WebSocket" while really having only one connection. With 4 cards open, `Get-NetTCPConnection` shows just one connection on 9443.
 
-**2. 為什麼用 `app://` 而不是 `file://`**
+**2. Why `app://` and not `file://`**
 
-Chromium 不允許從 `file://` 載入 ES module(來源是 opaque origin,CORS 直接擋掉)。常見的解法是 `webSecurity: false`,但那會把規格要求的安全設定整個廢掉。所以註冊了一個 standard + secure 的 `app://` 協定來服務 renderer,module import、secure context、WSS 都正常,而 `contextIsolation: true` / `nodeIntegration: false` / `sandbox: true` 全部保留。
+Chromium doesn't allow loading ES modules from `file://` (it's an opaque origin, and CORS blocks it outright). The usual workaround is `webSecurity: false`, but that throws away the security settings the spec requires. So a standard + secure `app://` protocol is registered to serve the renderer; module imports, secure context and WSS all work, and `contextIsolation: true` / `nodeIntegration: false` / `sandbox: true` are all kept.
 
-## 資料來源
+## Data sources
 
-一律走 Binance 公開端點。現貨在 `api.binance.com/api/v3` 與 `stream.binance.com:9443/stream`，永續在 `fapi.binance.com/fapi/v1` 與 `fstream.binance.com/market/stream`，底下的路徑相同:
+Everything uses Binance public endpoints. Spot is at `api.binance.com/api/v3` and `stream.binance.com:9443/stream`, perps at `fapi.binance.com/fapi/v1` and `fstream.binance.com/market/stream`, with the same paths underneath:
 
-- 歷史 K 線 `GET /klines`(500 根)
-- 即時 combined stream,`@kline_<interval>` + `@miniTicker` + `@aggTrade`;永續多一條 `@markPrice`(資金費率)
-- 交易對清單 `GET /exchangeInfo`,快取 24 小時;永續只取 `PERPETUAL`,不含交割合約
-- 24h 漲跌:啟動打一次 `/ticker/24hr`,之後由 miniTicker 更新
-- 資金費率(永續):啟動打一次 `/premiumIndex`,之後由 markPrice 更新;結算週期 `/fundingInfo`(只列出不是 8 小時的幣種,快取 1 小時)
-- 多空比(永續):`/futures/data/globalLongShortAccountRatio`(人數)與 `/topLongShortPositionRatio`(大戶持倉),5m,下單票開著時每 5 分鐘一次
-- 未平倉量(永續):每 3 秒輪詢 `/fapi/v1/openInterest`;歷史 `GET /futures/data/openInterestHist`(5m,30 天內)
-- 足跡圖：即時用已訂閱的 `@aggTrade`；缺的分鐘用 `GET /aggTrades`（`startTime`／`endTime` 取一分鐘，超過 1000 筆再用 `fromId` 往後翻），每秒最多一次
+- Historical klines `GET /klines` (500 bars)
+- Live combined stream, `@kline_<interval>` + `@miniTicker` + `@aggTrade`; perps add `@markPrice` (funding rate)
+- Symbol list `GET /exchangeInfo`, cached for 24 hours; for perps only `PERPETUAL`, no delivery contracts
+- 24h change: one `/ticker/24hr` call at startup, then updated from miniTicker
+- Funding rate (perps): one `/premiumIndex` call at startup, then updated from markPrice; settlement interval from `/fundingInfo` (lists only symbols not on 8 hours, cached for 1 hour)
+- Long/short ratio (perps): `/futures/data/globalLongShortAccountRatio` (accounts) and `/topLongShortPositionRatio` (top traders' positions), 5m, once every 5 minutes while the order ticket is open
+- Open interest (perps): `/fapi/v1/openInterest` polled every 3 seconds; history `GET /futures/data/openInterestHist` (5m, within 30 days)
+- Footprint: live from the already-subscribed `@aggTrade`; missing minutes from `GET /aggTrades` (`startTime` / `endTime` spanning one minute, paging forward with `fromId` past 1000 trades), at most once per second
 
-**更新頻率**:Binance 的 `@kline_*` 固定每秒推一次,這是 K 棒官方數值的上限。為了讓價格跳得更即時,另外訂了逐筆的 `@aggTrade`,在兩次 kline 之間把成交價併進「正在形成的那根」的 close / high / low / volume。逐筆訊息在 hub 端以 **100ms** 為窗口合併(`LIVE_TICK_MS`),同一窗口內只有最後一筆會送出去,所以不論行情多熱,每張卡最多每秒 10 次重繪。kline 一到就立刻覆蓋回官方數值,誤差最多存活一秒。跨棒的那一刻不自己開新 K 棒,等 kline 來 roll。
+**Update rate**: Binance's `@kline_*` pushes once per second, which is the ceiling for official bar values. To make the price move more responsively, the per-trade `@aggTrade` is also subscribed, and between klines the trade price is merged into the close / high / low / volume of "the bar being formed". Trade messages are coalesced in the hub in **100ms** windows (`LIVE_TICK_MS`), and only the last one in each window is sent on, so no matter how hot the market, each card redraws at most 10 times a second. When a kline arrives it immediately overwrites with the official values, so any error lives for at most a second. At the moment a new bar starts, the app doesn't open one itself; it waits for the kline to roll over.
 
-**連線韌性**:斷線後 1s → 2s → 4s → … → 30s 指數退避重連;重連成功會重新訂閱全部 stream,並用 REST 補齊斷線期間缺的 K 線再接回即時流;另外會在 23 小時主動換一條連線,避開 Binance 24 小時強制斷線。卡片左上角小圓點顯示狀態(綠=即時、黃=重連中、紅=離線),不會跳任何錯誤視窗。
+**Connection resilience**: after a disconnect, reconnects back off exponentially 1s → 2s → 4s → … → 30s; on reconnect all streams are resubscribed, and klines missed during the outage are filled in over REST before rejoining the live stream; the connection is also proactively replaced at 23 hours to avoid Binance's forced 24-hour disconnect. A small dot in the card's top-left shows the status (green = live, yellow = reconnecting, red = offline), and no error dialogs ever pop up.
 
-這些行為有測試涵蓋(`npm test`),不需要真的拔網路線也能驗證。
+These behaviors are covered by tests (`npm test`), so you can verify them without actually pulling the network cable.
 
-### 換資料來源
+### Switching data sources
 
-`renderer/datafeed/provider.js` 定義了介面:
+`renderer/datafeed/provider.js` defines the interface:
 
 ```js
-getHistory(symbol, interval, limit)   // -> Bar[]  { time(秒), open, high, low, close, volume, closed }
+getHistory(symbol, interval, limit)   // -> Bar[]  { time(sec), open, high, low, close, volume, closed }
 subscribe(subId, symbol, interval, { onBar, onTicker, onFunding })
 unsubscribe(subId)
 searchSymbols(query)                  // -> SymbolInfo[]
 getTicker(symbol)                     // -> { symbol, last, changePercent, high, low, volume }
 ```
 
-要加台股 / 美股就寫第二個實作,然後在 `renderer/hub.js` 換掉 `new BinanceProvider()`。圖表層與 UI 層不用動。
+To add Taiwan or US stocks, write a second implementation and swap out `new BinanceProvider()` in `renderer/hub.js`. The chart and UI layers don't need to change.
 
-## 設定檔
+## Config file
 
-`%APPDATA%/stock-card/stock-card-config.json`。開發版與打包版共用同一份(asar 內的 `name` 一樣是 `stock-card`),所以 `npm start` 調好的卡片,裝起來的版本會直接沿用。
+`%APPDATA%/stock-card/stock-card-config.json`. The dev and packaged builds share the same file (the `name` inside the asar is also `stock-card`), so cards set up under `npm start` carry over directly to the installed version.
 
-位置與大小的變動會 debounce 500ms 才寫入;啟動時會檢查存下來的座標是否還落在現有螢幕範圍內,螢幕配置變了會自動拉回可見區域。
+Position and size changes are debounced 500ms before being written; at startup the saved coordinates are checked against the current screens, and if the screen layout has changed, cards are pulled back into the visible area automatically.
 
-## 已知限制
+## Known limitations
 
-> 卡片「不見了」?先看 [docs/vanishing-cards.md](docs/vanishing-cards.md):目前遇過的每一種情況、怎麼判斷、怎麼修,以及給其他桌面小工具專案的檢查清單。
+> A card "disappeared"? See [docs/vanishing-cards.md](docs/vanishing-cards.md) first: every case encountered so far, how to diagnose it and how to fix it, plus a checklist for other desktop widget projects.
 
-- **`backdrop-filter` 模糊不到桌面。** CSS 的 backdrop-filter 只能模糊「同一個網頁裡」的背景;透明視窗背後是桌面,不在網頁裡。要真正的毛玻璃必須呼叫 Windows DWM 的 acrylic API(原生層)。目前的半透明效果來自卡片背景的 rgba alpha,這也是透明度滑桿實際在調的東西。
-- **透明視窗不能最大化**,這是 Windows 上的限制,所以沒有提供最大化。
-- 卡片用 `skipTaskbar`,不會出現在工作列,一律由托盤管理。也因此卡片被最小化就沒有工作列按鈕可以點回來,所以卡片不能最小化;`Win+M` 或其他程式從外部把它縮下去時會立刻自動恢復。
-- 「開機自動啟動」只在打包後的版本有效(開發模式下指向的會是 `electron.exe`)。
-- 圖表左下角的 TradingView 標誌是 Lightweight Charts 的預設署名,保留著。
+- **`backdrop-filter` can't blur the desktop.** CSS backdrop-filter only blurs backgrounds "within the same web page"; behind a transparent window is the desktop, which isn't in the page. Real frosted glass requires calling the Windows DWM acrylic API (native layer). The current translucency comes from the rgba alpha of the card background, which is what the opacity slider actually adjusts.
+- **Transparent windows can't be maximized** — a Windows limitation — so there's no maximize.
+- Cards use `skipTaskbar`, so they don't appear in the taskbar and are managed entirely from the tray. That also means a minimized card would have no taskbar button to bring it back, so cards can't be minimized; if `Win+M` or another program minimizes one from outside, it is restored immediately.
+- "Launch at startup" only works in the packaged build (in development it would point to `electron.exe`).
+- The TradingView logo in the bottom-left of the chart is Lightweight Charts' default attribution and is kept.
 
-## 授權
+## License
 
-本專案 MIT。圖表使用 [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts)(Apache-2.0)。行情資料來自 Binance 公開 API;本專案不含任何交易、下單或帳號功能,也不抓取 TradingView 網站的私有資料。
+This project is MIT. Charts use [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) (Apache-2.0). Market data comes from Binance's public API, and the project does not scrape private data from the TradingView website. It does include trading: paper trading (local), Binance testnet, and live orders on Binance USDⓈ-M perpetuals with your own API key (see "Trading" above). Trading real funds is entirely at your own risk; nothing in this project is financial advice.
