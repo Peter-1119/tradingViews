@@ -138,6 +138,30 @@ button {
   margin-left: auto;
 }
 
+/* The time, centred on the bar whatever the sides hold; fades with them. */
+.card__clock {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.card:hover .card__clock,
+.card__bar:focus-within .card__clock {
+  opacity: 1;
+}
+
+.card__clock.is-crowded {
+  visibility: hidden;
+}
+
 .card__symbol {
   display: inline-flex;
   align-items: center;

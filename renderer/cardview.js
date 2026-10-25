@@ -214,6 +214,8 @@ export class CardView {
     });
     this.priceEl = el('span.card__price', { text: '—' });
     this.changeEl = el('span.card__change', { text: '—' });
+    // The time, to the second, centred in the bar (see startClock).
+    this.clockEl = el('span.card__clock');
 
     this.pinBtn = el('button.sc-icon-btn', {
       type: 'button',
@@ -262,8 +264,9 @@ export class CardView {
       'div.card__bar',
       { class: this.windowControls ? 'is-draggable' : '' },
       this.link,
-      el('div.card__id', {}, this.starBtn, this.symbolEl, this.marketBtn, this.intervalEl),
-      el('div.card__quote', {}, this.priceEl, this.changeEl),
+      (this.idEl = el('div.card__id', {}, this.starBtn, this.symbolEl, this.marketBtn, this.intervalEl)),
+      this.clockEl,
+      (this.quoteEl = el('div.card__quote', {}, this.priceEl, this.changeEl)),
       this.tools
     );
 
@@ -414,6 +417,7 @@ export class CardView {
     this.setStatus(this.feed.getStatus());
     this.refreshCounterpart();
     this.fundingTimer = setInterval(() => this.renderFunding(), 1000);
+    this.startClock();
 
     this.offAlertState = window.stockcard.onAlertState((state) => this.applyPosition(state));
     this.offAlertFired = window.stockcard.onAlertFired((alert) => this.applyAlert(alert));
@@ -2528,6 +2532,7 @@ export class CardView {
     this.loadSeq += 1; // invalidate any in-flight load
     if (this.offStatus) this.offStatus.forEach((off) => off());
     clearInterval(this.fundingTimer);
+    clearTimeout(this.clockTimer);
     clearTimeout(this.noticeTimer);
     clearTimeout(this.levelsTimer);
     if (this.offAlertState) this.offAlertState();
@@ -2898,13 +2903,67 @@ export class CardView {
     this.root.classList.toggle('is-click-through', !!enabled);
   }
 
+  /* ---------------------------------------------------------------- clock */
+
+  /**
+   * HH:MM:SS in the card's time zone (the same setting as the chart's axis).
+   * Ticks on the second boundary rather than every 1000ms from whenever it
+   * started, so the seconds turn over when the system clock's do.
+   */
+  startClock() {
+    const tick = () => {
+      if (this.destroyed) return;
+      this.renderClock();
+      this.clockTimer = setTimeout(tick, 1000 - (Date.now() % 1000) + 5);
+    };
+    tick();
+  }
+
+  renderClock() {
+    if (!this.clockFormat) {
+      const zone = this.prefs.timezone && this.prefs.timezone !== 'auto' ? { timeZone: this.prefs.timezone } : {};
+      this.clockFormat = new Intl.DateTimeFormat('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        ...zone,
+      });
+    }
+    this.clockEl.textContent = this.clockFormat.format(new Date());
+    this.placeClock();
+  }
+
+  /**
+   * Centred on the bar when that is clear of the symbol and the price; else
+   * centred in the gap between them, if the time fits there; else hidden
+   * rather than drawn over them (a narrow card has no gap at all).
+   */
+  placeClock() {
+    const PAD = 6;
+    const bar = this.bar.getBoundingClientRect();
+    const width = this.clockEl.offsetWidth;
+    const from = this.idEl.getBoundingClientRect().right + PAD - bar.left;
+    const to = this.quoteEl.getBoundingClientRect().left - PAD - bar.left;
+    let centre = bar.width / 2;
+    if (centre - width / 2 < from || centre + width / 2 > to) centre = (from + to) / 2;
+    const fits = width > 0 && to - from >= width;
+    this.clockEl.style.left = `${Math.round(centre)}px`;
+    this.clockEl.classList.toggle('is-crowded', !fits);
+  }
+
   applyOpacity() {
     // Only the card background alpha changes; text and chart stay fully opaque.
     this.root.style.setProperty('--card-alpha', String(this.card.cardOpacity));
   }
 
   setPrefs(prefs) {
+    const zoneChanged = prefs.timezone !== this.prefs.timezone;
     this.prefs = prefs;
+    if (zoneChanged) {
+      this.clockFormat = null;
+      this.renderClock();
+    }
     if (this.chart) {
       this.chart.setUpDownColor(prefs.upDownColor);
       this.chart.setTimezone(prefs.timezone);
