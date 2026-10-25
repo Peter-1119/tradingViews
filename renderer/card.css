@@ -1353,3 +1353,36 @@ button {
   background: rgba(237, 84, 101, 0.3);
   color: #fff;
 }
+
+/* Right-click a drawing: a row of colours. */
+.card__palette {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 8px;
+  background: rgba(11, 15, 23, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  -webkit-app-region: no-drag;
+}
+
+.card__swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--swatch);
+  background-clip: padding-box;
+  cursor: pointer;
+}
+
+.card__swatch:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.card__swatch.is-current {
+  border-color: rgba(255, 255, 255, 0.9);
+}

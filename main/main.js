@@ -289,15 +289,18 @@ function broadcastLevels(symbol) {
 
 ipcMain.handle('levels:list', (_event, symbol) => store.getLevels(symbol));
 
-ipcMain.handle('levels:add', (_event, { symbol, price } = {}) => {
-  const level = store.addLevel(symbol, price);
+ipcMain.handle('levels:add', (_event, { symbol, price, color } = {}) => {
+  const level = store.addLevel(symbol, price, color);
   if (!level) return null;
   broadcastLevels(symbol);
   return level;
 });
 
-ipcMain.handle('levels:update', (_event, { symbol, id, price } = {}) => {
-  const level = store.updateLevel(symbol, id, price);
+ipcMain.handle('levels:update', (_event, { symbol, id, price, color } = {}) => {
+  const patch = {};
+  if (price !== undefined) patch.price = price;
+  if (color !== undefined) patch.color = color;
+  const level = store.updateLevel(symbol, id, patch);
   broadcastLevels(symbol);
   return level;
 });
@@ -341,8 +344,8 @@ function broadcastRects(symbol) {
 
 ipcMain.handle('rects:list', (_event, symbol) => store.getRects(symbol));
 
-ipcMain.handle('rects:add', (_event, { symbol, a, b } = {}) => {
-  const rect = store.addRect(symbol, a, b);
+ipcMain.handle('rects:add', (_event, { symbol, a, b, color } = {}) => {
+  const rect = store.addRect(symbol, a, b, color);
   if (rect) broadcastRects(symbol);
   return rect;
 });
@@ -366,8 +369,8 @@ function broadcastTrendlines(symbol) {
 
 ipcMain.handle('trendlines:list', (_event, symbol) => store.getTrendlines(symbol));
 
-ipcMain.handle('trendlines:add', (_event, { symbol, a, b } = {}) => {
-  const line = store.addTrendline(symbol, a, b);
+ipcMain.handle('trendlines:add', (_event, { symbol, a, b, color } = {}) => {
+  const line = store.addTrendline(symbol, a, b, color);
   if (line) broadcastTrendlines(symbol);
   return line;
 });

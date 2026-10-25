@@ -429,12 +429,23 @@ function getTimezone() {
 
 /* ---------------------------------------------------------------- levels */
 
+/** A drawing's colour: `#rrggbb`, or null for the default blue. */
+function sanitizeColor(raw) {
+  return typeof raw === 'string' && /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : null;
+}
+
+/** Copy the colour onto a sanitized drawing, if it has one. */
+function withColor(record, raw) {
+  const color = sanitizeColor(raw && raw.color);
+  return color ? { ...record, color } : record;
+}
+
 function sanitizeLevel(raw) {
   const price = Number(raw && raw.price);
   // A level at or below zero is not a price, it is a corrupt record.
   if (!Number.isFinite(price) || price <= 0) return null;
   const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
-  return { id, price };
+  return withColor({ id, price }, raw);
 }
 
 function levelKey(symbol) {
@@ -475,8 +486,8 @@ function setLevels(symbol, list) {
   return clean;
 }
 
-function addLevel(symbol, price) {
-  const level = sanitizeLevel({ price });
+function addLevel(symbol, price, color) {
+  const level = sanitizeLevel({ price, color });
   if (!level) return null;
   setLevels(symbol, [...getLevels(symbol), level]);
   // setLevels drops an exact-price duplicate, so the new record may not have
@@ -485,8 +496,10 @@ function addLevel(symbol, price) {
   return getLevels(symbol).find((l) => l.id === level.id) || null;
 }
 
-function updateLevel(symbol, id, price) {
-  const next = getLevels(symbol).map((l) => (l.id === id ? { ...l, price } : l));
+/** `patch` is {price?, color?}; a bare number is a price (older callers). */
+function updateLevel(symbol, id, patch) {
+  const change = typeof patch === 'number' ? { price: patch } : patch || {};
+  const next = getLevels(symbol).map((l) => (l.id === id ? { ...l, ...change } : l));
   setLevels(symbol, next);
   return getLevels(symbol).find((l) => l.id === id) || null;
 }
@@ -568,7 +581,7 @@ function sanitizeRect(raw) {
   // A rectangle with no height or no width is a line, not a zone.
   if (a.price === b.price || a.time === b.time) return null;
   const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
-  return { id, a, b };
+  return withColor({ id, a, b }, raw);
 }
 
 function getRects(symbol) {
@@ -593,8 +606,8 @@ function setRects(symbol, list) {
   return clean;
 }
 
-function addRect(symbol, a, b) {
-  const rect = sanitizeRect({ a, b });
+function addRect(symbol, a, b, color) {
+  const rect = sanitizeRect({ a, b, color });
   if (!rect) return null;
   setRects(symbol, [...getRects(symbol), rect]);
   return getRects(symbol).find((r) => r.id === rect.id) || null;
@@ -624,7 +637,7 @@ function sanitizeTrend(raw) {
   // Both ends on the same point is a dot, not a line.
   if (a.price === b.price && a.time === b.time) return null;
   const id = raw && typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
-  return { id, a, b };
+  return withColor({ id, a, b }, raw);
 }
 
 function getTrendlines(symbol) {
@@ -649,8 +662,8 @@ function setTrendlines(symbol, list) {
   return clean;
 }
 
-function addTrendline(symbol, a, b) {
-  const line = sanitizeTrend({ a, b });
+function addTrendline(symbol, a, b, color) {
+  const line = sanitizeTrend({ a, b, color });
   if (!line) return null;
   setTrendlines(symbol, [...getTrendlines(symbol), line]);
   return getTrendlines(symbol).find((l) => l.id === line.id) || null;

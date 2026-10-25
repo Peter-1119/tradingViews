@@ -697,16 +697,19 @@ export class CardChart {
 
   /* -------------------------------------------------------------- levels */
 
-  levelOptions(id) {
+  /** `color` is the level's own (#rrggbb) or null for the default blue. */
+  levelOptions(id, color = null) {
     const active = id === this.activeLevelId;
+    // A coloured level keeps its colour while dragged and thickens instead.
+    const shown = color || (active ? LEVEL_COLOR_ACTIVE : LEVEL_COLOR);
     return {
       price: 0,
-      color: active ? LEVEL_COLOR_ACTIVE : LEVEL_COLOR,
-      lineWidth: 1,
+      color: shown,
+      lineWidth: active && color ? 2 : 1,
       lineStyle: 2, // LineStyle.Dashed -- distinguishes a drawn level from the series
       lineVisible: !this.drawingsHidden,
       axisLabelVisible: !this.drawingsHidden,
-      axisLabelColor: active ? LEVEL_COLOR_ACTIVE : LEVEL_COLOR,
+      axisLabelColor: shown,
       axisLabelTextColor: '#0b0f17',
       title: '',
     };
@@ -720,12 +723,12 @@ export class CardChart {
       const existing = this.levels.get(level.id);
       if (existing) {
         existing.level = level;
-        existing.priceLine.applyOptions({ ...this.levelOptions(level.id), price: level.price });
+        existing.priceLine.applyOptions({ ...this.levelOptions(level.id, level.color), price: level.price });
         next.set(level.id, existing);
         this.levels.delete(level.id);
       } else {
         const priceLine = this.priceSeries.createPriceLine({
-          ...this.levelOptions(level.id),
+          ...this.levelOptions(level.id, level.color),
           price: level.price,
         });
         next.set(level.id, { level, priceLine });
@@ -768,7 +771,7 @@ export class CardChart {
       const entry = key && this.levels.get(key);
       if (entry) {
         entry.priceLine.applyOptions({
-          ...this.levelOptions(key),
+          ...this.levelOptions(key, entry.level.color),
           price: entry.priceLine.options().price,
         });
       }
@@ -784,7 +787,7 @@ export class CardChart {
   setDrawingsHidden(hidden) {
     this.drawingsHidden = !!hidden;
     for (const [id, entry] of this.levels) {
-      entry.priceLine.applyOptions({ ...this.levelOptions(id), price: entry.priceLine.options().price });
+      entry.priceLine.applyOptions({ ...this.levelOptions(id, entry.level.color), price: entry.priceLine.options().price });
     }
     this.rects.setHidden(hidden);
     this.trends.setHidden(hidden);

@@ -8,6 +8,8 @@
  * switch and still lands on the same two prices at the same two moments.
  */
 
+import { tint } from './drawing-colors.js';
+
 const LINE = 'rgba(91, 156, 255, 0.95)';
 const LINE_ACTIVE = 'rgba(160, 196, 255, 1)';
 
@@ -27,7 +29,8 @@ class TrendRenderer {
       ctx.save();
       ctx.lineCap = 'round';
       for (const s of segs) {
-        ctx.strokeStyle = s.active ? LINE_ACTIVE : LINE;
+        const stroke = s.color ? tint(s.color, s.active ? 1 : 0.95) : s.active ? LINE_ACTIVE : LINE;
+        ctx.strokeStyle = stroke;
         ctx.lineWidth = Math.max(1, Math.round((s.active ? 2 : 1.5) * hr));
         ctx.setLineDash(s.draft ? [5 * hr, 4 * hr] : []);
         ctx.beginPath();
@@ -44,7 +47,7 @@ class TrendRenderer {
           ctx.fillStyle = '#0b0f17';
           ctx.fill();
           ctx.lineWidth = Math.max(1, Math.round(1.5 * hr));
-          ctx.strokeStyle = LINE_ACTIVE;
+          ctx.strokeStyle = stroke;
           ctx.stroke();
         }
       }
@@ -143,11 +146,14 @@ export class TrendPrimitive {
       // While a stored line is being dragged, the draft stands in for it.
       if (this.draft && this.draft.id === line.id) continue;
       const seg = this.project(line);
-      if (seg) out.push({ ...seg, active: line.id === this.activeId });
+      if (seg) out.push({ ...seg, color: line.color || null, active: line.id === this.activeId });
     }
     if (this.draft) {
       const seg = this.project(this.draft);
-      if (seg) out.push({ ...seg, active: true, draft: this.draft.id === '__draft__' });
+      // A stored line being dragged keeps its colour.
+      const own = this.lines.find((l) => l.id === this.draft.id);
+      const color = (own && own.color) || this.draft.color || null;
+      if (seg) out.push({ ...seg, color, active: true, draft: this.draft.id === '__draft__' });
     }
     return out;
   }

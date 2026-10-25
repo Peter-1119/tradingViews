@@ -17,10 +17,20 @@
  * interior only answers a double-click, which deletes.
  */
 
+import { tint } from './drawing-colors.js';
+
 const FILL = 'rgba(79, 143, 247, 0.13)';
 const FILL_ACTIVE = 'rgba(79, 143, 247, 0.22)';
 const EDGE = 'rgba(79, 143, 247, 0.75)';
 const EDGE_ACTIVE = 'rgba(150, 190, 255, 0.95)';
+
+/** Fill and edge for a box: its own colour if it has one, else the blue. */
+function paint(box) {
+  if (!box.color) {
+    return { fill: box.active ? FILL_ACTIVE : FILL, edge: box.active ? EDGE_ACTIVE : EDGE };
+  }
+  return { fill: tint(box.color, box.active ? 0.24 : 0.14), edge: tint(box.color, box.active ? 1 : 0.8) };
+}
 
 /** How near the pointer must be, in px, to take a corner or an edge. */
 export const RECT_CORNER_PX = 7;
@@ -37,7 +47,7 @@ class RectRenderer {
     if (!boxes.length) return;
     target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
       for (const box of boxes) {
-        ctx.fillStyle = box.active ? FILL_ACTIVE : FILL;
+        ctx.fillStyle = paint(box).fill;
         const x0 = Math.round(box.left * hr);
         const y0 = Math.round(box.top * vr);
         ctx.fillRect(x0, y0, Math.round(box.right * hr) - x0, Math.round(box.bottom * vr) - y0);
@@ -57,7 +67,7 @@ class RectRenderer {
         const x1 = Math.round(box.right * hr);
         const y1 = Math.round(box.bottom * vr);
         ctx.lineWidth = line;
-        ctx.strokeStyle = box.active ? EDGE_ACTIVE : EDGE;
+        ctx.strokeStyle = paint(box).edge;
         ctx.setLineDash(box.draft ? [4 * hr, 3 * hr] : []);
         ctx.strokeRect(x0 + line / 2, y0 + line / 2, x1 - x0 - line, y1 - y0 - line);
         ctx.setLineDash([]);
@@ -66,7 +76,7 @@ class RectRenderer {
         // on every zone at all times would clutter a card this size.
         const size = Math.round(6 * hr);
         ctx.fillStyle = '#0b0f17';
-        ctx.strokeStyle = EDGE_ACTIVE;
+        ctx.strokeStyle = paint(box).edge;
         for (const [cx, cy] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) {
           ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
           ctx.strokeRect(cx - size / 2 + line / 2, cy - size / 2 + line / 2, size - line, size - line);
@@ -166,11 +176,14 @@ export class RectPrimitive {
       // While a stored rectangle is being reshaped, the draft stands in for it.
       if (this.draft && this.draft.id === rect.id) continue;
       const box = this.project(rect);
-      if (box) out.push({ ...box, active: rect.id === this.activeId });
+      if (box) out.push({ ...box, color: rect.color || null, active: rect.id === this.activeId });
     }
     if (this.draft) {
       const box = this.project(this.draft);
-      if (box) out.push({ ...box, active: true, draft: this.draft.id === '__draft__' });
+      // A stored rectangle being reshaped keeps its colour.
+      const own = this.rects.find((r) => r.id === this.draft.id);
+      const color = (own && own.color) || this.draft.color || null;
+      if (box) out.push({ ...box, color, active: true, draft: this.draft.id === '__draft__' });
     }
     return out;
   }

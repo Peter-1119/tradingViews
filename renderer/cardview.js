@@ -14,6 +14,7 @@ import { TradeController } from './trade/trade-controller.js';
 import { PriceAlertController } from './price-alerts.js';
 import { Toolbar } from './ui/toolbar.js';
 import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel, watchIndex } from './ui/watchlist.js';
+import { DRAWING_COLORS } from './drawing-colors.js';
 import { FootprintBook } from './footprint.js';
 import { buildPeriodProfiles, sessionBounds, PERIOD_4H, ProfileSource, rangeInterval } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
@@ -443,6 +444,7 @@ export class CardView {
     });
     this.loadRects();
     this.bindTrendInput();
+    this.bindColorInput();
     this.offTrends = window.stockcard.onTrendlinesChanged(({ symbol, trendlines }) => {
       if (this.destroyed || symbol !== this.card.symbol) return;
       this.trends = trendlines;
@@ -567,6 +569,107 @@ export class CardView {
     this.onPatch({ hideDrawings: !!hidden });
   }
 
+  /* --------------------------------------------------------------- colours */
+
+  /**
+   * Right-click a level, trend line or rectangle for a row of colours --
+   * green for support, red for resistance, and a few more to tell, say, a
+   * weekly level from an intraday one. Anywhere else, right-click still
+   * opens the settings panel (card.js listens on the window; this stops
+   * the event before it gets there).
+   */
+  bindColorInput() {
+    this.onDrawingContext = (event) => {
+      if (this.offChart(event)) return;
+      const box = this.chartEl.getBoundingClientRect();
+      const x = event.clientX - box.left;
+      const y = event.clientY - box.top;
+      if (!this.chart.inPlot(x, y)) return;
+      const hit = this.drawingAt(x, y);
+      if (!hit) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.openPalette(hit, event.clientX, event.clientY);
+    };
+    this.chartEl.addEventListener('contextmenu', this.onDrawingContext);
+    this.onPaletteOutside = (event) => {
+      if (this.palette && !this.palette.contains(event.target)) this.closePalette();
+    };
+    this.onPaletteKey = (event) => {
+      if (event.key === 'Escape') this.closePalette();
+    };
+  }
+
+  /** The colourable drawing under (x, y): trend lines, then rectangles, then levels. */
+  drawingAt(x, y) {
+    const trend = this.chart.trends.hitTest(x, y);
+    if (trend) return { kind: 'trend', id: trend.id };
+    const rect = this.chart.rects.hitTest(x, y);
+    if (rect) return { kind: 'rect', id: rect.id };
+    const level = this.chart.levelAt(y);
+    if (level) return { kind: 'level', id: level };
+    return null;
+  }
+
+  drawingColor({ kind, id }) {
+    if (kind === 'level') {
+      const entry = this.chart.levels.get(id);
+      return (entry && entry.level.color) || null;
+    }
+    const list = kind === 'rect' ? this.rects : this.trends;
+    const found = (list || []).find((d) => d.id === id);
+    return (found && found.color) || null;
+  }
+
+  async writeDrawingColor(kind, id, color) {
+    const s = this.card.symbol;
+    if (kind === 'level') return window.stockcard.setLevelColor(s, id, color);
+    if (kind === 'rect') return window.stockcard.updateRect(s, id, { color });
+    if (kind === 'trend') return window.stockcard.updateTrendline(s, id, { color });
+    return null;
+  }
+
+  openPalette(hit, clientX, clientY) {
+    this.closePalette();
+    const current = this.drawingColor(hit);
+    const palette = el(
+      'div.card__palette',
+      { role: 'menu' },
+      DRAWING_COLORS.map((c) =>
+        el('button.card__swatch', {
+          type: 'button',
+          title: c.label,
+          class: (c.value || null) === current ? 'is-current' : '',
+          style: `--swatch: ${c.value || '#7f9dc4'}`,
+          onclick: async () => {
+            this.closePalette();
+            if ((c.value || null) === current) return;
+            const done = await this.writeDrawingColor(hit.kind, hit.id, c.value);
+            if (done) this.pushUndo({ kind: 'color', drawing: hit.kind, id: hit.id, from: current });
+          },
+        })
+      )
+    );
+    this.root.append(palette);
+    // Next to the pointer, kept inside the card.
+    const card = this.root.getBoundingClientRect();
+    const left = Math.min(clientX - card.left + 4, card.width - palette.offsetWidth - 4);
+    const top = Math.min(clientY - card.top + 4, card.height - palette.offsetHeight - 4);
+    palette.style.left = `${Math.max(4, left)}px`;
+    palette.style.top = `${Math.max(4, top)}px`;
+    this.palette = palette;
+    window.addEventListener('mousedown', this.onPaletteOutside, true);
+    window.addEventListener('keydown', this.onPaletteKey);
+  }
+
+  closePalette() {
+    if (!this.palette) return;
+    this.palette.remove();
+    this.palette = null;
+    window.removeEventListener('mousedown', this.onPaletteOutside, true);
+    window.removeEventListener('keydown', this.onPaletteKey);
+  }
+
   /** About to add or bring back a drawing: show the layer it lands on. */
   revealDrawings() {
     if (this.card.hideDrawings) this.setDrawingsHidden(false);
@@ -609,7 +712,7 @@ export class CardView {
       if (hit) {
         const removed = this.chart.levels.get(hit);
         await window.stockcard.removeLevel(this.card.symbol, hit);
-        if (removed) this.pushUndo({ kind: 'level-remove', id: hit, price: removed.level.price });
+        if (removed) this.pushUndo({ kind: 'level-remove', id: hit, price: removed.level.price, color: removed.level.color });
         return;
       }
       const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
@@ -1346,7 +1449,7 @@ export class CardView {
           await window.stockcard.removeLevel(s, op.id);
           break;
         case 'level-remove': {
-          const back = await window.stockcard.addLevel(s, op.price);
+          const back = await window.stockcard.addLevel(s, op.price, op.color);
           if (back) this.remapUndo(op.id, back.id);
           break;
         }
@@ -1368,7 +1471,7 @@ export class CardView {
           await window.stockcard.removeRect(s, op.id);
           break;
         case 'rect-remove': {
-          const back = await window.stockcard.addRect(s, op.a, op.b);
+          const back = await window.stockcard.addRect(s, op.a, op.b, op.color);
           if (back) this.remapUndo(op.id, back.id);
           break;
         }
@@ -1379,7 +1482,7 @@ export class CardView {
           await window.stockcard.removeTrendline(s, op.id);
           break;
         case 'trend-remove': {
-          const back = await window.stockcard.addTrendline(s, op.a, op.b);
+          const back = await window.stockcard.addTrendline(s, op.a, op.b, op.color);
           if (back) this.remapUndo(op.id, back.id);
           break;
         }
@@ -1394,6 +1497,9 @@ export class CardView {
           if (back) this.remapUndo(op.id, back.id);
           break;
         }
+        case 'color':
+          await this.writeDrawingColor(op.drawing, op.id, op.from);
+          break;
         case 'vrange-move':
           await window.stockcard.updateVRange(s, op.id, op.from);
           break;
@@ -1655,7 +1761,7 @@ export class CardView {
       const rect = this.rects.find((r) => r.id === hit.id);
       await window.stockcard.removeRect(this.card.symbol, hit.id);
       prim().setActive(null);
-      if (rect) this.pushUndo({ kind: 'rect-remove', id: rect.id, a: { ...rect.a }, b: { ...rect.b } });
+      if (rect) this.pushUndo({ kind: 'rect-remove', id: rect.id, a: { ...rect.a }, b: { ...rect.b }, color: rect.color });
     };
 
     // Pressing or releasing Shift mid-drag applies straight away, without
@@ -1851,7 +1957,7 @@ export class CardView {
       const line = this.trends.find((l) => l.id === hit.id);
       await window.stockcard.removeTrendline(this.card.symbol, hit.id);
       prim().setActive(null);
-      if (line) this.pushUndo({ kind: 'trend-remove', id: line.id, a: { ...line.a }, b: { ...line.b } });
+      if (line) this.pushUndo({ kind: 'trend-remove', id: line.id, a: { ...line.a }, b: { ...line.b }, color: line.color });
     };
 
     // Pressing or releasing Shift mid-gesture applies at once, without
@@ -2420,6 +2526,8 @@ export class CardView {
     if (this.offAlertFired) this.offAlertFired();
     if (this.onAcknowledge) this.root.removeEventListener('pointerdown', this.onAcknowledge, true);
     if (this.offLevels) this.offLevels();
+    this.closePalette();
+    if (this.onDrawingContext) this.chartEl.removeEventListener('contextmenu', this.onDrawingContext);
     if (this.onLevelDblClick) {
       this.chartEl.removeEventListener('dblclick', this.onLevelDblClick);
       this.chartEl.removeEventListener('click', this.onLevelClick);

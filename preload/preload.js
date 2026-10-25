@@ -39,8 +39,9 @@ const api = {
 
   /* ---------------------------------------------------- price levels */
   listLevels: (symbol) => ipcRenderer.invoke('levels:list', symbol),
-  addLevel: (symbol, price) => ipcRenderer.invoke('levels:add', { symbol, price }),
+  addLevel: (symbol, price, color) => ipcRenderer.invoke('levels:add', { symbol, price, color }),
   updateLevel: (symbol, id, price) => ipcRenderer.invoke('levels:update', { symbol, id, price }),
+  setLevelColor: (symbol, id, color) => ipcRenderer.invoke('levels:update', { symbol, id, color }),
   removeLevel: (symbol, id) => ipcRenderer.invoke('levels:remove', { symbol, id }),
   onLevelsChanged: (cb) => on('levels:changed', cb),
 
@@ -51,13 +52,13 @@ const api = {
   onFibsChanged: (cb) => on('fibs:changed', cb),
 
   listRects: (symbol) => ipcRenderer.invoke('rects:list', symbol),
-  addRect: (symbol, a, b) => ipcRenderer.invoke('rects:add', { symbol, a, b }),
+  addRect: (symbol, a, b, color) => ipcRenderer.invoke('rects:add', { symbol, a, b, color }),
   updateRect: (symbol, id, patch) => ipcRenderer.invoke('rects:update', { symbol, id, patch }),
   removeRect: (symbol, id) => ipcRenderer.invoke('rects:remove', { symbol, id }),
   onRectsChanged: (cb) => on('rects:changed', cb),
 
   listTrendlines: (symbol) => ipcRenderer.invoke('trendlines:list', symbol),
-  addTrendline: (symbol, a, b) => ipcRenderer.invoke('trendlines:add', { symbol, a, b }),
+  addTrendline: (symbol, a, b, color) => ipcRenderer.invoke('trendlines:add', { symbol, a, b, color }),
   updateTrendline: (symbol, id, patch) => ipcRenderer.invoke('trendlines:update', { symbol, id, patch }),
   removeTrendline: (symbol, id) => ipcRenderer.invoke('trendlines:remove', { symbol, id }),
   onTrendlinesChanged: (cb) => on('trendlines:changed', cb),
