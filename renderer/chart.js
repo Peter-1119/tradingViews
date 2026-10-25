@@ -29,7 +29,7 @@ import { ExtremesPrimitive } from './extremes-primitive.js';
 import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
 import { VolumePane, SqueezeBandsPrimitive } from './volume-pane.js';
-import { locale as uiLocale } from './i18n.js';
+import { locale as uiLocale, isEnglish } from './i18n.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -141,16 +141,22 @@ function timeFormatters(timezone) {
 
   const hm = make({ hour: '2-digit', minute: '2-digit', hour12: false });
   const hms = make({ hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  const day = make({ month: 'short', day: 'numeric' });
+  const dayOfMonth = make({ day: 'numeric' });
+  const monthDay = make({ month: 'short', day: 'numeric' });
+  const weekday = make({ weekday: 'short' });
   const month = make({ year: '2-digit', month: 'short' });
   const year = make({ year: 'numeric' });
-  const full = make({
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  const en = isEnglish();
+  // Each new day on the axis carries its weekday: "Sun 25" / "25日 週日".
+  // The month is left to the month ticks (and the crosshair), which keeps
+  // the label as short as the "Oct 25" it replaces.
+  const dayTick = (date) =>
+    en ? `${weekday.format(date)} ${dayOfMonth.format(date)}` : `${dayOfMonth.format(date)} ${weekday.format(date)}`;
+  // "Sun, Oct 25, 15:25" / "10月25日 週日 15:25"
+  const full = (date) =>
+    en
+      ? `${weekday.format(date)}, ${monthDay.format(date)}, ${hm.format(date)}`
+      : `${monthDay.format(date)} ${weekday.format(date)} ${hm.format(date)}`;
 
   return {
     /** Axis ticks: the library tells us which granularity it wants. */
@@ -162,7 +168,7 @@ function timeFormatters(timezone) {
         case 1: // Month
           return month.format(date);
         case 2: // DayOfMonth
-          return day.format(date);
+          return dayTick(date);
         case 4: // TimeWithSeconds
           return hms.format(date);
         default: // Time
@@ -170,7 +176,7 @@ function timeFormatters(timezone) {
       }
     },
     /** Crosshair label: always the full stamp, there is only one of them. */
-    crosshair: (time) => full.format(new Date(Number(time) * 1000)),
+    crosshair: (time) => full(new Date(Number(time) * 1000)),
   };
 }
 
