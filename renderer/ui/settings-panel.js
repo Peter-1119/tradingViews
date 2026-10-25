@@ -22,6 +22,7 @@ const LANGUAGE_LABELS = { 'zh-TW': '中文', en: 'English' }; // i18n-ignore
  */
 const TIMEZONE_VALUES = ['auto', 'Asia/Taipei', 'UTC'];
 const TIMEZONE_LABELS = { auto: t('本機'), 'Asia/Taipei': t('台北'), UTC: 'UTC' };
+const CLOCK_LABELS = { always: t('一直顯示'), hover: t('滑鼠移上才顯示'), off: t('關閉') };
 
 function segmented(values, labels, current, onSelect) {
   const buttons = new Map();
@@ -260,6 +261,10 @@ export class SettingsPanel {
       onPrefs({ timezone: value })
     );
 
+    this.clockSeg = segmented(['always', 'hover', 'off'], CLOCK_LABELS, prefs.clock || 'always', (value) =>
+      onPrefs({ clock: value })
+    );
+
     this.startupToggle = toggle({
       label: t('開機自動啟動'),
       checked: prefs.launchAtStartup,
@@ -324,6 +329,7 @@ export class SettingsPanel {
         row('語言 Language', this.languageSeg.root), // i18n-ignore
         row(t('漲跌顏色'), this.upDownSeg.root),
         row(t('時間顯示'), this.timezoneSeg.root),
+        row(t('標題列時鐘'), this.clockSeg.root),
         row(t('位置提醒（常用清單）'), this.alertLevels.root),
         el('div.sc-row.sc-row--stack', {}, this.alertToast.root, this.alertFlash.root),
         row(t('顯示/隱藏全部卡片'), this.showAccel.root),
@@ -338,6 +344,7 @@ export class SettingsPanel {
   updatePrefs(prefs) {
     this.upDownSeg.setValue(prefs.upDownColor);
     this.timezoneSeg.setValue(prefs.timezone);
+    this.clockSeg.setValue(prefs.clock || 'always');
     this.languageSeg.setValue(prefs.language || 'zh-TW');
     this.alertLevels.setValue(prefs.alerts.levels);
     this.alertToast.setValue(prefs.alerts.toast);

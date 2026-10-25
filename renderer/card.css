@@ -138,7 +138,10 @@ button {
   margin-left: auto;
 }
 
-/* The time, centred on the bar whatever the sides hold; fades with them. */
+/*
+ * The time, centred on the bar. Settings -> "Title bar clock": always shown
+ * (the default), shown on hover with the rest of the bar, or off.
+ */
 .card__clock {
   position: absolute;
   left: 50%;
@@ -153,12 +156,19 @@ button {
   transition: opacity 0.15s ease;
 }
 
+.card[data-clock='always'] .card__clock,
 .card:hover .card__clock,
 .card__bar:focus-within .card__clock {
   opacity: 1;
 }
 
-.card__clock.is-crowded {
+.card[data-clock='off'] .card__clock {
+  display: none;
+}
+
+/* No room beside the symbol and the price: give way while they are shown. */
+.card:hover .card__clock.is-crowded,
+.card__bar:focus-within .card__clock.is-crowded {
   visibility: hidden;
 }
 

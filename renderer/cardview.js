@@ -417,6 +417,7 @@ export class CardView {
     this.setStatus(this.feed.getStatus());
     this.refreshCounterpart();
     this.fundingTimer = setInterval(() => this.renderFunding(), 1000);
+    this.applyClockMode();
     this.startClock();
 
     this.offAlertState = window.stockcard.onAlertState((state) => this.applyPosition(state));
@@ -2934,10 +2935,18 @@ export class CardView {
     this.placeClock();
   }
 
+  /** 'always' (the default), 'hover' or 'off': a global setting. */
+  applyClockMode() {
+    const mode = ['always', 'hover', 'off'].includes(this.prefs.clock) ? this.prefs.clock : 'always';
+    this.root.dataset.clock = mode;
+  }
+
   /**
    * Centred on the bar when that is clear of the symbol and the price; else
-   * centred in the gap between them, if the time fits there; else hidden
-   * rather than drawn over them (a narrow card has no gap at all).
+   * centred in the gap between them, if the time fits there. With no gap
+   * (a narrow card) it stays centred and is marked crowded: hidden while
+   * the bar's contents are shown on hover, and shown again when they fade,
+   * since then there is nothing for it to cover.
    */
   placeClock() {
     const PAD = 6;
@@ -2946,8 +2955,8 @@ export class CardView {
     const from = this.idEl.getBoundingClientRect().right + PAD - bar.left;
     const to = this.quoteEl.getBoundingClientRect().left - PAD - bar.left;
     let centre = bar.width / 2;
-    if (centre - width / 2 < from || centre + width / 2 > to) centre = (from + to) / 2;
     const fits = width > 0 && to - from >= width;
+    if (fits && (centre - width / 2 < from || centre + width / 2 > to)) centre = (from + to) / 2;
     this.clockEl.style.left = `${Math.round(centre)}px`;
     this.clockEl.classList.toggle('is-crowded', !fits);
   }
@@ -2964,6 +2973,7 @@ export class CardView {
       this.clockFormat = null;
       this.renderClock();
     }
+    this.applyClockMode();
     if (this.chart) {
       this.chart.setUpDownColor(prefs.upDownColor);
       this.chart.setTimezone(prefs.timezone);

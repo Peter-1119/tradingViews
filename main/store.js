@@ -45,6 +45,8 @@ const DEFAULTS = {
    * otherwise, which is why the axis read 8 hours behind Taipei by default.
    */
   timezone: 'auto',
+  /** The title-bar clock: 'always' (the default), 'hover' or 'off'. */
+  clock: 'always',
   /** Interface language: 'en' (the default) or 'zh-TW'. */
   language: 'en',
   /**
@@ -359,6 +361,7 @@ function getGlobalPrefs() {
     timezone: getTimezone(),
     language: store.get('language') === 'zh-TW' ? 'zh-TW' : 'en',
     cacheBars: store.get('cacheBars') !== false,
+    clock: ['always', 'hover', 'off'].includes(store.get('clock')) ? store.get('clock') : 'always',
     mode: getMode(),
     clickThrough: store.get('clickThrough') === true,
     launchAtStartup: store.get('launchAtStartup') === true,

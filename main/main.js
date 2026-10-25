@@ -190,6 +190,7 @@ ipcMain.handle('prefs:set', (_event, patch = {}) => {
   const relabel = 'language' in patch && language !== store.getGlobalPrefs().language;
   if (relabel) store.set('language', language);
   if ('cacheBars' in patch) store.set('cacheBars', patch.cacheBars !== false);
+  if ('clock' in patch && ['always', 'hover', 'off'].includes(patch.clock)) store.set('clock', patch.clock);
   if ('launchAtStartup' in patch) tray.setLaunchAtStartup(patch.launchAtStartup);
   if ('boardColumns' in patch) store.setBoard({ columns: patch.boardColumns });
   if ('watchlist' in patch) store.setWatchlist(patch.watchlist);
