@@ -10,6 +10,8 @@
  * Positive rates are paid by longs to shorts, negative ones the other way.
  */
 
+import { t } from '../i18n.js';
+
 /** The interest part of funding: 0.01% per 8 hours. */
 const NEUTRAL_PER_8H = 0.0001;
 
@@ -38,9 +40,9 @@ export function fundingSummary(funding, notional = 0) {
 }
 
 export const MOOD_TEXT = {
-  long: '多方偏熱',
-  short: '空方偏熱',
-  neutral: '中性',
+  long: t('多方偏熱'),
+  short: t('空方偏熱'),
+  neutral: t('中性'),
 };
 
 /** 0.6218 -> "62%". */

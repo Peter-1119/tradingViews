@@ -23,6 +23,7 @@
 import { HistogramSeries, LineSeries } from './vendor/lightweight-charts.mjs';
 import { analyzeVolume, liveRank, squeezeRuns, SQUEEZE_STREAK } from './volume-stats.js';
 import { formatCompact } from './util.js';
+import { t } from './i18n.js';
 
 const SLATE = '#8494b0';
 const READOUT_FONT = "10px 'Segoe UI', -apple-system, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif";
@@ -318,23 +319,23 @@ export class VolumePane {
     if (i === null || i < 0 || i > last) i = forming && last > 0 ? last - 1 : last;
     const bar = bars[i];
     const muted = 'rgba(226, 232, 240, 0.62)';
-    const parts = [{ text: `量 ${formatCompact(bar.volume)}`, color: muted }];
+    const parts = [{ text: t('量 {v}', { v: formatCompact(bar.volume) }), color: muted }];
     if (Number.isFinite(bar.buyVolume) && bar.volume > 0) {
       const share = Math.round((bar.buyVolume / bar.volume) * 100);
-      parts.push({ text: `買 ${share}% · 賣 ${100 - share}%`, color: muted });
+      parts.push({ text: t('買 {buy}% · 賣 {sell}%', { buy: share, sell: 100 - share }), color: muted });
     }
     const stats = this.stats;
     if (!stats) return parts;
     const pr = (r) => (r < 0.01 ? '<1' : String(Math.round(r * 100)));
     if (i === last && forming) {
       const live = liveRank(stats.hist, bar, Date.now() / 1000, this.opts.intervalSec);
-      if (live) parts.push({ text: `PR ~${pr(live.rank)}（推估）`, color: muted });
+      if (live) parts.push({ text: t('PR ~{pr}（推估）', { pr: pr(live.rank) }), color: muted });
       return parts;
     }
     const level = stats.level[i];
     parts.push({ text: `PR ${pr(stats.rank[i])}`, color: level ? SLATE : muted });
-    if (level) parts.push({ text: level === 2 ? '極度縮量' : '縮量', color: '#c3cde0', chip: true });
-    if (stats.streak[i] >= SQUEEZE_STREAK) parts.push({ text: `連續縮量 ${stats.streak[i]} 根`, color: '#c3cde0', chip: true });
+    if (level) parts.push({ text: level === 2 ? t('極度縮量') : t('縮量'), color: '#c3cde0', chip: true });
+    if (stats.streak[i] >= SQUEEZE_STREAK) parts.push({ text: t('連續縮量 {n} 根', { n: stats.streak[i] }), color: '#c3cde0', chip: true });
     return parts;
   }
 }

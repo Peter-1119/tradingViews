@@ -18,6 +18,7 @@
 const { Notification } = require('electron');
 const store = require('./store');
 const windows = require('./windows');
+const { t } = require('./i18n');
 
 /** Toasts must be referenced until they close, or GC can take them before a click. */
 const live = new Set();
@@ -32,11 +33,11 @@ function pretty(symbol) {
 }
 
 function describe(alert) {
-  const name = `${pretty(alert.symbol)}${alert.market === 'perp' ? ' 永續' : ''}`;
+  const name = alert.market === 'perp' ? t('{symbol} 永續', { symbol: pretty(alert.symbol) }) : pretty(alert.symbol);
   const arrow = alert.side === 'high' ? '↑' : '↓';
   return {
-    title: `${name} · ${alert.window} 位置 ${Math.round(alert.pct * 100)}%`,
-    body: `${arrow} 碰到 ${alert.level}%　價格 ${alert.price}\n回到 50% 前，這個等級不會再提醒`,
+    title: t('{name} · {window} 位置 {pct}%', { name, window: alert.window, pct: Math.round(alert.pct * 100) }),
+    body: t('{arrow} 碰到 {level}%　價格 {price}\n回到 50% 前，這個等級不會再提醒', { arrow, level: alert.level, price: alert.price }),
   };
 }
 
@@ -86,16 +87,16 @@ function fire(alert) {
  */
 function firePrice(alert, price) {
   const settings = store.getAlerts();
-  const name = `${pretty(alert.symbol)}${alert.market === 'perp' ? ' 永續' : ''}`;
-  const arrow = alert.direction === 'up' ? '↑ 漲到' : '↓ 跌到';
+  const name = alert.market === 'perp' ? t('{symbol} 永續', { symbol: pretty(alert.symbol) }) : pretty(alert.symbol);
+  const arrow = alert.direction === 'up' ? t('↑ 漲到') : t('↓ 跌到');
   console.log(`[alerts] price ${alert.market}:${alert.symbol} ${alert.direction} ${alert.price} hit at ${price}`);
   windows.broadcast('priceAlerts:fired', { ...alert, hitPrice: price, time: Date.now() });
 
   const toastOn = settings.toast || !settings.flash;
   if (toastOn && Notification.isSupported()) {
     const toast = new Notification({
-      title: `${name} · 價格提醒`,
-      body: `${arrow} ${alert.price}　目前 ${price}`,
+      title: t('{name} · 價格提醒', { name }),
+      body: t('{arrow} {target}　目前 {price}', { arrow, target: alert.price, price }),
       silent: true, // no sound, like the position alerts (by request)
     });
     live.add(toast);

@@ -15,6 +15,7 @@ const path = require('path');
 const { BrowserWindow, screen } = require('electron');
 const store = require('./store');
 const { url } = require('./protocol');
+const { t } = require('./i18n');
 
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.js');
 
@@ -163,6 +164,17 @@ function contentWindows() {
   const list = [...state.cards.values()];
   if (state.board) list.push(state.board);
   return list.filter((w) => w && !w.isDestroyed());
+}
+
+/**
+ * Reload every window with text in it (cards, the board, the journal) -- a
+ * language switch. The hub keeps running: it shows nothing, and reloading it
+ * would drop every market connection.
+ */
+function reloadContent() {
+  for (const win of [...contentWindows(), state.journal]) {
+    if (canSend(win)) win.webContents.reload();
+  }
 }
 
 function broadcast(channel, payload) {
@@ -314,7 +326,7 @@ function openJournal() {
     y: Math.round(area.y + (area.height - height) / 2),
     minWidth: 520,
     minHeight: 420,
-    title: '模擬交易紀錄',
+    title: t('模擬交易紀錄'),
     backgroundColor: '#0b0f17',
     autoHideMenuBar: true,
     show: false,
@@ -743,6 +755,7 @@ module.exports = {
   flashFor,
   stopFlash,
   broadcast,
+  reloadContent,
   sendToHub,
   sendToWebContents,
   windowForCard,

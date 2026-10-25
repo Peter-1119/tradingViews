@@ -34,6 +34,7 @@ const rules = require('./rules');
 const { FuturesClient, friendly } = require('./client');
 const { UserStream } = require('./stream');
 const paper = require('./paper');
+const { t } = require('../i18n');
 
 /** paper first: it is the one that needs nothing set up. */
 const ENVS = ['paper', ...vault.ENVS];
@@ -223,7 +224,7 @@ async function connect() {
       state.accountTimer = setInterval(refreshAccount, ACCOUNT_MS);
       broadcastStatus();
       for (const symbol of watchedSymbols()) refreshSymbol(symbol);
-      if (!state.oneWay) notice('warn', '帳戶目前是「雙向持倉」，下單前需要切換為單向持倉（設定 → 交易）');
+      if (!state.oneWay) notice('warn', t('帳戶目前是「雙向持倉」，下單前需要切換為單向持倉（設定 → 交易）'));
       return true;
     } catch (err) {
       state.connection = 'error';
@@ -265,8 +266,8 @@ function onStreamEvent(data) {
     symbols.add(data.o.s);
     const o = data.o;
     if (o.X === 'FILLED' || o.X === 'PARTIALLY_FILLED') {
-      const side = o.S === 'BUY' ? '買入' : '賣出';
-      if (o.X === 'FILLED') notice('fill', `${o.s} ${side} ${o.z} 已成交，均價 ${o.ap}`, o.s);
+      const side = o.S === 'BUY' ? t('買入') : t('賣出');
+      if (o.X === 'FILLED') notice('fill', t('{symbol} {side} {qty} 已成交，均價 {avg}', { symbol: o.s, side, qty: o.z, avg: o.ap }), o.s);
     }
   } else if (data.e === 'ACCOUNT_UPDATE' && data.a) {
     for (const p of data.a.P || []) symbols.add(p.s);
@@ -275,9 +276,14 @@ function onStreamEvent(data) {
     const o = data.o || data.ao || {};
     if (o.s) symbols.add(o.s);
     if (o.X === 'TRIGGERED' || o.X === 'TRIGGERING') {
-      notice('fill', `${o.s} ${/TAKE_PROFIT/.test(o.o || '') ? '止盈' : '止損'}已觸發`, o.s);
+      const what = /TAKE_PROFIT/.test(o.o || '') ? t('止盈') : t('止損');
+      notice('fill', t('{symbol} {what}已觸發', { symbol: o.s, what }), o.s);
     } else if (o.X === 'REJECTED') {
-      notice('error', `${o.s} 條件單被拒絕${o.rm ? `：${o.rm}` : ''}`, o.s);
+      notice(
+        'error',
+        o.rm ? t('{symbol} 條件單被拒絕：{reason}', { symbol: o.s, reason: o.rm }) : t('{symbol} 條件單被拒絕', { symbol: o.s }),
+        o.s
+      );
     }
   }
   for (const s of symbols) queueRefresh(s);
@@ -449,7 +455,7 @@ async function settlePending(symbol, snap) {
 
 /* -------------------------------------------------------------- reversals */
 
-const directionWord = (amt) => (amt > 0 ? '多' : '空');
+const directionWord = (amt) => (amt > 0 ? t('多') : t('空'));
 
 /**
  * After a flip, the old position's TP/SL and reduce-only orders sit on the
@@ -484,7 +490,7 @@ async function clearStale(symbol, side) {
       /* already gone */
     }
   }
-  if (n) notice('info', `${symbol} 已取消原倉位的 ${n} 筆止盈止損／減倉單`, symbol);
+  if (n) notice('info', t('{symbol} 已取消原倉位的 {n} 筆止盈止損／減倉單', { symbol, n }), symbol);
 }
 
 /**
@@ -526,7 +532,7 @@ async function guardReversals(symbol, snap) {
       setPending(p.orderId, null);
       notice(
         'warn',
-        `${symbol} 倉位在反手單成交前變了（可能是止盈止損觸發或手動平倉），已取消反手限價單，避免開出兩倍的反向倉位`,
+        t('{symbol} 倉位在反手單成交前變了（可能是止盈止損觸發或手動平倉），已取消反手限價單，避免開出兩倍的反向倉位', { symbol }),
         symbol
       );
       queueRefresh(symbol, 200);
@@ -543,7 +549,8 @@ async function settleReversal(symbol, snap, p) {
   if (Math.sign(amt) !== want) {
     notice(
       'warn',
-      `${symbol} 反手限價單只成交了一部分，倉位還是${directionWord(amt)} ${Math.abs(amt)}${p.tp || p.sl ? '，新的止盈止損沒有設定' : ''}`,
+      t('{symbol} 反手限價單只成交了一部分，倉位還是{direction} {size}', { symbol, direction: directionWord(amt), size: Math.abs(amt) }) +
+        (p.tp || p.sl ? t('，新的止盈止損沒有設定') : ''),
       symbol
     );
     return;
@@ -570,13 +577,13 @@ async function settleSplitReversal(symbol, p, order) {
   const { side, qty } = p.reverse;
   const done = Number(order.executedQty) || 0;
   if (Math.abs(done - Number(qty)) > Number(r.stepSize) / 2) {
-    if (done > 0) notice('warn', `${symbol} 反手的平倉限價單只成交了 ${done}／${qty}，沒有開反向倉，請確認倉位`, symbol);
+    if (done > 0) notice('warn', t('{symbol} 反手的平倉限價單只成交了 {done}／{qty}，沒有開反向倉，請確認倉位', { symbol, done, qty }), symbol);
     return;
   }
   const risk = await state.client.positionRisk(symbol).catch(() => null);
   const row = (risk || []).find((x) => x.symbol === symbol && Number(x.positionAmt) !== 0);
   if (row) {
-    notice('warn', `${symbol} 反手的平倉單成交了，但倉位還有 ${row.positionAmt}，沒有開反向倉，請確認`, symbol);
+    notice('warn', t('{symbol} 反手的平倉單成交了，但倉位還有 {amt}，沒有開反向倉，請確認', { symbol, amt: row.positionAmt }), symbol);
     return;
   }
   await clearStale(symbol, side);
@@ -592,9 +599,18 @@ async function settleSplitReversal(symbol, p, order) {
       newClientOrderId: `sc_rev_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
     });
     if (p.tp || p.sl) setPending(String(open.orderId), { symbol, tp: p.tp, sl: p.sl, at: Date.now() });
-    notice('fill', `${symbol} 反手第一步平倉已成交；第二步限價${side === 'SELL' ? '賣出' : '買入'} ${qty} @ ${price} 已送出`, symbol);
+    notice(
+      'fill',
+      t('{symbol} 反手第一步平倉已成交；第二步限價{side} {qty} @ {price} 已送出', {
+        symbol,
+        side: side === 'SELL' ? t('賣出') : t('買入'),
+        qty,
+        price,
+      }),
+      symbol
+    );
   } catch (err) {
-    notice('warn', `${symbol} 已平倉，但反手的開倉限價單失敗：${friendly(err)}。目前沒有倉位，請確認後再下單`, symbol);
+    notice('warn', t('{symbol} 已平倉，但反手的開倉限價單失敗：{error}。目前沒有倉位，請確認後再下單', { symbol, error: friendly(err) }), symbol);
   }
   queueRefresh(symbol, 200);
 }
@@ -615,7 +631,7 @@ async function reverseInTwo(symbol, amt, side, r, clientId) {
     if (err.unknown) throw err; // may have opened after all: the caller says to check
     queueRefresh(symbol, 200);
     await clearStale(symbol, side).catch(() => {});
-    const e = new Error(`已平倉，但開反向倉失敗：${friendly(err)}。目前沒有倉位，請確認後再下單`);
+    const e = new Error(t('已平倉，但開反向倉失敗：{error}。目前沒有倉位，請確認後再下單', { error: friendly(err) }));
     e.flat = true;
     throw e;
   }
@@ -633,7 +649,7 @@ async function reverseInTwo(symbol, amt, side, r, clientId) {
 async function reversePosition(req) {
   await ready();
   const symbol = String(req.symbol || '').toUpperCase();
-  if (state.busy.has(symbol)) throw new Error('上一筆指令還在處理中');
+  if (state.busy.has(symbol)) throw new Error(t('上一筆指令還在處理中'));
   state.busy.add(symbol);
   try {
     await prepareSymbol(symbol);
@@ -641,13 +657,13 @@ async function reversePosition(req) {
     const market = req.type !== 'LIMIT';
     const risk = await state.client.positionRisk(symbol);
     const row = (risk || []).find((p) => p.symbol === symbol && Number(p.positionAmt) !== 0);
-    if (!row) throw new Error('目前沒有倉位');
+    if (!row) throw new Error(t('目前沒有倉位'));
     const amt = Number(row.positionAmt);
     if (req.expectAmt !== undefined && Math.abs(Number(req.expectAmt) - amt) > Number(r.stepSize) / 2) {
-      throw new Error(`倉位剛剛變成${directionWord(amt)} ${Math.abs(amt)}，請確認後再反手`);
+      throw new Error(t('倉位剛剛變成{direction} {size}，請確認後再反手', { direction: directionWord(amt), size: Math.abs(amt) }));
     }
     if (!market && pendingFor(symbol).some((p) => p.reverse)) {
-      throw new Error('已經有一筆反手限價單在等成交，要改價請拖曳它，或先取消');
+      throw new Error(t('已經有一筆反手限價單在等成交，要改價請拖曳它，或先取消'));
     }
     const num = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
     const tp = num(req.tp);
@@ -705,9 +721,9 @@ async function reversePosition(req) {
     }
 
     if (market) {
-      const avg = Number(order.avgPrice) > 0 ? `，均價 ${order.avgPrice}` : '';
-      const how = split ? '（保證金不足以一筆反手，已分成平倉＋開倉兩筆）' : '';
-      notice('fill', `${symbol} 已市價反手：${from} → ${to}${avg}${how}`, symbol);
+      const avg = Number(order.avgPrice) > 0 ? t('，均價 {avg}', { avg: order.avgPrice }) : '';
+      const how = split ? t('（保證金不足以一筆反手，已分成平倉＋開倉兩筆）') : '';
+      notice('fill', t('{symbol} 已市價反手：{from} → {to}', { symbol, from, to }) + avg + how, symbol);
       const now = await state.client.positionRisk(symbol);
       const nrow = (now || []).find((p) => p.symbol === symbol && Number(p.positionAmt) !== 0);
       const namt = nrow ? Number(nrow.positionAmt) : 0;
@@ -717,7 +733,7 @@ async function reversePosition(req) {
           await placeTpsl(symbol, plan.target > 0 ? 'long' : 'short', { tp: tp || undefined, sl: sl || undefined });
         }
       } else {
-        notice('warn', `${symbol} 反手單沒有完全成交，目前倉位 ${namt}，請確認`, symbol);
+        notice('warn', t('{symbol} 反手單沒有完全成交，目前倉位 {amt}，請確認', { symbol, amt: namt }), symbol);
       }
     } else {
       setPending(String(order.orderId), {
@@ -727,12 +743,19 @@ async function reversePosition(req) {
         at: Date.now(),
         reverse: split ? { from: amt, side: plan.side, qty: closeQty, split: true } : { from: amt, side: plan.side, qty: plan.qty },
       });
-      const verb = plan.side === 'SELL' ? '賣出' : '買入';
+      const verb = plan.side === 'SELL' ? t('賣出') : t('買入');
       notice(
         'info',
         split
-          ? `${symbol} 保證金不足以一筆反手，改分兩步：先掛只減倉限價${verb} ${closeQty} @ ${plan.price}，成交後再以同價掛開倉單，完成後 ${from} → ${to}`
-          : `${symbol} 反手限價${verb} ${plan.qty} @ ${plan.price} 已掛單，成交後 ${from} → ${to}`,
+          ? t('{symbol} 保證金不足以一筆反手，改分兩步：先掛只減倉限價{side} {qty} @ {price}，成交後再以同價掛開倉單，完成後 {from} → {to}', {
+              symbol,
+              side: verb,
+              qty: closeQty,
+              price: plan.price,
+              from,
+              to,
+            })
+          : t('{symbol} 反手限價{side} {qty} @ {price} 已掛單，成交後 {from} → {to}', { symbol, side: verb, qty: plan.qty, price: plan.price, from, to }),
         symbol
       );
     }
@@ -745,7 +768,7 @@ async function reversePosition(req) {
     }
     if (err.unknown) {
       queueRefresh(symbol, 500);
-      throw new Error('反手結果不明（逾時或幣安忙碌），請確認倉位與掛單後再操作');
+      throw new Error(t('反手結果不明（逾時或幣安忙碌），請確認倉位與掛單後再操作'));
     }
     throw new Error(friendly(err));
   } finally {
@@ -758,9 +781,9 @@ async function reversePosition(req) {
 async function ready() {
   const ok = await connect();
   if (!ok || state.connection !== 'ready') {
-    throw new Error(state.error || '尚未連線到幣安：請先在設定 → 交易填入 API Key');
+    throw new Error(state.error || t('尚未連線到幣安：請先在設定 → 交易填入 API Key'));
   }
-  if (!state.oneWay) throw new Error('帳戶是雙向持倉模式，請先在設定 → 交易切換為單向持倉');
+  if (!state.oneWay) throw new Error(t('帳戶是雙向持倉模式，請先在設定 → 交易切換為單向持倉'));
 }
 
 /** Cross margin, set on a symbol before its first order. Leverage is left as the user set it. */
@@ -772,7 +795,7 @@ async function prepareSymbol(symbol) {
       await state.client.setMarginType(symbol, 'CROSSED');
       cfg.marginType = 'CROSSED';
     } catch (err) {
-      if (err.code !== -4046) notice('warn', `無法切換為全倉，將沿用逐倉：${friendly(err)}`, symbol);
+      if (err.code !== -4046) notice('warn', t('無法切換為全倉，將沿用逐倉：{error}', { error: friendly(err) }), symbol);
     }
   }
   state.symbolConfig.set(symbol, cfg);
@@ -806,7 +829,7 @@ async function setSymbolLeverage(symbol, value) {
   await ensureSymbolMeta(sym);
   const max = rules.maxLeverage(state.brackets.get(sym)) || LEVERAGE_MAX;
   const n = Math.round(Number(value));
-  if (!Number.isFinite(n) || n < LEVERAGE_MIN || n > max) throw new Error(`${sym} 的槓桿要在 1～${max}x 之間`);
+  if (!Number.isFinite(n) || n < LEVERAGE_MIN || n > max) throw new Error(t('{symbol} 的槓桿要在 1～{max}x 之間', { symbol: sym, max }));
   const res = await state.client.setLeverage(sym, n);
   const cfg = state.symbolConfig.get(sym) || {};
   cfg.leverage = Number(res.leverage) || n;
@@ -817,7 +840,7 @@ async function setSymbolLeverage(symbol, value) {
 
 function rulesFor(symbol) {
   const r = state.rules.get(symbol);
-  if (!r) throw new Error(`${symbol} 不是可交易的 U 本位永續合約`);
+  if (!r) throw new Error(t('{symbol} 不是可交易的 U 本位永續合約', { symbol }));
   return r;
 }
 
@@ -852,7 +875,9 @@ async function preview(req) {
     else q = r2;
     if (pos && pos.amt !== 0) {
       const closing = pos.amt > 0 ? 'SELL' : 'BUY';
-      if (side !== closing) reduceErrors.unshift(`持${pos.amt > 0 ? '多' : '空'}倉時，只減倉只能${closing === 'SELL' ? '賣出' : '買入'}`);
+      if (side !== closing) {
+        reduceErrors.unshift(pos.amt > 0 ? t('持多倉時，只減倉只能賣出') : t('持空倉時，只減倉只能買入'));
+      }
     }
   } else {
     q = rules.quantityForNotional(Number(req.notional), at, r, { market });
@@ -871,13 +896,13 @@ async function preview(req) {
   const notional = q ? q.notional : 0;
   // Closing frees margin rather than using it, and cannot grow the position.
   const margin = reduceOnly ? 0 : notional / leverage;
-  if (account && margin > account.availableBalance + 1e-9) errors.push('可用保證金不足');
+  if (account && margin > account.availableBalance + 1e-9) errors.push(t('可用保證金不足'));
   // The bracket ceiling: say so here rather than let Binance refuse the order.
   if (q && !reduceOnly) {
     const after = rules.positionAfter(snap.position, side, q.qtyNum, refPrice);
     const cap = rules.maxNotionalAt(state.brackets.get(symbol), leverage);
     if (Math.abs(after.amt) * refPrice > cap) {
-      errors.push(`${leverage}x 時這個幣種的倉位上限是 ${Math.floor(cap).toLocaleString()} USDT，請降低槓桿或金額`);
+      errors.push(t('{leverage}x 時這個幣種的倉位上限是 {cap} USDT，請降低槓桿或金額', { leverage, cap: Math.floor(cap).toLocaleString() }));
     }
   }
 
@@ -918,7 +943,7 @@ async function preview(req) {
 async function placeOrder(req) {
   await ready();
   const symbol = String(req.symbol || '').toUpperCase();
-  if (state.busy.has(symbol)) throw new Error('上一筆指令還在處理中');
+  if (state.busy.has(symbol)) throw new Error(t('上一筆指令還在處理中'));
   state.busy.add(symbol);
   try {
     await prepareSymbol(symbol);
@@ -944,15 +969,16 @@ async function placeOrder(req) {
     if (reduceOnly) params.reduceOnly = 'true';
 
     const order = await state.client.newOrder(params);
-    const side = reduceOnly ? (p.side === 'BUY' ? '只減倉買入' : '只減倉賣出') : p.side === 'BUY' ? '做多' : '做空';
+    const side = reduceOnly ? (p.side === 'BUY' ? t('只減倉買入') : t('只減倉賣出')) : p.side === 'BUY' ? t('做多') : t('做空');
     const hasBracket = !reduceOnly && (req.tp || req.sl);
     if (market) {
-      notice('fill', `${symbol} 市價${side} ${order.executedQty || p.qty} 已送出${order.avgPrice ? `，均價 ${order.avgPrice}` : ''}`, symbol);
+      const avg = order.avgPrice ? t('，均價 {avg}', { avg: order.avgPrice }) : '';
+      notice('fill', t('{symbol} 市價{side} {qty} 已送出', { symbol, side, qty: order.executedQty || p.qty }) + avg, symbol);
       if (hasBracket) {
         await placeTpsl(symbol, p.side === 'BUY' ? 'long' : 'short', { tp: req.tp, sl: req.sl });
       }
     } else {
-      notice('info', `${symbol} 限價${side} ${p.qty} @ ${p.price} 已掛單`, symbol);
+      notice('info', t('{symbol} 限價{side} {qty} @ {price} 已掛單', { symbol, side, qty: p.qty, price: p.price }), symbol);
       if (hasBracket) {
         setPending(String(order.orderId), { symbol, tp: req.tp || null, sl: req.sl || null, at: Date.now() });
       }
@@ -962,7 +988,7 @@ async function placeOrder(req) {
   } catch (err) {
     if (err.unknown) {
       queueRefresh(symbol, 500);
-      throw new Error('送單結果不明（逾時或幣安忙碌），請確認倉位與掛單後再操作');
+      throw new Error(t('送單結果不明（逾時或幣安忙碌），請確認倉位與掛單後再操作'));
     }
     throw new Error(friendly(err));
   } finally {
@@ -987,7 +1013,7 @@ async function placeTpsl(symbol, direction, { tp, sl }) {
     ['sl', sl, 'STOP_MARKET'],
   ]) {
     if (value === undefined) continue;
-    const label = kind === 'tp' ? '止盈' : '止損';
+    const label = kind === 'tp' ? t('止盈') : t('止損');
     const old = existing.filter((x) => x.kind === kind);
     // Binance has no way to amend a conditional order, so a new price means
     // cancel and re-place -- cancel first, because a second close-position
@@ -1016,19 +1042,28 @@ async function placeTpsl(symbol, direction, { tp, sl }) {
       // say) is the worst outcome on offer, so put the old one back.
       const previous = old[0] && old[0].trigger;
       if (!previous) {
-        notice('error', `${label}設定失敗：${friendly(err)}`, symbol);
+        notice('error', t('{label}設定失敗：{error}', { label, error: friendly(err) }), symbol);
         continue;
       }
       try {
         await place(previous);
-        notice('error', `${label}調整失敗：${friendly(err)}。已恢復為原本的 ${previous}`, symbol);
+        notice('error', t('{label}調整失敗：{error}。已恢復為原本的 {previous}', { label, error: friendly(err), previous }), symbol);
       } catch (restoreErr) {
-        notice('error', `${label}調整失敗，而且無法恢復原本的 ${previous}：${friendly(restoreErr)}。這個倉位目前沒有${label}，請立刻檢查！`, symbol);
+        notice(
+          'error',
+          t('{label}調整失敗，而且無法恢復原本的 {previous}：{error}。這個倉位目前沒有{label}，請立刻檢查！', {
+            label,
+            previous,
+            error: friendly(restoreErr),
+          }),
+          symbol
+        );
       }
     }
   }
   if (results.length) {
-    notice('info', `${symbol} 已設定${results.map((k) => (k === 'tp' ? '止盈' : '止損')).join('、')}`, symbol);
+    const what = results.map((k) => (k === 'tp' ? t('止盈') : t('止損'))).join(t('、'));
+    notice('info', t('{symbol} 已設定{what}', { symbol, what }), symbol);
   }
 }
 
@@ -1037,14 +1072,14 @@ async function setTpsl(req) {
   const symbol = String(req.symbol || '').toUpperCase();
   await refreshSymbol(symbol);
   const snap = state.snapshots.get(symbol);
-  if (!snap || !snap.position) throw new Error('目前沒有倉位，止盈止損請在下單時一起設定');
+  if (!snap || !snap.position) throw new Error(t('目前沒有倉位，止盈止損請在下單時一起設定'));
   const long = snap.position.amt > 0;
   const mark = snap.position.mark;
   const check = (value, kind) => {
     if (value === undefined || value === null) return;
-    if (!(Number(value) > 0)) throw new Error('價格不正確');
-    if (kind === 'tp' && (long ? value <= mark : value >= mark)) throw new Error('止盈價會立刻觸發，請放在目前價格的獲利方向');
-    if (kind === 'sl' && (long ? value >= mark : value <= mark)) throw new Error('止損價會立刻觸發，請放在目前價格的虧損方向');
+    if (!(Number(value) > 0)) throw new Error(t('價格不正確'));
+    if (kind === 'tp' && (long ? value <= mark : value >= mark)) throw new Error(t('止盈價會立刻觸發，請放在目前價格的獲利方向'));
+    if (kind === 'sl' && (long ? value >= mark : value <= mark)) throw new Error(t('止損價會立刻觸發，請放在目前價格的虧損方向'));
   };
   check(req.tp, 'tp');
   check(req.sl, 'sl');
@@ -1067,13 +1102,13 @@ async function modifyOrderPrice(req) {
   const r = rulesFor(symbol);
   const orders = await state.client.openOrders(symbol);
   const order = (orders || []).find((o) => String(o.orderId) === String(req.orderId));
-  if (!order) throw new Error('找不到這筆委託（可能已經成交或取消）');
-  if (order.type !== 'LIMIT') throw new Error('只有限價委託可以拖曳改價');
+  if (!order) throw new Error(t('找不到這筆委託（可能已經成交或取消）'));
+  if (order.type !== 'LIMIT') throw new Error(t('只有限價委託可以拖曳改價'));
   const price = rules.roundPrice(Number(req.price), r);
-  if (!(Number(price) > 0)) throw new Error('價格不正確');
+  if (!(Number(price) > 0)) throw new Error(t('價格不正確'));
   const last = Number(await state.client.lastPrice(symbol));
   if (last > 0 && (order.side === 'BUY' ? Number(price) >= last : Number(price) <= last)) {
-    throw new Error('拖過目前價格會立刻成交；要立刻成交請用下單票的市價單');
+    throw new Error(t('拖過目前價格會立刻成交；要立刻成交請用下單票的市價單'));
   }
   try {
     await state.client.modifyOrder({ symbol, orderId: order.orderId, side: order.side, quantity: order.origQty, price });
@@ -1082,7 +1117,7 @@ async function modifyOrderPrice(req) {
   } finally {
     queueRefresh(symbol, 150);
   }
-  notice('info', `${symbol} 限價${order.side === 'BUY' ? '買' : '賣'}已改到 ${price}`, symbol);
+  notice('info', order.side === 'BUY' ? t('{symbol} 限價買已改到 {price}', { symbol, price }) : t('{symbol} 限價賣已改到 {price}', { symbol, price }), symbol);
   return { ok: true, price };
 }
 
@@ -1097,9 +1132,9 @@ async function updatePending(req) {
   const r = rulesFor(symbol);
   const id = String(req.orderId);
   const record = (config().pending[state.env] || {})[id];
-  if (!record) throw new Error('找不到這筆委託的止盈止損');
+  if (!record) throw new Error(t('找不到這筆委託的止盈止損'));
   const order = ((await state.client.openOrders(symbol)) || []).find((o) => String(o.orderId) === id);
-  if (!order) throw new Error('找不到這筆委託（可能已經成交或取消）');
+  if (!order) throw new Error(t('找不到這筆委託（可能已經成交或取消）'));
   const entry = Number(order.price);
   const long = order.side === 'BUY';
   const next = { ...record };
@@ -1107,7 +1142,7 @@ async function updatePending(req) {
     if (req[kind] === undefined) continue;
     const value = Number(rules.roundPrice(Number(req[kind]), r));
     const wrong = kind === 'tp' ? (long ? value <= entry : value >= entry) : long ? value >= entry : value <= entry;
-    if (wrong) throw new Error(`${kind === 'tp' ? '止盈' : '止損'}要放在委託價的${kind === 'tp' ? '獲利' : '虧損'}方向`);
+    if (wrong) throw new Error(kind === 'tp' ? t('止盈要放在委託價的獲利方向') : t('止損要放在委託價的虧損方向'));
     next[kind] = value;
   }
   setPending(id, next);
@@ -1136,12 +1171,13 @@ async function cancel(req) {
   try {
     if (req.kind === 'algo') {
       await state.client.cancelAlgoOrder(req.id);
-      notice('info', `${symbol} 已取消條件單`, symbol);
+      notice('info', t('{symbol} 已取消條件單', { symbol }), symbol);
     } else {
       const res = await state.client.cancelOrder(symbol, req.id);
       setPending(String(req.id), null);
-      const side = res && res.side === 'SELL' ? '賣' : '買';
-      notice('info', `${symbol} 已取消限價${side}${res && res.price ? ` @ ${Number(res.price)}` : ''}`, symbol);
+      const at = res && res.price ? ` @ ${Number(res.price)}` : '';
+      const sell = res && res.side === 'SELL';
+      notice('info', (sell ? t('{symbol} 已取消限價賣', { symbol }) : t('{symbol} 已取消限價買', { symbol })) + at, symbol);
     }
   } catch (err) {
     // -2011 "Unknown order sent": usually a second press on a line still
@@ -1150,7 +1186,7 @@ async function cancel(req) {
     // for -- say so plainly instead of showing an alarming error.
     if (err.code === -2011 && !(await stillOpen(symbol, req))) {
       if (req.kind !== 'algo') setPending(String(req.id), null);
-      notice('info', `${symbol} 這筆委託已經不在了（已取消或已成交）`, symbol);
+      notice('info', t('{symbol} 這筆委託已經不在了（已取消或已成交）', { symbol }), symbol);
       return { ok: true, gone: true };
     }
     throw new Error(friendly(err));
@@ -1166,12 +1202,12 @@ async function cancel(req) {
 async function closePosition(req) {
   await ready();
   const symbol = String(req.symbol || '').toUpperCase();
-  if (state.busy.has(symbol)) throw new Error('上一筆指令還在處理中');
+  if (state.busy.has(symbol)) throw new Error(t('上一筆指令還在處理中'));
   state.busy.add(symbol);
   try {
     const risk = await state.client.positionRisk(symbol);
     const row = (risk || []).find((p) => p.symbol === symbol && Number(p.positionAmt) !== 0);
-    if (!row) throw new Error('目前沒有倉位');
+    if (!row) throw new Error(t('目前沒有倉位'));
     const amt = Number(row.positionAmt);
     const r = rulesFor(symbol);
     // The exact size, as the exchange reports it -- not a float round trip.
@@ -1184,10 +1220,10 @@ async function closePosition(req) {
       reduceOnly: 'true',
       newClientOrderId: `sc_close_${randomUUID().replace(/-/g, '').slice(0, 18)}`,
     });
-    notice('fill', `${symbol} 已市價平倉 ${qty}`, symbol);
+    notice('fill', t('{symbol} 已市價平倉 {qty}', { symbol, qty }), symbol);
     return { ok: true };
   } catch (err) {
-    if (err.unknown) throw new Error('平倉結果不明，請確認倉位');
+    if (err.unknown) throw new Error(t('平倉結果不明，請確認倉位'));
     throw new Error(friendly(err));
   } finally {
     state.busy.delete(symbol);
@@ -1246,7 +1282,7 @@ function setDefaultNotional(value) {
 }
 
 async function setOneWay() {
-  if (!(await connect())) throw new Error(state.error || '尚未連線');
+  if (!(await connect())) throw new Error(state.error || t('尚未連線'));
   try {
     await state.client.setOneWayMode();
   } catch (err) {
@@ -1327,7 +1363,7 @@ module.exports = {
   watch,
   unwatch,
   preview: async (req) => {
-    if (!(await connect())) throw new Error(state.error || '尚未連線');
+    if (!(await connect())) throw new Error(state.error || t('尚未連線'));
     return preview(req);
   },
   placeOrder,

@@ -3,6 +3,7 @@
  */
 
 import { CardView } from './cardview.js';
+import { t } from './i18n.js';
 import { getProvider } from './datafeed/remote.js';
 import { el, createPatchQueue } from './util.js';
 
@@ -17,7 +18,7 @@ const root = document.getElementById('root');
  * in screen coordinates instead.
  */
 function attachResizeGrip(container) {
-  const grip = el('div.sc-grip', { title: '拖曳調整大小' });
+  const grip = el('div.sc-grip', { title: t('拖曳調整大小') });
   let origin = null;
 
   grip.addEventListener('pointerdown', async (event) => {
@@ -58,7 +59,7 @@ async function main() {
 
   const boot = await api.bootstrap({ cardId });
   if (!boot.card) {
-    root.append(el('div.card__overlay-text', { text: '找不到這張卡片的設定。' }));
+    root.append(el('div.card__overlay-text', { text: t('找不到這張卡片的設定。') }));
     return;
   }
 
@@ -139,6 +140,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  root.append(el('div.card__overlay-text', { text: `啟動失敗:${err.message}` }));
+  root.append(el('div.card__overlay-text', { text: t('啟動失敗:{error}', { error: err.message }) }));
   console.error(err);
 });

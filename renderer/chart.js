@@ -29,6 +29,7 @@ import { ExtremesPrimitive } from './extremes-primitive.js';
 import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
 import { VolumePane, SqueezeBandsPrimitive } from './volume-pane.js';
+import { locale as uiLocale } from './i18n.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -133,7 +134,9 @@ const HANDLE_SCROLL_OFF = {
  */
 function timeFormatters(timezone) {
   const zone = timezone && timezone !== 'auto' ? { timeZone: timezone } : {};
-  const locale = navigator.language || 'en-US';
+  // The interface's language, not the machine's: an English UI on a Chinese
+  // Windows should not label the axis 10月25日.
+  const locale = uiLocale();
   const make = (opts) => new Intl.DateTimeFormat(locale, { ...opts, ...zone });
 
   const hm = make({ hour: '2-digit', minute: '2-digit', hour12: false });
@@ -254,7 +257,7 @@ export class CardChart {
       },
       handleScale: HANDLE_SCALE_ON,
       localization: {
-        locale: navigator.language || 'en-US',
+        locale: uiLocale(),
         // No chart-wide priceFormatter: it overrides every series' own format,
         // which would print open interest as 94887.21 instead of 94.89K. The
         // price series formats itself at `this.precision` (priceSeriesOptions).

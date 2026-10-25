@@ -4,6 +4,7 @@
  */
 
 import { el, debounce, prettySymbol } from '../util.js';
+import { t } from '../i18n.js';
 
 export class SymbolSearch {
   /**
@@ -19,7 +20,7 @@ export class SymbolSearch {
     this.input = el('input.sc-search__input', {
       type: 'text',
       value: current || '',
-      placeholder: '搜尋交易對,例如 BTCUSDT',
+      placeholder: t('搜尋交易對,例如 BTCUSDT'),
       spellcheck: 'false',
       autocomplete: 'off',
       oninput: () => this.runSearch(this.input.value),
@@ -42,19 +43,19 @@ export class SymbolSearch {
 
   async search(query) {
     const seq = ++this.requestSeq;
-    this.setHint('搜尋中…');
+    this.setHint(t('搜尋中…'));
     try {
       const results = await this.provider.searchSymbols(query);
       if (seq !== this.requestSeq) return; // a newer keystroke won
       this.results = results;
       this.activeIndex = results.length ? 0 : -1;
-      this.setHint(results.length ? '' : '找不到符合的交易對');
+      this.setHint(results.length ? '' : t('找不到符合的交易對'));
       this.renderList();
     } catch (err) {
       if (seq !== this.requestSeq) return;
       this.results = [];
       this.renderList();
-      this.setHint(`交易對清單載入失敗:${err.message}`);
+      this.setHint(t('交易對清單載入失敗:{message}', { message: err.message }));
     }
   }
 

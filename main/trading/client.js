@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const { encodeParams, sign, parseExact } = require('./rules');
+const { t } = require('../i18n');
 
 /*
  * STOCKCARD_TESTNET_REST / _WS point the *testnet* at another host -- a local
@@ -37,33 +38,40 @@ class BinanceError extends Error {
   }
 }
 
-/** Binance error codes worth a sentence of their own. */
-const FRIENDLY = {
-  '-1021': '電腦時間和幣安伺服器差太多，請校正系統時間',
-  '-1022': '簽名錯誤：Secret Key 不正確，或私鑰和上傳到幣安的公鑰不是同一對',
-  '-2014': 'API Key 格式錯誤',
-  '-2015': 'API Key 無效、IP 未加入白名單，或沒有開啟合約權限',
-  '-2019': '保證金不足',
-  '-2021': '觸發價會立刻觸發，請調整止盈／止損價',
-  '-2022': '只減倉單被拒絕：可能已經沒有倉位，或和現有的掛單衝突（請先取消同方向的掛單）',
-  '-4118': '只減倉單失敗：加上現有的掛單會變成反向倉位，請先取消那些掛單',
-  '-2027': '目前倉位超過這個槓桿允許的上限：請選較低的槓桿，或先減倉',
-  '-2028': '降低槓桿後保證金不足：請先減倉或補保證金',
-  '-4028': '槓桿倍數不在這個幣種允許的範圍內',
-  '-4003': '數量必須大於 0',
-  '-4014': '價格不符合最小跳動單位',
-  '-4016': '限價超出允許範圍',
-  '-4046': '保證金模式已經是這個設定',
-  '-4048': '有倉位或掛單時不能切換保證金模式',
-  '-4059': '持倉模式已經是這個設定',
-  '-4061': '下單的持倉方向和帳戶的持倉模式不符',
-  '-4164': '名目價值太小，低於交易所的最小下單金額',
-};
+/**
+ * Binance error codes worth a sentence of their own. A function, not a table:
+ * the text follows the interface language, which can change while running.
+ */
+function friendlyText(code) {
+  switch (code) {
+    case '-1021': return t('電腦時間和幣安伺服器差太多，請校正系統時間');
+    case '-1022': return t('簽名錯誤：Secret Key 不正確，或私鑰和上傳到幣安的公鑰不是同一對');
+    case '-2014': return t('API Key 格式錯誤');
+    case '-2015': return t('API Key 無效、IP 未加入白名單，或沒有開啟合約權限');
+    case '-2019': return t('保證金不足');
+    case '-2021': return t('觸發價會立刻觸發，請調整止盈／止損價');
+    case '-2022': return t('只減倉單被拒絕：可能已經沒有倉位，或和現有的掛單衝突（請先取消同方向的掛單）');
+    case '-4118': return t('只減倉單失敗：加上現有的掛單會變成反向倉位，請先取消那些掛單');
+    case '-2027': return t('目前倉位超過這個槓桿允許的上限：請選較低的槓桿，或先減倉');
+    case '-2028': return t('降低槓桿後保證金不足：請先減倉或補保證金');
+    case '-4028': return t('槓桿倍數不在這個幣種允許的範圍內');
+    case '-4003': return t('數量必須大於 0');
+    case '-4014': return t('價格不符合最小跳動單位');
+    case '-4016': return t('限價超出允許範圍');
+    case '-4046': return t('保證金模式已經是這個設定');
+    case '-4048': return t('有倉位或掛單時不能切換保證金模式');
+    case '-4059': return t('持倉模式已經是這個設定');
+    case '-4061': return t('下單的持倉方向和帳戶的持倉模式不符');
+    case '-4164': return t('名目價值太小，低於交易所的最小下單金額');
+    default: return null;
+  }
+}
 
 function friendly(err) {
   if (!(err instanceof BinanceError)) return err && err.message ? err.message : String(err);
-  const known = FRIENDLY[String(err.code)];
-  return known ? `${known}（${err.code}）` : `${err.message}${err.code ? `（${err.code}）` : ''}`;
+  const known = friendlyText(String(err.code));
+  if (known) return t('{text}（{code}）', { text: known, code: err.code });
+  return err.code ? t('{text}（{code}）', { text: err.message, code: err.code }) : err.message;
 }
 
 /**
@@ -123,7 +131,7 @@ class FuturesClient {
     } catch (err) {
       throw new BinanceError({
         status: 0,
-        msg: err.name === 'AbortError' ? '連線逾時' : `無法連線到幣安：${err.message}`,
+        msg: err.name === 'AbortError' ? t('連線逾時') : t('無法連線到幣安：{error}', { error: err.message }),
         // A timed-out order may still have reached the matching engine.
         unknown: method !== 'GET',
       });

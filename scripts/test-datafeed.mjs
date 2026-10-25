@@ -785,6 +785,17 @@ await test('bucketing: coarse bars aggregate, and long gaps stay empty', () => {
   assert.deepEqual(later.map((b) => b.time), [T + 3600], 'only the bar within the gap limit');
 });
 
+/* --------------------------------------------------------- watchlist */
+
+const { watchKey, watchIndex, WATCHLIST_MAX } = await import('../renderer/ui/watchlist.js');
+
+await test('watchlist keys run along the number row: 1..9, then 0 for the tenth', () => {
+  assert.equal(WATCHLIST_MAX, 10);
+  assert.deepEqual([...Array(WATCHLIST_MAX).keys()].map(watchKey), ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']);
+  for (let i = 0; i < WATCHLIST_MAX; i++) assert.equal(watchIndex(watchKey(i)), i);
+  assert.equal(watchIndex('x'), -1);
+});
+
 /* ------------------------------------------------------- market mood */
 
 const { fundingSummary } = await import('../renderer/trade/market-mood.js');

@@ -7,6 +7,7 @@
  */
 
 import { CardView } from './cardview.js';
+import { t } from './i18n.js';
 import { getProvider } from './datafeed/remote.js';
 import { el, clamp, createPatchQueue } from './util.js';
 
@@ -18,7 +19,7 @@ const MAX_COLUMNS = 6;
 
 /** Same pointer-driven grip as Float mode, resizing the board window itself. */
 function attachResizeGrip(container) {
-  const grip = el('div.sc-grip', { title: '拖曳調整視窗大小' });
+  const grip = el('div.sc-grip', { title: t('拖曳調整視窗大小') });
   let origin = null;
 
   grip.addEventListener('pointerdown', async (event) => {
@@ -91,39 +92,39 @@ async function main() {
         el('button.sc-icon-btn', {
           type: 'button',
           text: '−',
-          title: '減少欄數',
+          title: t('減少欄數'),
           onclick: () => setColumns(columns - 1),
         }),
         colsValue,
         el('button.sc-icon-btn', {
           type: 'button',
           text: '+',
-          title: '增加欄數',
+          title: t('增加欄數'),
           onclick: () => setColumns(columns + 1),
         })
       ),
       el('button.sc-icon-btn', {
         type: 'button',
         text: '＋',
-        title: '新增卡片',
+        title: t('新增卡片'),
         onclick: () => api.addCard({}),
       }),
       el('button.sc-icon-btn', {
         type: 'button',
         text: '⧉',
-        title: '切換為 Float 模式(每張圖獨立視窗)',
+        title: t('切換為 Float 模式(每張圖獨立視窗)'),
         onclick: () => api.setMode('float'),
       }),
       el('button.sc-icon-btn', {
         type: 'button',
         text: '🖱',
-        title: '滑鼠穿透(Ctrl+Alt+C 解除)',
+        title: t('滑鼠穿透(Ctrl+Alt+C 解除)'),
         onclick: () => api.toggleClickThrough(),
       }),
       el('button.sc-icon-btn', {
         type: 'button',
         text: '—',
-        title: '隱藏全部(Ctrl+Alt+S 叫回)',
+        title: t('隱藏全部(Ctrl+Alt+S 叫回)'),
         onclick: () => api.hideAll(),
       })
     )
@@ -182,10 +183,10 @@ async function main() {
     grid.replaceChildren(...cards.map((c) => views.get(c.id).root));
 
     if (!cards.length) {
-      grid.append(el('div.board__empty', { text: '還沒有卡片,點右上角的 ＋ 新增一張。' }));
+      grid.append(el('div.board__empty', { text: t('還沒有卡片,點右上角的 ＋ 新增一張。') }));
     }
 
-    countEl.textContent = `${cards.length} 張卡片`;
+    countEl.textContent = t('{n} 張卡片', { n: cards.length });
     for (const view of views.values()) view.resize();
   }
 
@@ -300,6 +301,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  root.append(el('div.card__overlay-text', { text: `啟動失敗:${err.message}` }));
+  root.append(el('div.card__overlay-text', { text: t('啟動失敗:{error}', { error: err.message }) }));
   console.error(err);
 });

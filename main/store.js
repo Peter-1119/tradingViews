@@ -43,6 +43,8 @@ const DEFAULTS = {
    * otherwise, which is why the axis read 8 hours behind Taipei by default.
    */
   timezone: 'auto',
+  /** Interface language: 'en' (the default) or 'zh-TW'. */
+  language: 'en',
   /**
    * Keep downloaded bars on disk. On by default: it has no downside beyond
    * space, and the whole point is that the second look at a range is instant.
@@ -55,7 +57,7 @@ const DEFAULTS = {
    * {symbol, market} entries one click away in the title bar's dropdown, in the
    * user's order. Global rather than per card: it is a list of what the user
    * trades, not a property of any one window. The market is part of the entry,
-   * so "BTC perp" and "ETH spot" can sit side by side and Alt+1..6 lands on the
+   * so "BTC perp" and "ETH spot" can sit side by side and Alt+1..9, 0 lands on the
    * right one.
    */
   watchlist: [],
@@ -118,8 +120,8 @@ const DEFAULTS = {
   priceAlerts: [],
 };
 
-/** What fits the dropdown on a card of default height, and Alt+1..6. */
-const WATCHLIST_MAX = 6;
+/** One per digit key, in keyboard order: Alt+1..9, then Alt+0 for the tenth. */
+const WATCHLIST_MAX = 10;
 
 /** Enough for any real chart; a guard against a stuck drag writing thousands. */
 const MAX_LEVELS_PER_SYMBOL = 60;
@@ -351,6 +353,7 @@ function getGlobalPrefs() {
   return {
     upDownColor: store.get('upDownColor') === 'redUp' ? 'redUp' : 'greenUp',
     timezone: getTimezone(),
+    language: store.get('language') === 'zh-TW' ? 'zh-TW' : 'en',
     cacheBars: store.get('cacheBars') !== false,
     mode: getMode(),
     clickThrough: store.get('clickThrough') === true,

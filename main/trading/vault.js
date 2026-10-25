@@ -22,6 +22,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { app, safeStorage } = require('electron');
+const { t } = require('../i18n');
 
 const ENVS = ['testnet', 'live'];
 
@@ -53,7 +54,7 @@ function readAll() {
 
 function writeAll(all) {
   if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('這台電腦無法加密儲存金鑰（系統加密服務不可用），因此不會保存');
+    throw new Error(t('這台電腦無法加密儲存金鑰（系統加密服務不可用），因此不會保存'));
   }
   const tmp = `${file()}.tmp`;
   fs.writeFileSync(tmp, safeStorage.encryptString(JSON.stringify(all)));
@@ -68,7 +69,7 @@ function get(env) {
 function cleanApiKey(apiKey) {
   const key = String(apiKey || '').trim();
   // Binance keys are 64 alphanumerics; be a little lenient, but refuse junk.
-  if (!/^[A-Za-z0-9]{16,128}$/.test(key)) throw new Error('API Key 格式不對（應為英數字）');
+  if (!/^[A-Za-z0-9]{16,128}$/.test(key)) throw new Error(t('API Key 格式不對（應為英數字）'));
   return key;
 }
 
@@ -77,7 +78,7 @@ function set(env, apiKey, secret) {
   if (!ENVS.includes(env)) throw new Error('unknown environment');
   const key = cleanApiKey(apiKey);
   const sec = String(secret || '').trim();
-  if (!/^[A-Za-z0-9]{16,128}$/.test(sec)) throw new Error('Secret Key 格式不對（應為英數字）');
+  if (!/^[A-Za-z0-9]{16,128}$/.test(sec)) throw new Error(t('Secret Key 格式不對（應為英數字）'));
   writeAll({ ...readAll(), [env]: { type: 'hmac', apiKey: key, secret: sec } });
 }
 
@@ -91,16 +92,16 @@ function setPrivateKey(env, apiKey, pem) {
   if (!ENVS.includes(env)) throw new Error('unknown environment');
   const key = cleanApiKey(apiKey);
   const text = String(pem || '');
-  if (/BEGIN PUBLIC KEY/.test(text)) throw new Error('這是公鑰檔案。請選私鑰（-----BEGIN PRIVATE KEY-----）那個檔案');
-  if (/ENCRYPTED/.test(text)) throw new Error('這把私鑰有設定密碼，目前不支援。請產生沒有密碼的私鑰');
+  if (/BEGIN PUBLIC KEY/.test(text)) throw new Error(t('這是公鑰檔案。請選私鑰（-----BEGIN PRIVATE KEY-----）那個檔案'));
+  if (/ENCRYPTED/.test(text)) throw new Error(t('這把私鑰有設定密碼，目前不支援。請產生沒有密碼的私鑰'));
   let object;
   try {
     object = crypto.createPrivateKey(text);
   } catch {
-    throw new Error('讀不出私鑰：請確認選的是 .pem 格式的私鑰檔案');
+    throw new Error(t('讀不出私鑰：請確認選的是 .pem 格式的私鑰檔案'));
   }
   const type = object.asymmetricKeyType;
-  if (type !== 'ed25519' && type !== 'rsa') throw new Error(`不支援的金鑰類型：${type}（請用 Ed25519 或 RSA）`);
+  if (type !== 'ed25519' && type !== 'rsa') throw new Error(t('不支援的金鑰類型：{type}（請用 Ed25519 或 RSA）', { type }));
   const privateKey = object.export({ type: 'pkcs8', format: 'pem' });
   writeAll({ ...readAll(), [env]: { type, apiKey: key, privateKey } });
 }

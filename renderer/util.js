@@ -1,5 +1,7 @@
 /** Small shared helpers for the renderer layer. */
 
+import { t } from './i18n.js';
+
 /** Terse DOM builder: el('div.card__title', {title: 'x'}, 'text'). */
 export function el(spec, attrs = {}, ...children) {
   const [tagPart, ...classes] = String(spec).split('.');
@@ -116,10 +118,10 @@ export function prettySymbol(symbol) {
 }
 
 export const STATUS_LABELS = {
-  live: '即時連線中',
-  reconnecting: '連線中斷,重新連線中…',
-  offline: '網路離線',
-  idle: '尚未連線',
+  live: t('即時連線中'),
+  reconnecting: t('連線中斷,重新連線中…'),
+  offline: t('網路離線'),
+  idle: t('尚未連線'),
 };
 
 /**
@@ -130,8 +132,8 @@ export const STATUS_LABELS = {
  * and the price on a card that may only be 300px wide.
  */
 export const STATUS_BADGES = {
-  reconnecting: '重連中',
-  offline: '離線',
+  reconnecting: t('重連中'),
+  offline: t('離線'),
 };
 
 /**
@@ -163,18 +165,18 @@ export function formatDuration(seconds) {
 }
 
 export const INTERVAL_LABELS = {
-  '1m': '1 分',
-  '5m': '5 分',
-  '15m': '15 分',
-  '1h': '1 時',
-  '4h': '4 時',
-  '1d': '1 日',
+  '1m': t('1 分'),
+  '5m': t('5 分'),
+  '15m': t('15 分'),
+  '1h': t('1 時'),
+  '4h': t('4 時'),
+  '1d': t('1 日'),
 };
 
 /** Title-bar chip text. Two characters, to sit beside the interval chip. */
 export const MARKET_LABELS = {
-  spot: '現貨',
-  perp: '永續',
+  spot: t('現貨'),
+  perp: t('永續'),
 };
 
 /** Funding rate as Binance quotes it: 0.0001 -> "+0.0100%". */
@@ -195,7 +197,7 @@ export function formatCountdown(ms) {
 }
 
 export const CHART_TYPE_LABELS = {
-  candlestick: 'K 線',
-  line: '折線',
-  area: '面積',
+  candlestick: t('K 線'),
+  line: t('折線'),
+  area: t('面積'),
 };

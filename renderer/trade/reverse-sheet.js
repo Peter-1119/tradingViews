@@ -20,6 +20,7 @@
 
 import { el } from '../util.js';
 import { envChip } from './env-chip.js';
+import { t } from '../i18n.js';
 
 function priceInput({ placeholder, onInput }) {
   const input = el('input.tk-input__field', {
@@ -69,19 +70,19 @@ export class ReverseSheet {
   }
 
   build() {
-    this.envEl = el('span.tk-chip.tk-chip--env', { hidden: true, text: '測試網' });
+    this.envEl = el('span.tk-chip.tk-chip--env', { hidden: true, text: t('測試網') });
     this.typeBtns = ['MARKET', 'LIMIT'].map((type) =>
       el('button.tk-seg__btn', {
         type: 'button',
-        text: type === 'MARKET' ? '市價（立即）' : '限價',
+        text: type === 'MARKET' ? t('市價（立即）') : t('限價'),
         onclick: () => this.setType(type),
       })
     );
-    this.priceInput = priceInput({ placeholder: '點圖表或輸入價格', onInput: (v) => this.update({ price: v }) });
+    this.priceInput = priceInput({ placeholder: t('點圖表或輸入價格'), onInput: (v) => this.update({ price: v }) });
     this.priceRow = el(
       'label.tk-input',
       {},
-      el('span.tk-input__prefix', { text: '價格' }),
+      el('span.tk-input__prefix', { text: t('價格') }),
       this.priceInput
     );
     this.fromEl = el('span.rv-from');
@@ -90,13 +91,13 @@ export class ReverseSheet {
 
     this.tpslToggle = el('input', { type: 'checkbox' });
     this.tpslToggle.addEventListener('change', () => this.update({ tpsl: this.tpslToggle.checked }));
-    this.tpInput = priceInput({ placeholder: '止盈價', onInput: (v) => this.update({ tp: v }) });
-    this.slInput = priceInput({ placeholder: '止損價', onInput: (v) => this.update({ sl: v }) });
+    this.tpInput = priceInput({ placeholder: t('止盈價'), onInput: (v) => this.update({ tp: v }) });
+    this.slInput = priceInput({ placeholder: t('止損價'), onInput: (v) => this.update({ sl: v }) });
     this.tpslBody = el(
       'div.tk-tpsl__body',
       { hidden: true },
-      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--tp', { text: '止盈' }), el('span.tk-input', {}, this.tpInput)),
-      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--sl', { text: '止損' }), el('span.tk-input', {}, this.slInput))
+      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--tp', { text: t('止盈') }), el('span.tk-input', {}, this.tpInput)),
+      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--sl', { text: t('止損') }), el('span.tk-input', {}, this.slInput))
     );
     this.noteEl = el('div.tk-note');
     this.errorEl = el('div.tk-error', { hidden: true, role: 'alert' });
@@ -104,13 +105,13 @@ export class ReverseSheet {
 
     this.root = el(
       'div.tk.tk--reverse',
-      { hidden: true, role: 'dialog', 'aria-label': '反手' },
+      { hidden: true, role: 'dialog', 'aria-label': t('反手') },
       el(
         'div.tk-head',
         {},
-        el('span.tk-title', { text: '反手' }),
+        el('span.tk-title', { text: t('反手') }),
         this.envEl,
-        el('button.tk-close', { type: 'button', title: '關閉 (Esc)', text: '✕', onclick: () => this.hooks.onClose() })
+        el('button.tk-close', { type: 'button', title: t('關閉 (Esc)'), text: '✕', onclick: () => this.hooks.onClose() })
       ),
       el('div.rv-summary', {}, this.fromEl, el('span.rv-arrow', { text: '→' }), this.toEl),
       el('div.tk-seg', {}, this.typeBtns),
@@ -122,7 +123,7 @@ export class ReverseSheet {
         el(
           'div.tk-tpsl',
           {},
-          el('label.tk-check', {}, this.tpslToggle, el('span', { text: '新倉位的止盈 / 止損' })),
+          el('label.tk-check', {}, this.tpslToggle, el('span', { text: t('新倉位的止盈 / 止損') })),
           this.tpslBody
         ),
         this.noteEl,
@@ -248,18 +249,20 @@ export class ReverseSheet {
     let entry = last;
     if (this.type === 'LIMIT') {
       const p = Number(this.price);
-      if (!(p > 0)) return '請輸入價格，或在圖表上點一下';
+      if (!(p > 0)) return t('請輸入價格，或在圖表上點一下');
       if (last > 0 && (short ? p <= last : p >= last)) {
-        return `反手${short ? '賣出' : '買入'}要${short ? '高' : '低'}於目前價格，否則會立刻成交；要立刻反手請用市價`;
+        return short
+          ? t('反手賣出要高於目前價格，否則會立刻成交；要立刻反手請用市價')
+          : t('反手買入要低於目前價格，否則會立刻成交；要立刻反手請用市價');
       }
       entry = p;
     }
     if (this.tpsl) {
       const tp = Number(this.tp);
       const sl = Number(this.sl);
-      if (tp > 0 && entry > 0 && (short ? tp >= entry : tp <= entry)) return `${short ? '做空' : '做多'}的止盈要${short ? '低' : '高'}於進場價`;
-      if (sl > 0 && entry > 0 && (short ? sl <= entry : sl >= entry)) return `${short ? '做空' : '做多'}的止損要${short ? '高' : '低'}於進場價`;
-      if (sl > 0 && mark > 0 && (short ? sl <= mark : sl >= mark)) return '止損價已經越過目前標記價格，會立刻觸發';
+      if (tp > 0 && entry > 0 && (short ? tp >= entry : tp <= entry)) return short ? t('做空的止盈要低於進場價') : t('做多的止盈要高於進場價');
+      if (sl > 0 && entry > 0 && (short ? sl <= entry : sl >= entry)) return short ? t('做空的止損要高於進場價') : t('做多的止損要低於進場價');
+      if (sl > 0 && mark > 0 && (short ? sl <= mark : sl >= mark)) return t('止損價已經越過目前標記價格，會立刻觸發');
     }
     return '';
   }
@@ -271,26 +274,36 @@ export class ReverseSheet {
     const size = Math.abs(p.amt);
     const unit = this.baseAsset ? ` ${this.baseAsset}` : '';
     const limit = this.type === 'LIMIT';
-    this.fromEl.textContent = `${long ? '多' : '空'} ${size}${unit}`;
+    this.fromEl.textContent = long ? t('多 {size}', { size: size + unit }) : t('空 {size}', { size: size + unit });
     this.fromEl.className = `rv-from ${long ? 'is-long' : 'is-short'}`;
-    this.toEl.textContent = `${long ? '空' : '多'} ${size}${unit}`;
+    this.toEl.textContent = long ? t('空 {size}', { size: size + unit }) : t('多 {size}', { size: size + unit });
     this.toEl.className = `rv-to ${long ? 'is-short' : 'is-long'}`;
     this.typeBtns.forEach((b, i) => b.classList.toggle('is-active', (i === 1) === limit));
     this.priceRow.hidden = !limit;
-    const verb = long ? '賣出' : '買入';
-    this.orderEl.textContent = `送出一張${limit ? '限價' : '市價'}${verb} ${double(p.amt)}${unit}：先平${long ? '多' : '空'} ${size}，再開${long ? '空' : '多'} ${size}`;
+    const vars = { qty: double(p.amt) + unit, size };
+    if (limit) {
+      this.orderEl.textContent = long
+        ? t('送出一張限價賣出 {qty}：先平多 {size}，再開空 {size}', vars)
+        : t('送出一張限價買入 {qty}：先平空 {size}，再開多 {size}', vars);
+    } else {
+      this.orderEl.textContent = long
+        ? t('送出一張市價賣出 {qty}：先平多 {size}，再開空 {size}', vars)
+        : t('送出一張市價買入 {qty}：先平空 {size}，再開多 {size}', vars);
+    }
     this.tpslBody.hidden = !this.tpsl;
     this.noteEl.textContent = limit
-      ? '成交後才會取消原倉位的止盈止損，在那之前它們繼續保護倉位。若倉位先變動（例如止損觸發），反手單會自動取消。'
-      : '原倉位的止盈止損與減倉單，會在反手成交後自動取消。';
+      ? t('成交後才會取消原倉位的止盈止損，在那之前它們繼續保護倉位。若倉位先變動（例如止損觸發），反手單會自動取消。')
+      : t('原倉位的止盈止損與減倉單，會在反手成交後自動取消。');
     const problem = this.problem();
     this.goBtn.disabled = this.sending || !!problem;
     this.goBtn.title = problem;
     this.goBtn.className = `tk-side tk-side--${long ? 'short' : 'long'}`;
     if (!this.sending) {
       this.goBtn.textContent = problem && limit && !(Number(this.price) > 0)
-        ? '選擇反手價格'
-        : `${limit ? '限價' : '市價'}反手${long ? '做空' : '做多'}`;
+        ? t('選擇反手價格')
+        : limit
+          ? long ? t('限價反手做空') : t('限價反手做多')
+          : long ? t('市價反手做空') : t('市價反手做多');
     }
     if (problem && !(limit && !(Number(this.price) > 0))) {
       this.errorEl.hidden = false;
@@ -310,7 +323,7 @@ export class ReverseSheet {
       expectAmt: this.position.amt,
     };
     this.sending = true;
-    this.goBtn.textContent = '反手中…';
+    this.goBtn.textContent = t('反手中…');
     this.render();
     const res = await this.hooks.onSubmit(req);
     this.sending = false;
@@ -320,7 +333,7 @@ export class ReverseSheet {
     }
     this.render();
     this.errorEl.hidden = false;
-    this.errorEl.textContent = (res && res.error) || '反手失敗';
+    this.errorEl.textContent = (res && res.error) || t('反手失敗');
   }
 
   destroy() {

@@ -14,6 +14,7 @@
  */
 
 import { el } from './util.js';
+import { t } from './i18n.js';
 
 const api = () => window.stockcard.priceAlerts;
 
@@ -50,7 +51,12 @@ export class PriceAlertController {
     });
     this.offFired = api().onFired((alert) => {
       if (alert.symbol !== view.card.symbol || alert.market !== view.card.market) return;
-      view.notify(`🔔 價格提醒：${alert.direction === 'up' ? '漲到' : '跌到'} ${view.chart.formatPrice(alert.price)}`);
+      const price = view.chart.formatPrice(alert.price);
+      view.notify(
+        alert.direction === 'up'
+          ? t('🔔 價格提醒：漲到 {price}', { price })
+          : t('🔔 價格提醒：跌到 {price}', { price })
+      );
     });
     api()
       .list()
@@ -93,7 +99,7 @@ export class PriceAlertController {
       price: rounded,
       direction: rounded > current ? 'up' : 'down',
     });
-    if (added) this.view.notify(`🔔 已設定價格提醒 ${this.view.chart.formatPrice(rounded)}`);
+    if (added) this.view.notify(t('🔔 已設定價格提醒 {price}', { price: this.view.chart.formatPrice(rounded) }));
   }
 
   /* -------------------------------------------------------------- input */
@@ -213,8 +219,8 @@ export class PriceAlertController {
 
   buildLabel(id) {
     const text = el('span.pa-label__text');
-    const x = el('button.pa-label__x', { type: 'button', title: '刪除這個提醒', text: '✕' });
-    const root = el('div.pa-label', { title: '拖曳可移動提醒' }, el('span.pa-label__bell', { html: BELL }), text, x);
+    const x = el('button.pa-label__x', { type: 'button', title: t('刪除這個提醒'), text: '✕' });
+    const root = el('div.pa-label', { title: t('拖曳可移動提醒') }, el('span.pa-label__bell', { html: BELL }), text, x);
     x.addEventListener('mousedown', (e) => e.stopPropagation());
     x.addEventListener('click', (e) => {
       e.stopPropagation();

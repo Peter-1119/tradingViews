@@ -28,20 +28,22 @@
  * are the extremes of the bars inside it.
  */
 
+import { t } from './i18n.js';
+
 export const ANCHORS = Object.freeze({
   utc: { zone: 'UTC', hour: 0, minute: 0, tag: '' },
-  ny: { zone: 'America/New_York', hour: 0, minute: 0, tag: '紐' },
-  nyse: { zone: 'America/New_York', hour: 9, minute: 30, tag: '美股' },
-  london: { zone: 'Europe/London', hour: 0, minute: 0, tag: '倫' },
-  lse: { zone: 'Europe/London', hour: 8, minute: 0, tag: '英股' },
+  ny: { zone: 'America/New_York', hour: 0, minute: 0, tag: t('紐') },
+  nyse: { zone: 'America/New_York', hour: 9, minute: 30, tag: t('美股') },
+  london: { zone: 'Europe/London', hour: 0, minute: 0, tag: t('倫') },
+  lse: { zone: 'Europe/London', hour: 8, minute: 0, tag: t('英股') },
 });
 
 const NAMES = {
   utc: 'UTC 00:00',
-  ny: '紐約 00:00',
-  nyse: '美股開盤 09:30',
-  london: '倫敦 00:00',
-  lse: '英股開盤 08:00',
+  ny: t('紐約 00:00'),
+  nyse: t('美股開盤 09:30'),
+  london: t('倫敦 00:00'),
+  lse: t('英股開盤 08:00'),
 };
 
 /**
@@ -51,11 +53,11 @@ const NAMES = {
  */
 export function anchorLabel(anchor, atMs = Date.now()) {
   const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const where = local === 'Asia/Taipei' ? '台灣' : '本地';
+  const where = local === 'Asia/Taipei' ? t('台灣') : t('本地');
   const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
     new Date(periodStart('D', anchor, atMs))
   );
-  return `${NAMES[anchor] || anchor}（${where} ${time}）`;
+  return t('{name}（{where} {time}）', { name: NAMES[anchor] || anchor, where, time });
 }
 
 /** The bar interval that lands exactly on every boundary of an anchor. */
@@ -132,8 +134,12 @@ export function periodStart(period, anchor, atMs, shift = 0) {
   return wallTime(zone, y, m, d + shift, hour, minute);
 }
 
-const LABELS = { D: '日', W: '週', M: '月' };
-const PREV_OPEN = { D: '昨日開', W: '前週開', M: '前月開' };
+const OPEN = { D: t('日開'), W: t('週開'), M: t('月開') };
+const PREV_OPEN = { D: t('昨日開'), W: t('前週開'), M: t('前月開') };
+const PREV_HIGH = { D: t('前日高'), W: t('前週高'), M: t('前月高') };
+const PREV_LOW = { D: t('前日低'), W: t('前週低'), M: t('前月低') };
+const HIGH = { D: t('本日高'), W: t('本週高'), M: t('本月高') };
+const LOW = { D: t('本日低'), W: t('本週低'), M: t('本月低') };
 
 /**
  * Levels for the chart, from 1h bars (oldest first, times in seconds) that
@@ -156,11 +162,10 @@ export function periodLevels(
     if (!periods.includes(period)) continue;
     const start = periodStart(period, anchor, now) / 1000;
     const prevStart = periodStart(period, anchor, now, -1) / 1000;
-    const p = LABELS[period];
 
     if (opens) {
       const bar = bars.find((b) => b.time === start);
-      if (bar) out.push({ id: `${period}-open`, period, kind: 'open', label: name(`${p}開`), time: start, price: bar.open });
+      if (bar) out.push({ id: `${period}-open`, period, kind: 'open', label: name(OPEN[period]), time: start, price: bar.open });
     }
     if (prevOpens) {
       const bar = bars.find((b) => b.time === prevStart);
@@ -180,14 +185,14 @@ export function periodLevels(
       // Only a complete previous period: half of one would understate it.
       if (bars.length && bars[0].time <= prevStart) {
         const { hi, lo } = extremes(prevStart, start);
-        if (hi) out.push({ id: `${period}-prevHigh`, period, kind: 'prevHigh', label: name(`前${p}高`), ...hi });
-        if (lo) out.push({ id: `${period}-prevLow`, period, kind: 'prevLow', label: name(`前${p}低`), ...lo });
+        if (hi) out.push({ id: `${period}-prevHigh`, period, kind: 'prevHigh', label: name(PREV_HIGH[period]), ...hi });
+        if (lo) out.push({ id: `${period}-prevLow`, period, kind: 'prevLow', label: name(PREV_LOW[period]), ...lo });
       }
     }
     if (current) {
       const { hi, lo } = extremes(start, Infinity);
-      if (hi) out.push({ id: `${period}-high`, period, kind: 'high', label: name(`本${p}高`), ...hi });
-      if (lo) out.push({ id: `${period}-low`, period, kind: 'low', label: name(`本${p}低`), ...lo });
+      if (hi) out.push({ id: `${period}-high`, period, kind: 'high', label: name(HIGH[period]), ...hi });
+      if (lo) out.push({ id: `${period}-low`, period, kind: 'low', label: name(LOW[period]), ...lo });
     }
   }
   return out;

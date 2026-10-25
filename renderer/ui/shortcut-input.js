@@ -8,6 +8,7 @@
  */
 
 import { el } from '../util.js';
+import { t } from '../i18n.js';
 
 /** event.key -> the token Electron expects in an accelerator. */
 const KEY_ALIASES = {
@@ -51,8 +52,8 @@ export class ShortcutInput {
 
     this.button = el('button.sc-accel', {
       type: 'button',
-      text: value || '未設定',
-      title: '點一下,然後按下想要的組合鍵',
+      text: value || t('未設定'),
+      title: t('點一下,然後按下想要的組合鍵'),
       onclick: () => this.startRecording(),
       onblur: () => this.stopRecording(),
       onkeydown: (event) => this.handleKey(event),
@@ -65,14 +66,14 @@ export class ShortcutInput {
   startRecording() {
     this.recording = true;
     this.button.classList.add('is-recording');
-    this.button.textContent = '按下組合鍵…';
+    this.button.textContent = t('按下組合鍵…');
     this.setError('');
   }
 
   stopRecording() {
     this.recording = false;
     this.button.classList.remove('is-recording');
-    this.button.textContent = this.value || '未設定';
+    this.button.textContent = this.value || t('未設定');
   }
 
   async handleKey(event) {
@@ -87,7 +88,7 @@ export class ShortcutInput {
 
     const accelerator = toAccelerator(event);
     if (!accelerator) {
-      if (!MODIFIER_KEYS.has(event.key)) this.setError('請至少搭配一個 Ctrl / Alt / Shift');
+      if (!MODIFIER_KEYS.has(event.key)) this.setError(t('請至少搭配一個 Ctrl / Alt / Shift'));
       return;
     }
 
@@ -98,16 +99,16 @@ export class ShortcutInput {
     const result = await this.onChange(accelerator);
     if (result && result.ok === false) {
       this.value = previous;
-      this.button.textContent = previous || '未設定';
+      this.button.textContent = previous || t('未設定');
       this.setError(
-        result.reason === 'taken' ? '這組快捷鍵已被其他程式佔用' : `註冊失敗:${result.reason}`
+        result.reason === 'taken' ? t('這組快捷鍵已被其他程式佔用') : t('註冊失敗:{reason}', { reason: result.reason })
       );
     }
   }
 
   setValue(value) {
     this.value = value;
-    if (!this.recording) this.button.textContent = value || '未設定';
+    if (!this.recording) this.button.textContent = value || t('未設定');
   }
 
   setError(message) {

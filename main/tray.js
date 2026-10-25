@@ -9,6 +9,7 @@ const path = require('path');
 const { Tray, Menu, nativeImage, app } = require('electron');
 const store = require('./store');
 const windows = require('./windows');
+const { t } = require('./i18n');
 
 let tray = null;
 
@@ -40,7 +41,7 @@ function alertMenu(prefs) {
   const list = store.getWatchlist();
   return [
     {
-      label: '位置提醒',
+      label: t('位置提醒'),
       type: 'checkbox',
       checked: master,
       click: (item) => {
@@ -49,10 +50,12 @@ function alertMenu(prefs) {
       },
     },
     {
-      label: '提醒的幣種',
+      label: t('提醒的幣種'),
       enabled: list.length > 0,
       submenu: list.map((entry) => ({
-        label: `${entry.symbol}${entry.market === 'perp' ? ' 永續' : ''}${master ? '' : '（總開關關閉中）'}`,
+        label:
+          (entry.market === 'perp' ? t('{symbol} 永續', { symbol: entry.symbol }) : entry.symbol) +
+          (master ? '' : t('（總開關關閉中）')),
         type: 'checkbox',
         checked: entry.alert !== false,
         click: (item) => {
@@ -79,20 +82,20 @@ function buildMenu() {
     },
     { type: 'separator' },
     {
-      label: '新增卡片',
+      label: t('新增卡片'),
       click: () => {
         windows.addCard();
         refresh();
       },
     },
     {
-      label: '卡片',
+      label: t('卡片'),
       enabled: cards.length > 0,
       submenu: cards.map((card) => ({
-        label: `${card.symbol}${card.market === 'perp' ? ' 永續' : ''}  ·  ${card.interval}`,
+        label: (card.market === 'perp' ? t('{symbol} 永續', { symbol: card.symbol }) : card.symbol) + '  ·  ' + card.interval,
         submenu: [
           {
-            label: '移除這張卡片',
+            label: t('移除這張卡片'),
             click: () => {
               windows.removeCard(card.id);
               refresh();
@@ -103,10 +106,10 @@ function buildMenu() {
     },
     { type: 'separator' },
     {
-      label: '顯示模式',
+      label: t('顯示模式'),
       submenu: [
         {
-          label: 'Float(每張圖獨立視窗)',
+          label: t('Float(每張圖獨立視窗)'),
           type: 'radio',
           checked: mode === 'float',
           click: () => {
@@ -115,7 +118,7 @@ function buildMenu() {
           },
         },
         {
-          label: 'Board(單一視窗多卡)',
+          label: t('Board(單一視窗多卡)'),
           type: 'radio',
           checked: mode === 'board',
           click: () => {
@@ -126,7 +129,7 @@ function buildMenu() {
       ],
     },
     {
-      label: hidden ? '顯示全部卡片' : '隱藏全部卡片',
+      label: hidden ? t('顯示全部卡片') : t('隱藏全部卡片'),
       accelerator: prefs.shortcuts.toggleShow,
       click: () => {
         windows.toggleShowAll('tray menu');
@@ -134,7 +137,7 @@ function buildMenu() {
       },
     },
     {
-      label: '全部置頂',
+      label: t('全部置頂'),
       type: 'checkbox',
       checked:
         mode === 'board'
@@ -149,7 +152,7 @@ function buildMenu() {
     ...alertMenu(prefs),
     { type: 'separator' },
     {
-      label: '滑鼠穿透',
+      label: t('滑鼠穿透'),
       type: 'checkbox',
       checked: windows.isClickThrough(),
       accelerator: prefs.shortcuts.toggleClickThrough,
@@ -160,10 +163,10 @@ function buildMenu() {
     },
     { type: 'separator' },
     {
-      label: '漲跌顏色',
+      label: t('漲跌顏色'),
       submenu: [
         {
-          label: '綠漲紅跌',
+          label: t('綠漲紅跌'),
           type: 'radio',
           checked: prefs.upDownColor === 'greenUp',
           click: () => {
@@ -173,7 +176,7 @@ function buildMenu() {
           },
         },
         {
-          label: '紅漲綠跌',
+          label: t('紅漲綠跌'),
           type: 'radio',
           checked: prefs.upDownColor === 'redUp',
           click: () => {
@@ -185,7 +188,7 @@ function buildMenu() {
       ],
     },
     {
-      label: '開機自動啟動',
+      label: t('開機自動啟動'),
       type: 'checkbox',
       checked: prefs.launchAtStartup,
       click: (item) => {
@@ -195,7 +198,7 @@ function buildMenu() {
     },
     { type: 'separator' },
     {
-      label: '結束程式',
+      label: t('結束程式'),
       click: () => {
         app.quit();
       },
@@ -206,8 +209,8 @@ function buildMenu() {
 function refresh() {
   if (!tray || tray.isDestroyed()) return;
   tray.setContextMenu(buildMenu());
-  const hiddenNote = windows.isHidden() ? ' · 已隱藏(點圖示顯示)' : '';
-  tray.setToolTip(`StockCard — ${store.getCards().length} 張卡片 · ${windows.getMode()} 模式${hiddenNote}`);
+  const hiddenNote = windows.isHidden() ? t(' · 已隱藏(點圖示顯示)') : '';
+  tray.setToolTip(t('StockCard — {n} 張卡片 · {mode} 模式', { n: store.getCards().length, mode: windows.getMode() }) + hiddenNote);
 }
 
 function create() {

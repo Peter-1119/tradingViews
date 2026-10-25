@@ -27,8 +27,17 @@ import { el } from '../util.js';
 import { OrderTicket } from './order-ticket.js';
 import { PositionBar } from './position-bar.js';
 import { ReverseSheet } from './reverse-sheet.js';
+import { t } from '../i18n.js';
 
 const api = () => window.stockcard.trading;
+
+/** A resting order's label on the chart, by what it is for and its side. */
+const ORDER_LABEL = {
+  limit: { BUY: t('限價買'), SELL: t('限價賣') },
+  reduce: { BUY: t('減倉買'), SELL: t('減倉賣') },
+  reverse: { BUY: t('反手買'), SELL: t('反手賣') },
+  reverseClose: { BUY: t('反手·平買'), SELL: t('反手·平賣') },
+};
 
 const CLICK_SLOP_PX = 4;
 /** A drag shorter than this is a click, and sends nothing. */
@@ -121,7 +130,7 @@ export class TradeController {
     this.plusBtn = el('button.tr-plus', {
       type: 'button',
       hidden: true,
-      title: '在這個價位下單',
+      title: t('在這個價位下單'),
       text: '+',
     });
     this.plusBtn.addEventListener('mousedown', (event) => {
@@ -471,11 +480,11 @@ export class TradeController {
   async setLeverage(symbol, leverage) {
     const res = await api().setLeverage(symbol, leverage);
     if (!res || !res.ok) {
-      this.applyNotice({ level: 'error', text: res ? res.error : '槓桿調整失敗', symbol });
+      this.applyNotice({ level: 'error', text: res ? res.error : t('槓桿調整失敗'), symbol });
       return false;
     }
     if (symbol === this.symbol) this.ticket.setLeverageInfo(res.data);
-    this.applyNotice({ level: 'fill', text: `${symbol} 槓桿已改為 ${res.data.leverage}x`, symbol });
+    this.applyNotice({ level: 'fill', text: t('{symbol} 槓桿已改為 {lev}x', { symbol, lev: res.data.leverage }), symbol });
     return true;
   }
 
@@ -568,22 +577,22 @@ export class TradeController {
   /* ------------------------------------------------------- TP/SL editor */
 
   buildEditor() {
-    const tpInput = el('input.tk-input__field', { type: 'text', inputmode: 'decimal', placeholder: '不設定' });
-    const slInput = el('input.tk-input__field', { type: 'text', inputmode: 'decimal', placeholder: '不設定' });
+    const tpInput = el('input.tk-input__field', { type: 'text', inputmode: 'decimal', placeholder: t('不設定') });
+    const slInput = el('input.tk-input__field', { type: 'text', inputmode: 'decimal', placeholder: t('不設定') });
     const error = el('div.tk-error', { hidden: true });
-    const save = el('button.tk-primary', { type: 'button', text: '儲存' });
+    const save = el('button.tk-primary', { type: 'button', text: t('儲存') });
     const root = el(
       'div.tk.tk--editor',
-      { hidden: true, role: 'dialog', 'aria-label': '倉位止盈止損' },
+      { hidden: true, role: 'dialog', 'aria-label': t('倉位止盈止損') },
       el(
         'div.tk-head',
         {},
-        el('span.tk-title', { text: '倉位止盈 / 止損' }),
+        el('span.tk-title', { text: t('倉位止盈 / 止損') }),
         el('button.tk-close', { type: 'button', text: '✕', onclick: () => this.closeEditor() })
       ),
-      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--tp', { text: '止盈' }), el('span.tk-input', {}, tpInput)),
-      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--sl', { text: '止損' }), el('span.tk-input', {}, slInput)),
-      el('div.tk-note', { text: '以標記價格觸發、整倉平倉。清空欄位即取消。' }),
+      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--tp', { text: t('止盈') }), el('span.tk-input', {}, tpInput)),
+      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--sl', { text: t('止損') }), el('span.tk-input', {}, slInput)),
+      el('div.tk-note', { text: t('以標記價格觸發、整倉平倉。清空欄位即取消。') }),
       error,
       save
     );
@@ -662,14 +671,14 @@ export class TradeController {
         width: 1.5,
         axis: true,
         label: {
-          text: `${long ? '多' : '空'} ${Math.abs(pos.amt)}`,
+          text: long ? t('多 {size}', { size: Math.abs(pos.amt) }) : t('空 {size}', { size: Math.abs(pos.amt) }),
           value: pnl ? `${pnl.pnl >= 0 ? '+' : '−'}${Math.abs(pnl.pnl).toFixed(2)}` : '',
           tone: pnl && pnl.pnl >= 0 ? 'up' : 'down',
           color,
         },
       });
       if (pos.liq > 0) {
-        items.push({ id: 'liq', price: pos.liq, color: COLORS.liq, dash: [5, 4], axis: true, label: { text: '強平', color: COLORS.liq } });
+        items.push({ id: 'liq', price: pos.liq, color: COLORS.liq, dash: [5, 4], axis: true, label: { text: t('強平'), color: COLORS.liq } });
       }
     }
     for (const kind of ['tp', 'sl']) {
@@ -686,7 +695,7 @@ export class TradeController {
         color: COLORS[kind],
         dash: [6, 4],
         axis: true,
-        label: { text: kind === 'tp' ? '止盈' : '止損', value, color: COLORS[kind], cancel: { kind: 'algo', id: a.id } },
+        label: { text: kind === 'tp' ? t('止盈') : t('止損'), value, color: COLORS[kind], cancel: { kind: 'algo', id: a.id } },
         drag: pos ? { kind: 'algo', which: kind } : null,
       });
     }
@@ -700,7 +709,7 @@ export class TradeController {
         dash: [2, 3],
         axis: true,
         label: {
-          text: `${reversal ? (o.reduceOnly ? '反手·平' : '反手') : o.reduceOnly ? '減倉' : '限價'}${buy ? '買' : '賣'} ${o.qty - o.filled}`,
+          text: `${ORDER_LABEL[reversal ? (o.reduceOnly ? 'reverseClose' : 'reverse') : o.reduceOnly ? 'reduce' : 'limit'][buy ? 'BUY' : 'SELL']} ${o.qty - o.filled}`,
           color: buy ? COLORS.long : COLORS.short,
           cancel: { kind: 'order', id: o.id },
         },
@@ -709,8 +718,8 @@ export class TradeController {
       const pend = (snap.pending || []).find((p) => p.orderId === o.id);
       if (pend) {
         const meta = (which) => ({ kind: 'pending', which, orderId: o.id, side: o.side, entry: o.price });
-        if (pend.tp) items.push({ id: `pend-tp:${o.id}`, price: pend.tp, color: COLORS.tp, dash: [2, 4], alpha: 0.6, label: { text: '止盈・成交後', color: COLORS.tp, faint: true }, drag: meta('tp') });
-        if (pend.sl) items.push({ id: `pend-sl:${o.id}`, price: pend.sl, color: COLORS.sl, dash: [2, 4], alpha: 0.6, label: { text: '止損・成交後', color: COLORS.sl, faint: true }, drag: meta('sl') });
+        if (pend.tp) items.push({ id: `pend-tp:${o.id}`, price: pend.tp, color: COLORS.tp, dash: [2, 4], alpha: 0.6, label: { text: t('止盈・成交後'), color: COLORS.tp, faint: true }, drag: meta('tp') });
+        if (pend.sl) items.push({ id: `pend-sl:${o.id}`, price: pend.sl, color: COLORS.sl, dash: [2, 4], alpha: 0.6, label: { text: t('止損・成交後'), color: COLORS.sl, faint: true }, drag: meta('sl') });
       }
     }
     if (this.lock && !this.ticket.isOpen) {
@@ -718,17 +727,17 @@ export class TradeController {
     }
     const d = this.draft;
     if (d && this.ticket.isOpen) {
-      if (d.price) items.push({ id: 'draft', price: d.price, color: COLORS.draft, dash: [4, 3], axis: true, label: { text: '下單價', color: COLORS.draft, faint: true }, drag: { kind: 'draft', which: 'price' } });
-      if (d.tp) items.push({ id: 'draft-tp', price: d.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止盈', color: COLORS.tp, faint: true }, drag: { kind: 'draft', which: 'tp' } });
-      if (d.sl) items.push({ id: 'draft-sl', price: d.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '止損', color: COLORS.sl, faint: true }, drag: { kind: 'draft', which: 'sl' } });
-      if (d.liq) items.push({ id: 'draft-liq', price: d.liq, color: COLORS.liq, dash: [5, 4], alpha: 0.8, label: { text: '預估強平', color: COLORS.liq, faint: true } });
+      if (d.price) items.push({ id: 'draft', price: d.price, color: COLORS.draft, dash: [4, 3], axis: true, label: { text: t('下單價'), color: COLORS.draft, faint: true }, drag: { kind: 'draft', which: 'price' } });
+      if (d.tp) items.push({ id: 'draft-tp', price: d.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: t('止盈'), color: COLORS.tp, faint: true }, drag: { kind: 'draft', which: 'tp' } });
+      if (d.sl) items.push({ id: 'draft-sl', price: d.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: t('止損'), color: COLORS.sl, faint: true }, drag: { kind: 'draft', which: 'sl' } });
+      if (d.liq) items.push({ id: 'draft-liq', price: d.liq, color: COLORS.liq, dash: [5, 4], alpha: 0.8, label: { text: t('預估強平'), color: COLORS.liq, faint: true } });
     }
     const rv = this.revDraft;
     if (rv && this.reverse.isOpen) {
       const color = rv.side === 'BUY' ? COLORS.long : COLORS.short;
-      if (rv.price) items.push({ id: 'rev', price: rv.price, color, dash: [4, 3], axis: true, label: { text: '反手價', color, faint: true }, drag: { kind: 'reverse', which: 'price' } });
-      if (rv.tp) items.push({ id: 'rev-tp', price: rv.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '反手後止盈', color: COLORS.tp, faint: true }, drag: { kind: 'reverse', which: 'tp' } });
-      if (rv.sl) items.push({ id: 'rev-sl', price: rv.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: '反手後止損', color: COLORS.sl, faint: true }, drag: { kind: 'reverse', which: 'sl' } });
+      if (rv.price) items.push({ id: 'rev', price: rv.price, color, dash: [4, 3], axis: true, label: { text: t('反手價'), color, faint: true }, drag: { kind: 'reverse', which: 'price' } });
+      if (rv.tp) items.push({ id: 'rev-tp', price: rv.tp, color: COLORS.tp, dash: [4, 3], alpha: 0.8, axis: true, label: { text: t('反手後止盈'), color: COLORS.tp, faint: true }, drag: { kind: 'reverse', which: 'tp' } });
+      if (rv.sl) items.push({ id: 'rev-sl', price: rv.sl, color: COLORS.sl, dash: [4, 3], alpha: 0.8, axis: true, label: { text: t('反手後止損'), color: COLORS.sl, faint: true }, drag: { kind: 'reverse', which: 'sl' } });
     }
     return items.filter((it) => !this.isCancelled(it.id)).map((it) => this.withCancel(this.withDrag(it)));
   }
@@ -742,7 +751,7 @@ export class TradeController {
 
   withCancel(it) {
     if (!this.cancelling.has(it.id) || !it.label) return it;
-    return { ...it, alpha: 0.5, drag: null, label: { ...it.label, value: '取消中…', tone: '', faint: true, cancel: null } };
+    return { ...it, alpha: 0.5, drag: null, label: { ...it.label, value: t('取消中…'), tone: '', faint: true, cancel: null } };
   }
 
   /* ------------------------------------------------------------------- drag */
@@ -756,7 +765,7 @@ export class TradeController {
     const price = (d || s).price;
     const label = { ...it.label, cancel: null };
     if (s) {
-      label.value = `${fmt(price)} 更新中…`;
+      label.value = t('{price} 更新中…', { price: fmt(price) });
       label.faint = true;
     } else if (d.problem) {
       label.value = d.problem;
@@ -780,20 +789,20 @@ export class TradeController {
   dragProblem(meta, price) {
     if (meta.kind === 'order') {
       const last = this.lastPrice();
-      if (last > 0 && (meta.side === 'BUY' ? price >= last : price <= last)) return '會立刻成交';
+      if (last > 0 && (meta.side === 'BUY' ? price >= last : price <= last)) return t('會立刻成交');
     }
     if (meta.kind === 'algo') {
       const pos = this.snapshot && this.snapshot.position;
-      if (!pos) return '已經沒有倉位';
+      if (!pos) return t('已經沒有倉位');
       const mark = this.mark || pos.mark;
       const long = pos.amt > 0;
       const wrong = meta.which === 'tp' ? (long ? price <= mark : price >= mark) : long ? price >= mark : price <= mark;
-      if (wrong) return '會立刻觸發';
+      if (wrong) return t('會立刻觸發');
     }
     if (meta.kind === 'pending') {
       const long = meta.side === 'BUY';
       const wrong = meta.which === 'tp' ? (long ? price <= meta.entry : price >= meta.entry) : long ? price >= meta.entry : price <= meta.entry;
-      if (wrong) return meta.which === 'tp' ? '要在委託價的獲利方向' : '要在委託價的虧損方向';
+      if (wrong) return meta.which === 'tp' ? t('要在委託價的獲利方向') : t('要在委託價的虧損方向');
     }
     return '';
   }
@@ -846,7 +855,7 @@ export class TradeController {
       /* mid-teardown */
     }
     if (y < 0 || y > paneHeight) {
-      d.problem = '超出圖表範圍';
+      d.problem = t('超出圖表範圍');
       this.renderLines();
       return;
     }
@@ -882,12 +891,12 @@ export class TradeController {
     }
     if (d.meta.kind === 'draft' || d.meta.kind === 'reverse') return; // already applied, live
     if (d.problem) {
-      this.applyNotice({ level: 'warn', text: `沒有變更：${d.problem}`, symbol: this.symbol });
+      this.applyNotice({ level: 'warn', text: t('沒有變更：{reason}', { reason: d.problem }), symbol: this.symbol });
       this.renderLines();
       return;
     }
     if (!this.scaleHeld(d)) {
-      this.applyNotice({ level: 'warn', text: '沒有變更：拖曳期間圖表的價格刻度變了，請再拖一次', symbol: this.symbol });
+      this.applyNotice({ level: 'warn', text: t('沒有變更：拖曳期間圖表的價格刻度變了，請再拖一次'), symbol: this.symbol });
       this.renderLines();
       return;
     }
@@ -901,7 +910,7 @@ export class TradeController {
     else if (m.kind === 'pending') res = await api().updatePending({ symbol, orderId: m.orderId, [m.which]: d.price });
     if (!res || !res.ok) {
       this.saving = null;
-      this.applyNotice({ level: 'error', text: res ? res.error : '更新失敗', symbol });
+      this.applyNotice({ level: 'error', text: res ? res.error : t('更新失敗'), symbol });
       this.renderLines();
       return;
     }
@@ -977,7 +986,7 @@ export class TradeController {
   buildLabel() {
     const text = el('span.tr-label__text');
     const value = el('span.tr-label__value');
-    const x = el('button.tr-label__x', { type: 'button', title: '取消', text: '✕', hidden: true });
+    const x = el('button.tr-label__x', { type: 'button', title: t('取消'), text: '✕', hidden: true });
     const root = el('div.tr-label', {}, text, value, x);
     let cancel = null;
     let item = null;
@@ -1002,7 +1011,7 @@ export class TradeController {
       update: (it) => {
         item = it;
         root.classList.toggle('is-draggable', !!it.drag);
-        root.title = it.drag ? '拖曳可改價（Esc 取消）' : '';
+        root.title = it.drag ? t('拖曳可改價（Esc 取消）') : '';
         const l = it.label;
         const key = `${l.text}|${l.value || ''}|${l.tone || ''}|${l.color}|${l.faint ? 1 : 0}|${l.cancel ? l.cancel.id : ''}`;
         cancel = l.cancel || null;

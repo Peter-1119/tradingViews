@@ -25,6 +25,7 @@
  */
 
 import { formatCompact } from './util.js';
+import { t } from './i18n.js';
 import { paintRows, projectRows, rowsOnScreen } from './vp-primitive.js';
 
 const BAND = 'rgba(148, 163, 184, 0.05)';
@@ -65,12 +66,19 @@ export function formatSpan(seconds) {
   const d = Math.floor(total / 86400);
   const h = Math.floor((total % 86400) / 3600);
   const m = Math.floor((total % 3600) / 60);
-  if (d) return h ? `${d}天${h}時` : `${d}天`;
-  if (h) return m ? `${h}時${m}分` : `${h}時`;
-  return `${m}分`;
+  if (d) return h ? t('{d}天{h}時', { d, h }) : t('{d}天', { d });
+  if (h) return m ? t('{h}時{m}分', { h, m }) : t('{h}時', { h });
+  return t('{m}分', { m });
 }
 
-const INTERVAL_TEXT = { '1m': '1分K', '5m': '5分K', '15m': '15分K', '1h': '1時K', '4h': '4時K', '1d': '日K' };
+const INTERVAL_TEXT = {
+  '1m': t('1分K'),
+  '5m': t('5分K'),
+  '15m': t('15分K'),
+  '1h': t('1時K'),
+  '4h': t('4時K'),
+  '1d': t('日K'),
+};
 
 class VRangeRenderer {
   constructor(source) {
@@ -274,14 +282,14 @@ export class VRangePrimitive {
     const width = box.right - box.left;
     const maxLength = Math.min(Math.max(width * MAX_SHARE_OF_BAND, MIN_LENGTH), plotWidth * MAX_SHARE_OF_PLOT);
 
-    let text = formatSpan(span) + (range.to === null ? ' 至今' : '');
+    let text = formatSpan(span) + (range.to === null ? ' ' + t('至今') : '');
     if (profile) {
-      text += ` · 量 ${formatCompact(profile.total)}`;
+      text += ' · ' + t('量 {v}', { v: formatCompact(profile.total) });
       if (info.interval) text += ` · ${INTERVAL_TEXT[info.interval] || info.interval}`;
     } else if (info && info.error) {
-      text += ' · 載入失敗';
+      text += ' · ' + t('載入失敗');
     } else if (!isDraft) {
-      text += ' · 計算中…';
+      text += ' · ' + t('計算中…');
     }
     const tagW = Math.ceil(textWidth(text)) + 12;
     // The tag follows the band but stays on screen while any of it is.

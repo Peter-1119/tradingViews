@@ -12,6 +12,7 @@
  */
 
 const crypto = require('crypto');
+const { t } = require('../i18n');
 
 /* ---------------------------------------------------------------- signing */
 
@@ -133,36 +134,36 @@ function validateOrder({ side, type, price, qty, refPrice, tp, sl, markPrice, re
   const market = type === 'MARKET';
   const minQty = market ? rules.marketMinQty : rules.minQty;
   const maxQty = market ? rules.marketMaxQty : rules.maxQty;
-  if (!(q > 0)) errors.push('數量太小，四捨五入後是 0');
+  if (!(q > 0)) errors.push(t('數量太小，四捨五入後是 0'));
   else {
-    if (q < minQty) errors.push(`數量低於最小下單量 ${minQty}`);
-    if (q > maxQty) errors.push(`數量超過單筆上限 ${maxQty}`);
+    if (q < minQty) errors.push(t('數量低於最小下單量 {minQty}', { minQty }));
+    if (q > maxQty) errors.push(t('數量超過單筆上限 {maxQty}', { maxQty }));
     // Reduce-only orders are exempt: Binance's own -4164 reads "Order's
     // notional must be no smaller than 5.0 (unless you choose reduce only)",
     // which is what lets a dust-sized remainder be closed at all.
     if (!reduceOnly && rules.minNotional && q * refPrice < rules.minNotional - 1e-9) {
-      errors.push(`名目價值至少 ${rules.minNotional} USDT`);
+      errors.push(t('名目價值至少 {min} USDT', { min: rules.minNotional }));
     }
   }
   if (!market) {
     const p = Number(price);
-    if (!(p > 0)) errors.push('請輸入限價');
-    else if (p < rules.minPrice || p > rules.maxPrice) errors.push('限價超出交易所允許範圍');
+    if (!(p > 0)) errors.push(t('請輸入限價'));
+    else if (p < rules.minPrice || p > rules.maxPrice) errors.push(t('限價超出交易所允許範圍'));
   }
   // Take-profit and stop-loss are judged against the entry, and the stop also
   // against the mark: a long's stop above the mark would trigger the instant
   // it is placed (Binance rejects it with -2021 anyway, but later and vaguer).
   const entry = market ? refPrice : Number(price);
   if (tp != null) {
-    if (isBuy && !(tp > entry)) errors.push('做多的止盈價要高於進場價');
-    if (!isBuy && !(tp < entry)) errors.push('做空的止盈價要低於進場價');
+    if (isBuy && !(tp > entry)) errors.push(t('做多的止盈價要高於進場價'));
+    if (!isBuy && !(tp < entry)) errors.push(t('做空的止盈價要低於進場價'));
   }
   if (sl != null) {
-    if (isBuy && !(sl < entry)) errors.push('做多的止損價要低於進場價');
-    if (!isBuy && !(sl > entry)) errors.push('做空的止損價要高於進場價');
+    if (isBuy && !(sl < entry)) errors.push(t('做多的止損價要低於進場價'));
+    if (!isBuy && !(sl > entry)) errors.push(t('做空的止損價要高於進場價'));
     if (markPrice > 0) {
-      if (isBuy && !(sl < markPrice)) errors.push('止損價已經高於目前標記價格，會立刻觸發');
-      if (!isBuy && !(sl > markPrice)) errors.push('止損價已經低於目前標記價格，會立刻觸發');
+      if (isBuy && !(sl < markPrice)) errors.push(t('止損價已經高於目前標記價格，會立刻觸發'));
+      if (!isBuy && !(sl > markPrice)) errors.push(t('止損價已經低於目前標記價格，會立刻觸發'));
     }
   }
   return errors;
@@ -190,7 +191,7 @@ function bracketFor(brackets, notional) {
  */
 function reduceQuantity({ positionAmt, pct, notional, price, market = false }, rules) {
   const size = Math.abs(Number(positionAmt));
-  if (!(size > 0)) return { error: '目前沒有倉位，不能下只減倉單' };
+  if (!(size > 0)) return { error: t('目前沒有倉位，不能下只減倉單') };
   let qty;
   if (pct > 0) {
     qty = roundQty((size * Math.min(100, pct)) / 100, rules, { market });
@@ -198,8 +199,8 @@ function reduceQuantity({ positionAmt, pct, notional, price, market = false }, r
     const q = quantityForNotional(notional, price, rules, { market });
     qty = q ? q.qty : null;
   }
-  if (qty === null || !(Number(qty) > 0)) return { error: '數量太小，四捨五入後是 0' };
-  if (Number(qty) > size + 1e-12) return { error: `超過目前倉位 ${size}，要全部平倉請按 100%` };
+  if (qty === null || !(Number(qty) > 0)) return { error: t('數量太小，四捨五入後是 0') };
+  if (Number(qty) > size + 1e-12) return { error: t('超過目前倉位 {size}，要全部平倉請按 100%', { size }) };
   return { qty, qtyNum: Number(qty), notional: Number(qty) * price };
 }
 
@@ -220,7 +221,7 @@ function reduceQuantity({ positionAmt, pct, notional, price, market = false }, r
  */
 function planReverse({ positionAmt, market, price, lastPrice, markPrice, tp = null, sl = null }, rules) {
   const amt = Number(positionAmt) || 0;
-  if (!amt) return { errors: ['目前沒有倉位'] };
+  if (!amt) return { errors: [t('目前沒有倉位')] };
   const side = amt > 0 ? 'SELL' : 'BUY';
   const qty = roundQty(Math.abs(amt) * 2, rules, { market });
   const qtyNum = Number(qty);
@@ -233,10 +234,10 @@ function planReverse({ positionAmt, market, price, lastPrice, markPrice, tp = nu
   const last = Number(lastPrice);
   if (!market && Number(p) > 0 && last > 0) {
     if (side === 'SELL' && !(Number(p) > last)) {
-      errors.unshift('反手賣出的限價要高於目前價格，否則會立刻成交；要立刻反手請用市價');
+      errors.unshift(t('反手賣出的限價要高於目前價格，否則會立刻成交；要立刻反手請用市價'));
     }
     if (side === 'BUY' && !(Number(p) < last)) {
-      errors.unshift('反手買入的限價要低於目前價格，否則會立刻成交；要立刻反手請用市價');
+      errors.unshift(t('反手買入的限價要低於目前價格，否則會立刻成交；要立刻反手請用市價'));
     }
   }
   const target = amt + (side === 'BUY' ? qtyNum : -qtyNum);

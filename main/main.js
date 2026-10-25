@@ -22,6 +22,7 @@ const footprintStore = require('./footprint-store');
 const alerts = require('./alerts');
 const trading = require('./trading/service');
 const paper = require('./trading/paper');
+const { t } = require('./i18n');
 
 // Toasts are attributed by AppUserModelID; the same id the installer uses,
 // so dev and packaged builds show up as the same app in Windows settings.
@@ -184,6 +185,10 @@ ipcMain.handle('prefs:get', () => store.getGlobalPrefs());
 ipcMain.handle('prefs:set', (_event, patch = {}) => {
   if ('upDownColor' in patch) store.set('upDownColor', patch.upDownColor);
   if ('timezone' in patch) store.set('timezone', patch.timezone);
+  // Text is laid out once per window; a new language reloads them.
+  const language = patch.language === 'zh-TW' ? 'zh-TW' : 'en';
+  const relabel = 'language' in patch && language !== store.getGlobalPrefs().language;
+  if (relabel) store.set('language', language);
   if ('cacheBars' in patch) store.set('cacheBars', patch.cacheBars !== false);
   if ('launchAtStartup' in patch) tray.setLaunchAtStartup(patch.launchAtStartup);
   if ('boardColumns' in patch) store.setBoard({ columns: patch.boardColumns });
@@ -193,6 +198,7 @@ ipcMain.handle('prefs:set', (_event, patch = {}) => {
   const prefs = store.getGlobalPrefs();
   windows.broadcast('app:prefs', prefs);
   tray.refresh();
+  if (relabel) setTimeout(() => windows.reloadContent(), 50);
   return prefs;
 });
 
@@ -569,17 +575,17 @@ tradingHandle('trading:set-keys', (_e, { env, apiKey, secret }) => trading.setCr
 tradingHandle('trading:set-key-file', async (event, { env, apiKey }) => {
   const win = windows.windowFromEvent(event);
   const picked = await dialog.showOpenDialog(win, {
-    title: '選擇私鑰檔案（-----BEGIN PRIVATE KEY-----）',
+    title: t('選擇私鑰檔案（-----BEGIN PRIVATE KEY-----）'),
     properties: ['openFile'],
     filters: [
-      { name: '私鑰 (.pem / .key)', extensions: ['pem', 'key', 'txt'] },
-      { name: '所有檔案', extensions: ['*'] },
+      { name: t('私鑰 (.pem / .key)'), extensions: ['pem', 'key', 'txt'] },
+      { name: t('所有檔案'), extensions: ['*'] },
     ],
   });
   if (picked.canceled || !picked.filePaths.length) return { canceled: true };
   const file = picked.filePaths[0];
   // A PEM private key is a few KB at most; anything bigger is not one.
-  if (fs.statSync(file).size > 16 * 1024) throw new Error('這個檔案太大，不是私鑰檔案');
+  if (fs.statSync(file).size > 16 * 1024) throw new Error(t('這個檔案太大，不是私鑰檔案'));
   return trading.setPrivateKey(env, apiKey, fs.readFileSync(file, 'utf8'));
 });
 tradingHandle('trading:clear-keys', (_e, { env }) => trading.clearCredentials(env));
@@ -598,8 +604,8 @@ tradingHandle('paper:export-csv', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const stamp = new Date().toISOString().slice(0, 10);
   const res = await dialog.showSaveDialog(win, {
-    title: '匯出模擬交易紀錄',
-    defaultPath: `模擬交易紀錄-${stamp}.csv`,
+    title: t('匯出模擬交易紀錄'),
+    defaultPath: t('模擬交易紀錄-{stamp}.csv', { stamp }),
     filters: [{ name: 'CSV', extensions: ['csv'] }],
   });
   if (res.canceled || !res.filePath) return { canceled: true };

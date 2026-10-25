@@ -583,7 +583,8 @@
 
 .tk-input__prefix {
   flex: 0 0 auto;
-  width: 26px;
+  /* At least the two-character Chinese label; English ("Amount") grows. */
+  min-width: 26px;
   color: var(--ink-dim);
   font-size: 10px;
 }
@@ -772,6 +773,8 @@
 }
 
 .tk-mood__tag {
+  flex: none;
+  white-space: nowrap;
   padding: 0 5px;
   border-radius: 4px;
   font-size: 9.5px;

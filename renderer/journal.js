@@ -10,26 +10,29 @@
  */
 
 import { el } from './util.js';
+import { t } from './i18n.js';
 import { createChart, BaselineSeries } from './vendor/lightweight-charts.mjs';
 
 const api = () => window.stockcard.trading;
 
+document.title = t('模擬交易紀錄');
+
 const REASONS = {
-  manual: '手動',
-  close: '平倉鍵',
-  limit: '限價',
-  tp: '止盈',
-  sl: '止損',
-  reverse: '反手',
-  liquidation: '強平',
+  manual: t('手動'),
+  close: t('平倉鍵'),
+  limit: t('限價'),
+  tp: t('止盈'),
+  sl: t('止損'),
+  reverse: t('反手'),
+  liquidation: t('強平'),
 };
 const LEDGER_TYPES = {
-  DEPOSIT: '入金',
-  REALIZED_PNL: '已實現損益',
-  COMMISSION: '手續費',
-  FUNDING_FEE: '資金費',
-  LIQUIDATION_FEE: '強平清算費',
-  INSURANCE: '穿倉補足',
+  DEPOSIT: t('入金'),
+  REALIZED_PNL: t('已實現損益'),
+  COMMISSION: t('手續費'),
+  FUNDING_FEE: t('資金費'),
+  LIQUIDATION_FEE: t('強平清算費'),
+  INSURANCE: t('穿倉補足'),
 };
 
 const num = (n, d = 2) =>
@@ -46,10 +49,10 @@ const when = (ms) => {
 function duration(ms) {
   if (!(ms > 0)) return '—';
   const m = Math.round(ms / 60e3);
-  if (m < 60) return `${m} 分`;
+  if (m < 60) return t('{m} 分', { m });
   const h = Math.floor(m / 60);
-  if (h < 48) return `${h} 時 ${m % 60} 分`;
-  return `${Math.floor(h / 24)} 天 ${h % 24} 時`;
+  if (h < 48) return t('{h} 時 {m} 分', { h, m: m % 60 });
+  return t('{d} 天 {h} 時', { d: Math.floor(h / 24), h: h % 24 });
 }
 
 class Journal {
@@ -60,17 +63,17 @@ class Journal {
 
     this.sinceEl = el('span.jr-since');
     this.kpis = el('div.jr-kpis');
-    this.curveEmpty = el('div.jr-curve__empty', { text: '還沒有資金變動' });
+    this.curveEmpty = el('div.jr-curve__empty', { text: t('還沒有資金變動') });
     this.curveEl = el('div.jr-curve__chart');
     this.openBox = el('div.jr-open', { hidden: true });
-    this.filter = el('select.jr-tabs__filter', { title: '只看這個幣種' });
+    this.filter = el('select.jr-tabs__filter', { title: t('只看這個幣種') });
     this.filter.addEventListener('change', () => {
       this.symbol = this.filter.value;
       this.renderTable();
     });
     this.tabs = [
-      ['history', '歷史倉位'],
-      ['ledger', '資金明細'],
+      ['history', t('歷史倉位')],
+      ['ledger', t('資金明細')],
     ].map(([id, text]) => el('button.jr-tab', { type: 'button', text, onclick: () => this.setTab(id) }));
     this.tableWrap = el('div.jr-table-wrap');
 
@@ -81,16 +84,16 @@ class Journal {
         el(
           'div.jr-head',
           {},
-          el('h1.jr-title', { text: '模擬交易紀錄' }),
+          el('h1.jr-title', { text: t('模擬交易紀錄') }),
           this.sinceEl,
           el(
             'div.jr-head__tools',
             {},
-            el('button.jr-btn', { type: 'button', text: '匯出 CSV', title: '歷史倉位存成 CSV，可用 Excel 開啟', onclick: () => this.exportCsv() })
+            el('button.jr-btn', { type: 'button', text: t('匯出 CSV'), title: t('歷史倉位存成 CSV，可用 Excel 開啟'), onclick: () => this.exportCsv() })
           )
         ),
         this.kpis,
-        el('div.jr-curve', {}, el('div.jr-curve__label', { text: '資金曲線（已實現，含手續費與資金費）' }), this.curveEl, this.curveEmpty),
+        el('div.jr-curve', {}, el('div.jr-curve__label', { text: t('資金曲線（已實現，含手續費與資金費）') }), this.curveEl, this.curveEmpty),
         this.openBox,
         el('div.jr-tabs', {}, this.tabs, this.filter),
         this.tableWrap
@@ -107,8 +110,8 @@ class Journal {
         timeVisible: true,
         secondsVisible: false,
         // The library labels in UTC; the tables are in local time, so the axis is too.
-        tickMarkFormatter: (t, type) => {
-          const d = new Date(t * 1000);
+        tickMarkFormatter: (time, type) => {
+          const d = new Date(time * 1000);
           if (type <= 1) return `${d.getFullYear()}/${pad(d.getMonth() + 1)}`;
           if (type === 2) return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
           return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -116,7 +119,7 @@ class Journal {
       },
       crosshair: { horzLine: { labelBackgroundColor: '#1e293b' }, vertLine: { labelBackgroundColor: '#1e293b' } },
       localization: {
-        timeFormatter: (t) => when(t * 1000),
+        timeFormatter: (time) => when(time * 1000),
         priceFormatter: (p) => num(p),
       },
     });
@@ -153,13 +156,18 @@ class Journal {
 
   render() {
     const d = this.data;
-    this.sinceEl.textContent = `自 ${when(d.createdAt)} 起 · 初始資金 ${num(d.capital)} USDT · 手續費 Maker ${(d.settings.makerFee * 100).toFixed(3)}% / Taker ${(d.settings.takerFee * 100).toFixed(3)}%`;
+    this.sinceEl.textContent = t('自 {since} 起 · 初始資金 {capital} USDT · 手續費 Maker {maker}% / Taker {taker}%', {
+      since: when(d.createdAt),
+      capital: num(d.capital),
+      maker: (d.settings.makerFee * 100).toFixed(3),
+      taker: (d.settings.takerFee * 100).toFixed(3),
+    });
     this.renderKpis();
     this.renderCurve();
     this.renderOpen();
     const symbols = [...new Set(d.history.map((h) => h.symbol).concat(d.ledger.map((e) => e.symbol)).filter(Boolean))].sort();
     const keep = symbols.includes(this.symbol) ? this.symbol : '';
-    this.filter.replaceChildren(el('option', { value: '', text: '全部幣種' }), ...symbols.map((s) => el('option', { value: s, text: s })));
+    this.filter.replaceChildren(el('option', { value: '', text: t('全部幣種') }), ...symbols.map((s) => el('option', { value: s, text: s })));
     this.filter.value = keep;
     this.symbol = keep;
     this.renderTable();
@@ -171,16 +179,33 @@ class Journal {
       el('div.jr-kpi', {}, el('span.jr-kpi__label', { text: label }), el(`span.jr-kpi__value${cls ? `.${cls}` : ''}`, { text: value }), sub ? el('span.jr-kpi__sub', { text: sub }) : null);
     const pf = s.profitFactor === Infinity ? '∞' : s.trades ? num(s.profitFactor) : '—';
     this.kpis.replaceChildren(
-      tile('目前資金', `${num(s.wallet)}`, '', `淨值 ${num(s.equity)}（未實現 ${signed(s.upnl)}）`),
-      tile('淨損益', signed(s.net), tone(s.net), `報酬率 ${signed(s.returnPct)}%`),
-      tile('勝率', s.trades ? `${num(s.winRate, 1)}%` : '—', '', `${s.wins} 勝 ${s.losses} 敗 · 共 ${s.trades} 筆`),
-      tile('盈虧比 (Profit Factor)', pf, s.profitFactor >= 1 ? 'is-up' : s.trades ? 'is-down' : '', '總獲利 ÷ 總虧損'),
-      tile('平均獲利 / 虧損', s.trades ? `${signed(s.avgWin)} / ${signed(s.avgLoss)}` : '—', '', s.avgLoss ? `賺賠比 ${num(Math.abs(s.avgWin / s.avgLoss))}` : ''),
-      tile('每筆期望值', s.trades ? signed(s.expectancy) : '—', tone(s.expectancy), `最好 ${signed(s.best)} · 最差 ${signed(s.worst)}`),
-      tile('最大回撤', s.maxDrawdown ? `−${num(s.maxDrawdown)}` : '0.00', s.maxDrawdown ? 'is-down' : '', `${num(s.maxDrawdownPct)}%（從資金高點）`),
-      tile('手續費', `−${num(s.fees)}`, s.fees ? 'is-down' : '', s.liquidationFees ? `另有強平清算費 −${num(s.liquidationFees)}` : `價差損益 ${signed(s.realized)}`),
-      tile('資金費', signed(s.funding), tone(s.funding), '正數是收到、負數是支付'),
-      tile('平均持倉', duration(s.avgHoldMs), '', `多 ${s.long.count} 筆 ${signed(s.long.net)} · 空 ${s.short.count} 筆 ${signed(s.short.net)}`)
+      tile(t('目前資金'), `${num(s.wallet)}`, '', t('淨值 {equity}（未實現 {upnl}）', { equity: num(s.equity), upnl: signed(s.upnl) })),
+      tile(t('淨損益'), signed(s.net), tone(s.net), t('報酬率 {pct}%', { pct: signed(s.returnPct) })),
+      tile(t('勝率'), s.trades ? `${num(s.winRate, 1)}%` : '—', '', t('{wins} 勝 {losses} 敗 · 共 {trades} 筆', { wins: s.wins, losses: s.losses, trades: s.trades })),
+      tile(t('盈虧比 (Profit Factor)'), pf, s.profitFactor >= 1 ? 'is-up' : s.trades ? 'is-down' : '', t('總獲利 ÷ 總虧損')),
+      tile(t('平均獲利 / 虧損'), s.trades ? `${signed(s.avgWin)} / ${signed(s.avgLoss)}` : '—', '', s.avgLoss ? t('賺賠比 {ratio}', { ratio: num(Math.abs(s.avgWin / s.avgLoss)) }) : ''),
+      tile(t('每筆期望值'), s.trades ? signed(s.expectancy) : '—', tone(s.expectancy), t('最好 {best} · 最差 {worst}', { best: signed(s.best), worst: signed(s.worst) })),
+      tile(t('最大回撤'), s.maxDrawdown ? `−${num(s.maxDrawdown)}` : '0.00', s.maxDrawdown ? 'is-down' : '', t('{pct}%（從資金高點）', { pct: num(s.maxDrawdownPct) })),
+      tile(
+        t('手續費'),
+        `−${num(s.fees)}`,
+        s.fees ? 'is-down' : '',
+        s.liquidationFees
+          ? t('另有強平清算費 −{fee}', { fee: num(s.liquidationFees) })
+          : t('價差損益 {pnl}', { pnl: signed(s.realized) })
+      ),
+      tile(t('資金費'), signed(s.funding), tone(s.funding), t('正數是收到、負數是支付')),
+      tile(
+        t('平均持倉'),
+        duration(s.avgHoldMs),
+        '',
+        t('多 {longCount} 筆 {longNet} · 空 {shortCount} 筆 {shortNet}', {
+          longCount: s.long.count,
+          longNet: signed(s.long.net),
+          shortCount: s.short.count,
+          shortNet: signed(s.short.net),
+        })
+      )
     );
   }
 
@@ -200,7 +225,7 @@ class Journal {
     const open = this.data.open || [];
     this.openBox.hidden = !open.length;
     if (!open.length) return;
-    const head = ['幣種', '方向', '數量', '開倉均價', '標記價格', '未實現損益', '已付手續費', '資金費', '開倉時間'];
+    const head = [t('幣種'), t('方向'), t('數量'), t('開倉均價'), t('標記價格'), t('未實現損益'), t('已付手續費'), t('資金費'), t('開倉時間')];
     const rows = open.map((p) =>
       el(
         'tr',
@@ -217,7 +242,7 @@ class Journal {
       )
     );
     this.openBox.replaceChildren(
-      el('h2.jr-section-title', { text: `持倉中（${open.length}）` }),
+      el('h2.jr-section-title', { text: t('持倉中（{n}）', { n: open.length }) }),
       el('div.jr-table-wrap', {}, table(head, rows))
     );
   }
@@ -229,12 +254,12 @@ class Journal {
     const pick = (list) => (this.symbol ? list.filter((x) => x.symbol === this.symbol) : list);
     if (this.tab === 'history') {
       const list = pick(d.history);
-      const head = ['平倉時間', '幣種', '方向', '數量', '槓桿', '開倉均價', '平倉均價', '價差損益', '手續費', '資金費', '淨損益', 'ROE', '持倉', '原因'];
+      const head = [t('平倉時間'), t('幣種'), t('方向'), t('數量'), t('槓桿'), t('開倉均價'), t('平倉均價'), t('價差損益'), t('手續費'), t('資金費'), t('淨損益'), 'ROE', t('持倉'), t('原因')];
       const rows = list.map((h) =>
         el(
           'tr',
           {},
-          el('td', { text: when(h.closedAt), title: `開倉 ${when(h.openedAt)}` }),
+          el('td', { text: when(h.closedAt), title: t('開倉 {time}', { time: when(h.openedAt) }) }),
           el('td', { text: h.symbol }),
           el('td', {}, sideTag(h.side)),
           el('td', { text: String(h.qty) }),
@@ -250,11 +275,11 @@ class Journal {
           el('td.is-text', { text: REASONS[h.reason] || h.reason })
         )
       );
-      this.tableWrap.replaceChildren(list.length ? table(head, rows) : el('div.jr-empty', { text: '還沒有平倉的紀錄。開一個模擬倉位、平倉後就會出現在這裡。' }));
+      this.tableWrap.replaceChildren(list.length ? table(head, rows) : el('div.jr-empty', { text: t('還沒有平倉的紀錄。開一個模擬倉位、平倉後就會出現在這裡。') }));
       return;
     }
     const list = pick(d.ledger);
-    const head = ['時間', '類型', '幣種', '金額', '餘額', '備註'];
+    const head = [t('時間'), t('類型'), t('幣種'), t('金額'), t('餘額'), t('備註')];
     const rows = list.map((e) =>
       el(
         'tr',
@@ -267,12 +292,12 @@ class Journal {
         el('td.is-text', { text: REASONS[e.note] || e.note || '' })
       )
     );
-    this.tableWrap.replaceChildren(list.length ? table(head, rows) : el('div.jr-empty', { text: '沒有資金變動' }));
+    this.tableWrap.replaceChildren(list.length ? table(head, rows) : el('div.jr-empty', { text: t('沒有資金變動') }));
   }
 }
 
 function sideTag(side) {
-  return el(`span.jr-side.jr-side--${side === 'LONG' ? 'long' : 'short'}`, { text: side === 'LONG' ? '多' : '空' });
+  return el(`span.jr-side.jr-side--${side === 'LONG' ? 'long' : 'short'}`, { text: side === 'LONG' ? t('多') : t('空') });
 }
 
 function table(head, rows) {

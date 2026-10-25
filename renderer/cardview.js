@@ -8,11 +8,12 @@
  */
 
 import { CardChart } from './chart.js';
+import { t } from './i18n.js';
 import { SettingsPanel } from './ui/settings-panel.js';
 import { TradeController } from './trade/trade-controller.js';
 import { PriceAlertController } from './price-alerts.js';
 import { Toolbar } from './ui/toolbar.js';
-import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel } from './ui/watchlist.js';
+import { WatchlistMenu, WATCHLIST_MAX, sameEntry, entryLabel, watchIndex } from './ui/watchlist.js';
 import { FootprintBook } from './footprint.js';
 import { buildPeriodProfiles, sessionBounds, PERIOD_4H, ProfileSource, rangeInterval } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
@@ -180,7 +181,7 @@ export class CardView {
       'button.card__symbol',
       {
         type: 'button',
-        title: '常用幣種 (Alt+1~6 快速切換)',
+        title: t('常用幣種 (Alt+1~9、0 快速切換)'),
         onclick: () => this.watchlist.toggle(),
       },
       this.symbolText,
@@ -215,28 +216,28 @@ export class CardView {
 
     this.pinBtn = el('button.sc-icon-btn', {
       type: 'button',
-      title: '切換置頂',
+      title: t('切換置頂'),
       text: '📌',
       onclick: () => this.onPatch({ alwaysOnTop: !this.card.alwaysOnTop }),
     });
 
     this.gearBtn = el('button.sc-icon-btn', {
       type: 'button',
-      title: '設定',
+      title: t('設定'),
       text: '⚙',
       onclick: () => this.panel.toggle(),
     });
 
     this.lockBtn = el('button.sc-icon-btn', {
       type: 'button',
-      title: '滑鼠穿透(可用 Ctrl+Alt+C 解除)',
+      title: t('滑鼠穿透(可用 Ctrl+Alt+C 解除)'),
       text: '🖱',
       onclick: () => window.stockcard.toggleClickThrough(),
     });
 
     this.closeBtn = el('button.sc-icon-btn.sc-icon-btn--danger', {
       type: 'button',
-      title: '關閉這張卡片',
+      title: t('關閉這張卡片'),
       text: '✕',
       onclick: () => this.onRemove(),
     });
@@ -294,7 +295,7 @@ export class CardView {
     // the two axes meet. Alt+R does the same.
     this.resetBtn = el('button.card__reset', {
       type: 'button',
-      title: '重置圖表視圖 (Alt+R)',
+      title: t('重置圖表視圖 (Alt+R)'),
       hidden: true,
       onclick: () => this.resetView(),
     });
@@ -308,7 +309,7 @@ export class CardView {
     this.fundingTimeEl = el('span.card__funding-time');
     this.fundingEl = el(
       'div.card__funding',
-      { hidden: true, title: '資金費率 · 距離下次結算' },
+      { hidden: true, title: t('資金費率 · 距離下次結算') },
       this.fundingRateEl,
       this.fundingTimeEl
     );
@@ -321,7 +322,7 @@ export class CardView {
     this.positionCells = new Map();
     this.positionEl = el(
       'div.card__position',
-      { hidden: true, title: '目前價格在最近 4H / 24H / 72H 成交量分布中的位置（以下成交量佔比）' },
+      { hidden: true, title: t('目前價格在最近 4H / 24H / 72H 成交量分布中的位置（以下成交量佔比）') },
       Object.keys(POSITION_WINDOWS).map((name) => {
         const value = el('span.card__position-value', { text: '—' });
         const cell = el('span.card__position-cell', {}, el('span.card__position-label', { text: name }), value);
@@ -334,10 +335,10 @@ export class CardView {
     this.position = null;
     this.alerting = null;
 
-    this.overlayText = el('div.card__overlay-text', { text: '載入中…' });
+    this.overlayText = el('div.card__overlay-text', { text: t('載入中…') });
     this.retryBtn = el('button.sc-btn', {
       type: 'button',
-      text: '重試',
+      text: t('重試'),
       hidden: true,
       onclick: () => this.loadData(),
     });
@@ -347,8 +348,8 @@ export class CardView {
     // accept a click, so the user can never lock themselves out (spec 4.2).
     this.unlock = el('button.card__unlock', {
       type: 'button',
-      text: '解除穿透',
-      title: '滑鼠穿透中,點此解除(或按 Ctrl+Alt+C)',
+      text: t('解除穿透'),
+      title: t('滑鼠穿透中,點此解除(或按 Ctrl+Alt+C)'),
       hidden: true,
       onmouseenter: () => window.stockcard.setIgnoreMouse(false),
       onmouseleave: () => window.stockcard.setIgnoreMouse(true),
@@ -1445,11 +1446,12 @@ export class CardView {
         this.setDrawingsHidden(!this.card.hideDrawings);
         return;
       }
-      // Alt+1..6: the watchlist, in order. `code` rather than `key`, so it
-      // works the same whatever the keyboard layout or IME state.
-      const digit = /^Digit([1-9])$/.exec(event.code);
+      // Alt+1..9, 0: the watchlist, in keyboard order (0 is the tenth).
+      // `code` rather than `key`, so it works the same whatever the keyboard
+      // layout or IME state.
+      const digit = /^Digit([0-9])$/.exec(event.code);
       if (!digit) return;
-      const entry = this.watchlistEntries()[Number(digit[1]) - 1];
+      const entry = this.watchlistEntries()[watchIndex(digit[1])];
       if (!entry) return;
       event.preventDefault();
       this.watchlist.close();
@@ -2503,7 +2505,7 @@ export class CardView {
     const { market, symbol, interval } = this.card;
     const feed = this.feed;
 
-    this.setOverlay('載入中…');
+    this.setOverlay(t('載入中…'));
     try {
       const bars = await feed.getHistory(symbol, interval, HISTORY_LIMIT);
       if (seq !== this.loadSeq || this.destroyed) return;
@@ -2512,7 +2514,7 @@ export class CardView {
       if (closed.length) window.stockcard.writeBars(market, symbol, interval, closed);
 
       if (!bars.length) {
-        this.setOverlay('沒有資料', true);
+        this.setOverlay(t('沒有資料'), true);
         return;
       }
 
@@ -2557,7 +2559,7 @@ export class CardView {
       }
     } catch (err) {
       if (seq !== this.loadSeq || this.destroyed) return;
-      this.setOverlay(`載入失敗:${err.message}`, true);
+      this.setOverlay(t('載入失敗:{error}', { error: err.message }), true);
     }
   }
 
@@ -2622,7 +2624,7 @@ export class CardView {
     this.fundingRateEl.textContent = formatFundingRate(f.fundingRate);
     const left = f.nextFundingTime - Date.now();
     // Zero until the exchange rolls nextFundingTime forward, a few seconds on.
-    this.fundingTimeEl.textContent = left > 0 ? formatCountdown(left) : '結算中';
+    this.fundingTimeEl.textContent = left > 0 ? formatCountdown(left) : t('結算中');
     if (this.chart) {
       const right = `${this.chart.priceScaleWidth() + 6}px`;
       if (this.fundingEl.style.right !== right) this.fundingEl.style.right = right;
@@ -2672,8 +2674,8 @@ export class CardView {
     if (!target) {
       this.notify(
         target === null
-          ? `${prettySymbol(this.card.symbol)} 沒有${MARKET_LABELS[market]}`
-          : '無法取得交易對清單，請稍後再試'
+          ? t('{symbol} 沒有{market}', { symbol: prettySymbol(this.card.symbol), market: MARKET_LABELS[market] })
+          : t('無法取得交易對清單，請稍後再試')
       );
       this.panel.update(this.card); // put the panel's market control back
       return;
@@ -2691,10 +2693,10 @@ export class CardView {
     this.marketBtn.classList.toggle('is-unavailable', resolved === null);
     this.marketBtn.title =
       resolved === null
-        ? `${prettySymbol(symbol)} 沒有${other}`
+        ? t('{symbol} 沒有{market}', { symbol: prettySymbol(symbol), market: other })
         : resolved && resolved !== symbol
-          ? `切換到${other} (${prettySymbol(resolved)})`
-          : `切換到${other}`;
+          ? t('切換到{market} ({symbol})', { market: other, symbol: prettySymbol(resolved) })
+          : t('切換到{market}', { market: other });
   }
 
   /** A short message over the chart that clears itself. */
@@ -2838,10 +2840,10 @@ export class CardView {
     this.starBtn.textContent = watched ? '★' : '☆';
     this.starBtn.classList.toggle('is-active', watched);
     this.starBtn.title = watched
-      ? `把 ${entryLabel(current)} 從常用清單移除`
+      ? t('把 {name} 從常用清單移除', { name: entryLabel(current) })
       : list.length >= WATCHLIST_MAX
-        ? `常用清單已滿 (最多 ${WATCHLIST_MAX} 個)`
-        : `把 ${entryLabel(current)} 加入常用清單（並監控 4H / 24H / 72H 位置）`;
+        ? t('常用清單已滿 (最多 {max} 個)', { max: WATCHLIST_MAX })
+        : t('把 {name} 加入常用清單（並監控 4H / 24H / 72H 位置）', { name: entryLabel(current) });
     this.watchlist.setState(list, current, !this.prefs.alerts || this.prefs.alerts.enabled !== false);
   }
 

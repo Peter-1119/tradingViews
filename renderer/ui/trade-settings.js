@@ -11,6 +11,7 @@
  */
 
 import { el } from '../util.js';
+import { t } from '../i18n.js';
 
 const api = () => window.stockcard.trading;
 
@@ -31,11 +32,11 @@ export class TradeSettings {
     this.status = null;
     this.pendingLive = false;
 
-    const ENV_LABELS = { paper: '模擬（本機）', testnet: '測試網', live: '正式（真實資金）' };
+    const ENV_LABELS = { paper: t('模擬（本機）'), testnet: t('測試網'), live: t('正式（真實資金）') };
     const ENV_TIPS = {
-      paper: '本機模擬帳戶：自訂初始資金，用幣安即時行情撮合，計入手續費、滑價、資金費率。不需要 API Key',
-      testnet: '幣安 Demo Trading：需要測試網 API Key，資金由幣安提供',
-      live: '用你的幣安帳戶真實下單',
+      paper: t('本機模擬帳戶：自訂初始資金，用幣安即時行情撮合，計入手續費、滑價、資金費率。不需要 API Key'),
+      testnet: t('幣安 Demo Trading：需要測試網 API Key，資金由幣安提供'),
+      live: t('用你的幣安帳戶真實下單'),
     };
     this.envBtns = new Map(
       ['paper', 'testnet', 'live'].map((env) => [
@@ -51,25 +52,25 @@ export class TradeSettings {
 
     // ---- paper account ----
     this.capitalInput = el('input.sc-search__input.ts-num', { type: 'text', inputmode: 'decimal', placeholder: '10000', autocomplete: 'off' });
-    this.resetBtn = el('button.sc-btn', { type: 'button', text: '用這個金額重新開始…', onclick: () => this.askReset() });
-    this.resetGo = el('button.sc-btn.ts-danger', { type: 'button', text: '確定重設', onclick: () => this.doReset() });
+    this.resetBtn = el('button.sc-btn', { type: 'button', text: t('用這個金額重新開始…'), onclick: () => this.askReset() });
+    this.resetGo = el('button.sc-btn.ts-danger', { type: 'button', text: t('確定重設'), onclick: () => this.doReset() });
     this.resetText = el('div');
     this.resetBox = el(
       'div.ts-warn',
       { hidden: true },
       this.resetText,
-      el('div.ts-actions', {}, this.resetGo, el('button.sc-btn', { type: 'button', text: '取消', onclick: () => this.cancelReset() }))
+      el('div.ts-actions', {}, this.resetGo, el('button.sc-btn', { type: 'button', text: t('取消'), onclick: () => this.cancelReset() }))
     );
     this.makerInput = el('input.sc-search__input.ts-num', { type: 'text', inputmode: 'decimal', autocomplete: 'off' });
     this.takerInput = el('input.sc-search__input.ts-num', { type: 'text', inputmode: 'decimal', autocomplete: 'off' });
-    this.feeBtn = el('button.sc-btn', { type: 'button', text: '套用', onclick: () => this.saveFees() });
-    this.journalBtn = el('button.sc-btn.ts-primary', { type: 'button', text: '交易紀錄與績效', onclick: () => api().openJournal() });
+    this.feeBtn = el('button.sc-btn', { type: 'button', text: t('套用'), onclick: () => this.saveFees() });
+    this.journalBtn = el('button.sc-btn.ts-primary', { type: 'button', text: t('交易紀錄與績效'), onclick: () => api().openJournal() });
     this.paperRows = el(
       'div.ts-paper',
       { hidden: true },
-      row('初始資金', el('div.ts-inline', {}, this.capitalInput, el('span.ts-unit', { text: 'USDT' }), this.resetBtn), this.resetBox),
+      row(t('初始資金'), el('div.ts-inline', {}, this.capitalInput, el('span.ts-unit', { text: 'USDT' }), this.resetBtn), this.resetBox),
       row(
-        '手續費',
+        t('手續費'),
         el(
           'div.ts-inline',
           {},
@@ -80,50 +81,50 @@ export class TradeSettings {
           el('span.ts-unit', { text: '%' }),
           this.feeBtn
         ),
-        el('div.ts-help', { text: '預設是幣安一般用戶的 0.02% / 0.05%。限價掛單成交算 Maker，市價、止盈止損、穿價的限價算 Taker。' })
+        el('div.ts-help', { text: t('預設是幣安一般用戶的 0.02% / 0.05%。限價掛單成交算 Maker，市價、止盈止損、穿價的限價算 Taker。') })
       ),
       row(
-        '紀錄',
+        t('紀錄'),
         this.journalBtn,
         el('div.ts-help', {
-          text: '市價單與止盈止損吃真實掛單簿（含滑價）；限價單要價格穿過才成交；資金費率按幣安實際費率結算；全倉維持保證金不足會強平。程式關閉期間會在下次開啟時用 1 分 K 補算。',
+          text: t('市價單與止盈止損吃真實掛單簿（含滑價）；限價單要價格穿過才成交；資金費率按幣安實際費率結算；全倉維持保證金不足會強平。程式關閉期間會在下次開啟時用 1 分 K 補算。'),
         })
       )
     );
 
     this.liveConfirm = el('input', { type: 'checkbox' });
     this.liveConfirm.addEventListener('change', () => this.render());
-    this.liveGo = el('button.sc-btn.ts-danger', { type: 'button', text: '切換到正式環境', onclick: () => this.goLive() });
+    this.liveGo = el('button.sc-btn.ts-danger', { type: 'button', text: t('切換到正式環境'), onclick: () => this.goLive() });
     this.liveBox = el(
       'div.ts-warn',
       { hidden: true },
-      el('div', { text: '正式環境會用你的真實資金下單。槓桿交易可能在短時間內虧損全部保證金。' }),
-      el('label.ts-check', {}, this.liveConfirm, el('span', { text: '我了解，並自行承擔交易風險' })),
-      el('div.ts-actions', {}, this.liveGo, el('button.sc-btn', { type: 'button', text: '取消', onclick: () => this.cancelLive() }))
+      el('div', { text: t('正式環境會用你的真實資金下單。槓桿交易可能在短時間內虧損全部保證金。') }),
+      el('label.ts-check', {}, this.liveConfirm, el('span', { text: t('我了解，並自行承擔交易風險') })),
+      el('div.ts-actions', {}, this.liveGo, el('button.sc-btn', { type: 'button', text: t('取消'), onclick: () => this.cancelLive() }))
     );
 
     this.dot = el('span.ts-dot');
     this.statusText = el('span');
-    this.retryBtn = el('button.sc-btn', { type: 'button', text: '重新連線', onclick: () => this.run(() => api().test()) });
+    this.retryBtn = el('button.sc-btn', { type: 'button', text: t('重新連線'), onclick: () => this.run(() => api().test()) });
     this.statusRow = el('div.ts-status', {}, this.dot, this.statusText, this.retryBtn);
 
     this.keyInput = el('input.sc-search__input', { type: 'text', placeholder: 'API Key', autocomplete: 'off', spellcheck: 'false' });
     // Two ways to finish, matching the two kinds of key Binance issues.
     this.fileBtn = el('button.sc-btn', {
       type: 'button',
-      text: '選擇私鑰檔案…',
-      title: 'Self-generated（Ed25519 或 RSA）：選你產生的私鑰 .pem 檔',
+      text: t('選擇私鑰檔案…'),
+      title: t('Self-generated（Ed25519 或 RSA）：選你產生的私鑰 .pem 檔'),
       onclick: () => this.saveKeyFile(),
     });
-    this.secretInput = el('input.sc-search__input', { type: 'password', placeholder: 'Secret Key（System generated 才需要）', autocomplete: 'off' });
-    this.saveBtn = el('button.sc-btn', { type: 'button', text: '儲存並連線', onclick: () => this.saveKeys() });
+    this.secretInput = el('input.sc-search__input', { type: 'password', placeholder: t('Secret Key（System generated 才需要）'), autocomplete: 'off' });
+    this.saveBtn = el('button.sc-btn', { type: 'button', text: t('儲存並連線'), onclick: () => this.saveKeys() });
     this.keyForm = el(
       'div.ts-form',
       {},
       this.keyInput,
-      el('div.ts-help', { text: 'Self-generated：填 API Key，再選私鑰檔案' }),
+      el('div.ts-help', { text: t('Self-generated：填 API Key，再選私鑰檔案') }),
       el('div.ts-actions', {}, this.fileBtn),
-      el('div.ts-help', { text: 'System generated：填 API Key 和 Secret Key' }),
+      el('div.ts-help', { text: t('System generated：填 API Key 和 Secret Key') }),
       this.secretInput,
       el('div.ts-actions', {}, this.saveBtn)
     );
@@ -132,39 +133,39 @@ export class TradeSettings {
     this.keySaved = el(
       'div.ts-saved',
       { hidden: true },
-      el('span', {}, '已設定 API Key ····', this.keyTail, this.keyType),
-      el('button.sc-btn', { type: 'button', text: '移除', onclick: () => this.removeKeys() })
+      el('span', {}, t('已設定 API Key ····'), this.keyTail, this.keyType),
+      el('button.sc-btn', { type: 'button', text: t('移除'), onclick: () => this.removeKeys() })
     );
     this.helpLink = el('a.ts-link', { href: '#', onclick: (e) => this.openHelp(e) });
     this.help = el(
       'div.ts-help',
       {},
-      el('div', { text: '建立 API Key 時只勾「讀取」與「合約交易」，不要開啟提現，並建議綁定 IP。金鑰以 Windows 加密保存在本機，不會顯示或上傳。' }),
+      el('div', { text: t('建立 API Key 時只勾「讀取」與「合約交易」，不要開啟提現，並建議綁定 IP。金鑰以 Windows 加密保存在本機，不會顯示或上傳。') }),
       this.helpLink
     );
 
     this.levRow = el('div.ts-help', {
-      text: '每個幣種各自設定：在下單票標題的「全倉 Nx」調整，直接存在你的幣安帳戶（網頁、手機看到的都一樣）。保證金模式為全倉、單向持倉。',
+      text: t('每個幣種各自設定：在下單票標題的「全倉 Nx」調整，直接存在你的幣安帳戶（網頁、手機看到的都一樣）。保證金模式為全倉、單向持倉。'),
     });
 
-    this.oneWayBtn = el('button.sc-btn', { type: 'button', text: '切換為單向持倉', onclick: () => this.run(() => api().setOneWay()) });
+    this.oneWayBtn = el('button.sc-btn', { type: 'button', text: t('切換為單向持倉'), onclick: () => this.run(() => api().setOneWay()) });
     this.oneWayBox = el(
       'div.ts-warn',
       { hidden: true },
-      el('div', { text: '帳戶目前是「雙向持倉」。這裡的下單介面使用單向持倉（需在沒有倉位與掛單時切換）。' }),
+      el('div', { text: t('帳戶目前是「雙向持倉」。這裡的下單介面使用單向持倉（需在沒有倉位與掛單時切換）。') }),
       el('div.ts-actions', {}, this.oneWayBtn)
     );
 
     this.error = el('div.ts-error', { hidden: true });
 
     this.keyRow = row('API Key', this.keySaved, this.keyForm, this.help);
-    this.levRowEl = row('槓桿', this.levRow);
+    this.levRowEl = row(t('槓桿'), this.levRow);
 
     this.root = el(
       'div.ts',
       {},
-      el('div.sc-divider', { text: '交易・幣安 U 本位永續' }),
-      row('環境', el('div.sc-seg', {}, [...this.envBtns.values()]), this.liveBox),
+      el('div.sc-divider', { text: t('交易・幣安 U 本位永續') }),
+      row(t('環境'), el('div.sc-seg', {}, [...this.envBtns.values()]), this.liveBox),
       this.statusRow,
       this.paperRows,
       this.keyRow,
@@ -229,7 +230,7 @@ export class TradeSettings {
     this.keyForm.hidden = key.configured;
     this.keyTail.textContent = key.keyTail;
     this.keyType.textContent = key.type ? `（${{ hmac: 'HMAC', ed25519: 'Ed25519', rsa: 'RSA' }[key.type] || key.type}）` : '';
-    this.helpLink.textContent = s.env === 'testnet' ? '到幣安模擬交易（Demo Trading）建立測試用 API Key →' : '到幣安 API 管理建立 API Key →';
+    this.helpLink.textContent = s.env === 'testnet' ? t('到幣安模擬交易（Demo Trading）建立測試用 API Key →') : t('到幣安 API 管理建立 API Key →');
     this.help.hidden = key.configured;
 
     let text = '';
@@ -238,22 +239,29 @@ export class TradeSettings {
       tone = 'ok';
       const p = s.paper;
       text = p
-        ? `模擬帳戶 · 資金 ${fmt(p.wallet)} USDT · 損益 ${p.net >= 0 ? '+' : ''}${fmt(p.net)}（${p.returnPct >= 0 ? '+' : ''}${p.returnPct.toFixed(2)}%）`
-        : '模擬帳戶';
-    } else if (!key.configured) text = '尚未設定 API Key';
-    else if (s.env === 'live' && !s.liveConfirmed) text = '正式環境尚未確認';
+        ? t('模擬帳戶 · 資金 {wallet} USDT · 損益 {net}（{ret}%）', {
+            wallet: fmt(p.wallet),
+            net: `${p.net >= 0 ? '+' : ''}${fmt(p.net)}`,
+            ret: `${p.returnPct >= 0 ? '+' : ''}${p.returnPct.toFixed(2)}`,
+          })
+        : t('模擬帳戶');
+    } else if (!key.configured) text = t('尚未設定 API Key');
+    else if (s.env === 'live' && !s.liveConfirmed) text = t('正式環境尚未確認');
     else if (s.connection === 'ready') {
       tone = 'ok';
       const a = s.account;
-      text = `已連線${s.env === 'testnet' ? '（測試網）' : ''} · 可用 ${a ? fmt(a.availableBalance) : '—'} USDT`;
-      if (s.stream !== 'live') text += ' · 即時推送連線中';
+      text = t('已連線{net} · 可用 {avail} USDT', {
+        net: s.env === 'testnet' ? t('（測試網）') : '',
+        avail: a ? fmt(a.availableBalance) : '—',
+      });
+      if (s.stream !== 'live') text += t(' · 即時推送連線中');
     } else if (s.connection === 'connecting') {
       tone = 'wait';
-      text = '連線中…';
+      text = t('連線中…');
     } else if (s.connection === 'error') {
       tone = 'err';
-      text = s.error || '連線失敗';
-    } else text = '尚未連線（打開永續合約卡片時自動連線）';
+      text = s.error || t('連線失敗');
+    } else text = t('尚未連線（打開永續合約卡片時自動連線）');
     this.dot.className = `ts-dot is-${tone}`;
     this.statusText.textContent = text;
     this.retryBtn.hidden = !key.configured || paper;
@@ -290,10 +298,10 @@ export class TradeSettings {
   async saveKeyFile() {
     const env = this.status.env;
     this.fileBtn.disabled = true;
-    this.fileBtn.textContent = '驗證中…';
+    this.fileBtn.textContent = t('驗證中…');
     const res = await api().setKeyFile(env, this.keyInput.value);
     this.fileBtn.disabled = false;
-    this.fileBtn.textContent = '選擇私鑰檔案…';
+    this.fileBtn.textContent = t('選擇私鑰檔案…');
     // Closing the dialog is not an error, and not a status either.
     if (res && res.ok && res.data && res.data.canceled) return;
     await this.run(async () => res);
@@ -303,10 +311,10 @@ export class TradeSettings {
   async saveKeys() {
     const env = this.status.env;
     this.saveBtn.disabled = true;
-    this.saveBtn.textContent = '驗證中…';
+    this.saveBtn.textContent = t('驗證中…');
     const res = await this.run(() => api().setKeys(env, this.keyInput.value, this.secretInput.value));
     this.saveBtn.disabled = false;
-    this.saveBtn.textContent = '儲存並連線';
+    this.saveBtn.textContent = t('儲存並連線');
     if (res && res.ok) {
       // Never leave a secret sitting in a DOM input.
       this.keyInput.value = '';
@@ -318,11 +326,13 @@ export class TradeSettings {
     const cap = Number(this.capitalInput.value.replace(/,/g, ''));
     if (!(cap >= 10)) {
       this.error.hidden = false;
-      this.error.textContent = '初始資金至少 10 USDT';
+      this.error.textContent = t('初始資金至少 10 USDT');
       return;
     }
     this.error.hidden = true;
-    this.resetText.textContent = `重設會平掉所有模擬倉位、取消掛單、清空紀錄，以 ${fmt(cap)} USDT 重新開始。舊的紀錄會另存一份備份檔。`;
+    this.resetText.textContent = t('重設會平掉所有模擬倉位、取消掛單、清空紀錄，以 {cap} USDT 重新開始。舊的紀錄會另存一份備份檔。', {
+      cap: fmt(cap),
+    });
     this.resetBox.hidden = false;
   }
 
@@ -342,7 +352,7 @@ export class TradeSettings {
     const taker = Number(this.takerInput.value) / 100;
     if (!(maker >= 0 && maker < 0.01 && taker >= 0 && taker < 0.01)) {
       this.error.hidden = false;
-      this.error.textContent = '手續費要在 0% 到 1% 之間';
+      this.error.textContent = t('手續費要在 0% 到 1% 之間');
       return;
     }
     this.paperSig = null;

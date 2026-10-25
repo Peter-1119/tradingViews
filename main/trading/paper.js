@@ -34,6 +34,7 @@ const { randomUUID } = require('crypto');
 const E = require('./paper-engine');
 const rules = require('./rules');
 const { BinanceError } = require('./client');
+const { t } = require('../i18n');
 
 const REST = process.env.STOCKCARD_PAPER_REST || 'https://fapi.binance.com';
 const TICK_MS = 1000;
@@ -123,7 +124,7 @@ async function get(pathname, params = {}) {
   const q = new URLSearchParams(params).toString();
   const res = await fetch(`${REST}${pathname}${q ? `?${q}` : ''}`);
   const text = await res.text();
-  if (!res.ok) throw new BinanceError({ status: res.status, msg: `行情讀取失敗：${text.slice(0, 120)}` });
+  if (!res.ok) throw new BinanceError({ status: res.status, msg: t('行情讀取失敗：{text}', { text: text.slice(0, 120) }) });
   return rules.parseExact(text);
 }
 
@@ -143,7 +144,7 @@ async function book(symbol) {
 async function takerPrice(symbol, side, qty) {
   const b = await book(symbol);
   const px = E.bookFill(side === 'BUY' ? b.asks : b.bids, qty);
-  if (!(px > 0)) throw new BinanceError({ status: 0, msg: '讀不到掛單簿，無法模擬成交' });
+  if (!(px > 0)) throw new BinanceError({ status: 0, msg: t('讀不到掛單簿，無法模擬成交') });
   return { price: px, book: b };
 }
 
@@ -344,7 +345,7 @@ const client = {
       const marketable = p.type === 'MARKET' || (best > 0 && (side === 'BUY' ? limit >= best : limit <= best));
       if (marketable) {
         let price = E.bookFill(side === 'BUY' ? b.asks : b.bids, qty);
-        if (!(price > 0)) throw new BinanceError({ status: 0, msg: '讀不到掛單簿，無法模擬成交' });
+        if (!(price > 0)) throw new BinanceError({ status: 0, msg: t('讀不到掛單簿，無法模擬成交') });
         // A marketable limit never fills worse than its price.
         if (p.type === 'LIMIT') price = side === 'BUY' ? Math.min(price, limit) : Math.max(price, limit);
         if (!reduceOnly && E.marginShortfall(acct(), { ...state.marks, [symbol]: mark }, { symbol, side, qty, price }) > 0) {
@@ -493,7 +494,7 @@ function liquidateNow(time) {
   const symbols = Object.keys(acct().positions);
   E.liquidate(acct(), state.marks, time);
   changed();
-  emit({ e: 'PAPER_NOTICE', level: 'error', text: `模擬帳戶保證金不足，${symbols.join('、')} 已被強制平倉` });
+  emit({ e: 'PAPER_NOTICE', level: 'error', text: t('模擬帳戶保證金不足，{symbols} 已被強制平倉', { symbols: symbols.join(t('、')) }) });
   for (const s of symbols) emit({ e: 'ACCOUNT_UPDATE', a: { P: [{ s }] } });
 }
 
@@ -669,13 +670,16 @@ async function catchUp() {
     changed();
     console.log('[paper] replay changed the account');
     const closed = a.history.slice(historyBefore);
-    const names = { tp: '止盈', sl: '止損', limit: '限價', liquidation: '強平', reverse: '反手' };
-    const what = closed.map((h) => `${h.symbol} ${names[h.reason] || '平倉'} ${h.net >= 0 ? '+' : ''}${h.net.toFixed(2)}`);
+    const names = { tp: t('止盈'), sl: t('止損'), limit: t('限價'), liquidation: t('強平'), reverse: t('反手') };
+    const what = closed.map((h) => [h.symbol, names[h.reason] || t('平倉'), (h.net >= 0 ? '+' : '') + h.net.toFixed(2)].join(' '));
     const diff = a.wallet - walletBefore;
     const note = {
       e: 'PAPER_NOTICE',
       level: closed.some((h) => h.reason === 'liquidation') ? 'error' : 'warn',
-      text: `程式關閉期間的行情已補算：${what.length ? what.join('、') : '限價成交或資金費'}，資金 ${diff >= 0 ? '+' : ''}${diff.toFixed(2)} USDT`,
+      text: t('程式關閉期間的行情已補算：{what}，資金 {diff} USDT', {
+        what: what.length ? what.join(t('、')) : t('限價成交或資金費'),
+        diff: `${diff >= 0 ? '+' : ''}${diff.toFixed(2)}`,
+      }),
     };
     if (state.listeners.size) emit(note);
     else state.replayNotes.push(note);
@@ -748,12 +752,35 @@ function summary() {
   };
 }
 
+/**
+ * Ledger notes are stored in Chinese (paper-engine.js writes them, and saved
+ * accounts already hold them); they are shown in the interface language.
+ * Reason codes such as 'manual' pass through for the journal to name.
+ */
+function noteText(note) {
+  switch (note) {
+    case '初始資金': // i18n-ignore
+      return t('初始資金');
+    case '強平清算費': // i18n-ignore
+      return t('強平清算費');
+    case '穿倉由保險基金補足': // i18n-ignore
+      return t('穿倉由保險基金補足');
+    default: {
+      const m = /^費率 (\S+)%$/.exec(note || ''); // i18n-ignore
+      return m ? t('費率 {rate}%', { rate: m[1] }) : note;
+    }
+  }
+}
+
 function journal({ history = 2000, ledger = 5000 } = {}) {
   const a = acct();
   return {
     ...summary(),
     history: a.history.slice(-history).reverse(),
-    ledger: a.ledger.slice(-ledger).reverse(),
+    ledger: a.ledger
+      .slice(-ledger)
+      .reverse()
+      .map((e) => (e.note ? { ...e, note: noteText(e.note) } : e)),
     open: E.accountView(a, state.marks).positions.map((p) => ({ ...p, trip: a.trips[p.symbol] || null })),
   };
 }
@@ -765,7 +792,7 @@ function journal({ history = 2000, ledger = 5000 } = {}) {
  */
 function reset(capital, settings) {
   const cap = Number(capital);
-  if (!(cap >= 10 && cap <= 1e9)) throw new Error('初始資金要在 10 到 1,000,000,000 USDT 之間');
+  if (!(cap >= 10 && cap <= 1e9)) throw new Error(t('初始資金要在 10 到 1,000,000,000 USDT 之間'));
   if (state.file && fs.existsSync(state.file)) {
     flush();
     try {
@@ -790,10 +817,27 @@ function setFees({ makerFee, takerFee }) {
 
 /** CSV of the closed positions, for a spreadsheet. */
 function historyCsv() {
-  const rows = [['平倉時間', '開倉時間', '幣種', '方向', '數量', '槓桿', '開倉均價', '平倉均價', '價差損益', '手續費', '資金費', '淨損益', 'ROE%', '平倉原因']];
+  const rows = [
+    [
+      t('平倉時間'),
+      t('開倉時間'),
+      t('幣種'),
+      t('方向'),
+      t('數量'),
+      t('槓桿'),
+      t('開倉均價'),
+      t('平倉均價'),
+      t('價差損益'),
+      t('手續費'),
+      t('資金費'),
+      t('淨損益'),
+      'ROE%',
+      t('平倉原因'),
+    ],
+  ];
   const iso = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
   for (const h of acct().history.slice().reverse()) {
-    rows.push([iso(h.closedAt), iso(h.openedAt), h.symbol, h.side === 'LONG' ? '多' : '空', h.qty, h.leverage, h.entry, h.exit, h.realized, h.fees, h.funding, h.net, h.roe, h.reason]);
+    rows.push([iso(h.closedAt), iso(h.openedAt), h.symbol, h.side === 'LONG' ? t('多') : t('空'), h.qty, h.leverage, h.entry, h.exit, h.realized, h.fees, h.funding, h.net, h.roe, h.reason]);
   }
   return '﻿' + rows.map((r) => r.map((v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v)).join(',')).join('\r\n');
 }

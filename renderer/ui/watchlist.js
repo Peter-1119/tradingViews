@@ -3,7 +3,7 @@
  *
  * Built for the one-card habit: rather than opening settings, typing and
  * picking from search every time, the handful of symbols in regular use sit
- * one click (or Alt+1..6) away. The list itself is a global pref, so every
+ * one click (or Alt+1..9, 0) away. The list itself is a global pref, so every
  * card sees the same one; this module only draws it and reports picks.
  *
  * Entries are {symbol, market}: the same symbol on spot and on perp are two
@@ -11,8 +11,25 @@
  */
 
 import { el, prettySymbol, formatPrice, formatPercent, MARKET_LABELS } from '../util.js';
+import { t } from '../i18n.js';
 
-export const WATCHLIST_MAX = 6;
+/** Keep in step with main/store.js. One per digit key. */
+export const WATCHLIST_MAX = 10;
+
+/**
+ * The digit that reaches entry `index`: keyboard order, 1..9 then 0, so the
+ * first entry is on 1 (0 is a stretch from the left hand) and the tenth on 0.
+ */
+export function watchKey(index) {
+  return index < 9 ? String(index + 1) : '0';
+}
+
+/** The entry index a digit key reaches, or -1. */
+export function watchIndex(digit) {
+  const d = Number(digit);
+  if (!Number.isInteger(d) || d < 0 || d > 9) return -1;
+  return d === 0 ? 9 : d - 1;
+}
 
 export function sameEntry(a, b) {
   return !!a && !!b && a.symbol === b.symbol && a.market === b.market;
@@ -121,13 +138,13 @@ export class WatchlistMenu {
 
   render() {
     const rows = this.list.map((entry, index) => {
-      const t = this.tickers.get(entryKey(entry));
+      const tick = this.tickers.get(entryKey(entry));
       const current = sameEntry(entry, this.current);
-      const change = el('span.card__watch-change', { text: t ? formatPercent(t.changePercent) : '' });
-      if (t) change.classList.add(t.changePercent >= 0 ? 'is-up' : 'is-down');
+      const change = el('span.card__watch-change', { text: tick ? formatPercent(tick.changePercent) : '' });
+      if (tick) change.classList.add(tick.changePercent >= 0 ? 'is-up' : 'is-down');
       const remove = el('button.card__watch-remove', {
         type: 'button',
-        title: '從常用清單移除',
+        title: t('從常用清單移除'),
         text: '✕',
         onclick: (event) => {
           event.stopPropagation();
@@ -139,10 +156,10 @@ export class WatchlistMenu {
         type: 'button',
         class: on && this.alertsOn ? 'is-on' : '',
         title: !this.alertsOn
-          ? `位置提醒總開關已關閉（系統匣右鍵開啟）${on ? '' : '；這個幣種也已關閉'}`
+          ? (on ? t('位置提醒總開關已關閉（系統匣右鍵開啟）') : t('位置提醒總開關已關閉（系統匣右鍵開啟）；這個幣種也已關閉'))
           : on
-            ? '位置提醒：開（點一下關閉這個幣種）'
-            : '位置提醒：關（點一下開啟這個幣種）',
+            ? t('位置提醒：開（點一下關閉這個幣種）')
+            : t('位置提醒：關（點一下開啟這個幣種）'),
         text: on ? '🔔' : '🔕',
         onclick: (event) => {
           event.stopPropagation();
@@ -154,20 +171,20 @@ export class WatchlistMenu {
         {
           role: 'menuitem',
           class: current ? 'is-current' : '',
-          title: `切換到 ${entryLabel(entry)} (Alt+${index + 1})`,
+          title: t('切換到 {name} (Alt+{n})', { name: entryLabel(entry), n: watchKey(index) }),
           onclick: () => {
             this.close();
             if (!current) this.onPick(entry);
           },
         },
-        el('span.card__watch-key', { text: String(index + 1) }),
+        el('span.card__watch-key', { text: watchKey(index) }),
         el(
           'span.card__watch-symbol',
           {},
           prettySymbol(entry.symbol),
           entry.market === 'perp' ? el('span.card__watch-market', { text: MARKET_LABELS.perp }) : null
         ),
-        el('span.card__watch-price', { text: t ? formatPrice(t.last) : '' }),
+        el('span.card__watch-price', { text: tick ? formatPrice(tick.last) : '' }),
         change,
         bell,
         remove
@@ -175,7 +192,7 @@ export class WatchlistMenu {
     });
 
     if (!this.list.length) {
-      rows.push(el('div.card__watch-empty', { text: '還沒有常用幣種。點名稱旁的 ☆ 把目前的幣種加進來。' }));
+      rows.push(el('div.card__watch-empty', { text: t('還沒有常用幣種。點名稱旁的 ☆ 把目前的幣種加進來。') }));
     }
 
     const actions = [];
@@ -185,7 +202,9 @@ export class WatchlistMenu {
         el('button.card__watch-action', {
           type: 'button',
           disabled: full,
-          text: full ? `清單已滿 (最多 ${WATCHLIST_MAX} 個)` : `＋ 加入 ${entryLabel(this.current)}`,
+          text: full
+            ? t('清單已滿 (最多 {max} 個)', { max: WATCHLIST_MAX })
+            : t('＋ 加入 {name}', { name: entryLabel(this.current) }),
           onclick: () => this.onAdd(),
         })
       );
@@ -193,7 +212,7 @@ export class WatchlistMenu {
     actions.push(
       el('button.card__watch-action', {
         type: 'button',
-        text: '🔍 搜尋其他幣種…',
+        text: t('🔍 搜尋其他幣種…'),
         onclick: () => {
           this.close();
           this.onSearch();

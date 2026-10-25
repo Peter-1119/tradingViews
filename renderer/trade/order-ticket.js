@@ -28,8 +28,11 @@
 import { el, formatFundingRate, formatCountdown } from '../util.js';
 import { envChip } from './env-chip.js';
 import { fundingSummary, MOOD_TEXT, share } from './market-mood.js';
+import { t } from '../i18n.js';
 
 const ARM_MS = 3000;
+/** The complaint for an empty amount: not shown as an error, only as the button's tooltip. */
+const NO_AMOUNT = t('請輸入金額');
 const PREVIEW_DEBOUNCE_MS = 120;
 const PCTS = [10, 25, 50, 100];
 /** Shares of the position, when reduce-only. */
@@ -114,40 +117,40 @@ export class OrderTicket {
     this.titleEl = el('span.tk-title');
     this.levEl = el('button.tk-chip.tk-chip--btn', {
       type: 'button',
-      title: '這個幣種的槓桿（點一下調整，直接改在幣安帳戶上）',
+      title: t('這個幣種的槓桿（點一下調整，直接改在幣安帳戶上）'),
       onclick: () => this.toggleLeverage(),
     });
     // Inline editor under the head: a number, quick picks, and apply.
-    this.levInput = numberInput({ placeholder: '槓桿', onInput: () => this.renderLeverage() });
+    this.levInput = numberInput({ placeholder: t('槓桿'), onInput: () => this.renderLeverage() });
     this.levInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.applyLeverage();
     });
     this.levQuick = el('div.tk-pcts');
-    this.levApply = el('button.tk-input__btn', { type: 'button', text: '套用', onclick: () => this.applyLeverage() });
+    this.levApply = el('button.tk-input__btn', { type: 'button', text: t('套用'), onclick: () => this.applyLeverage() });
     this.levHint = el('div.tk-sub');
     this.levBox = el(
       'div.tk-field.tk-lev',
       { hidden: true },
-      el('div.tk-field__label', { text: '槓桿（只影響這個幣種）' }),
+      el('div.tk-field__label', { text: t('槓桿（只影響這個幣種）') }),
       el('div.tk-input', {}, this.levInput, this.levApply),
       this.levQuick,
       this.levHint
     );
-    this.envEl = el('span.tk-chip.tk-chip--env', { hidden: true, text: '測試網' });
+    this.envEl = el('span.tk-chip.tk-chip--env', { hidden: true, text: t('測試網') });
 
     this.typeBtns = ['LIMIT', 'MARKET'].map((type) =>
       el('button.tk-seg__btn', {
         type: 'button',
-        text: type === 'LIMIT' ? '限價' : '市價',
+        text: type === 'LIMIT' ? t('限價') : t('市價'),
         onclick: () => this.setType(type),
       })
     );
 
-    this.priceInput = numberInput({ placeholder: '價格', onInput: (v) => this.update({ price: v }) });
+    this.priceInput = numberInput({ placeholder: t('價格'), onInput: (v) => this.update({ price: v }) });
     this.lastBtn = el('button.tk-input__btn', {
       type: 'button',
-      text: '最新',
-      title: '帶入最新成交價',
+      text: t('最新'),
+      title: t('帶入最新成交價'),
       onclick: () => {
         const { last } = this.hooks.getMarket();
         if (last > 0) this.setPrice(last);
@@ -156,14 +159,14 @@ export class OrderTicket {
     this.priceRow = el(
       'label.tk-input',
       {},
-      el('span.tk-input__prefix', { text: '價格' }),
+      el('span.tk-input__prefix', { text: t('價格') }),
       this.priceInput,
       this.lastBtn
     );
-    this.marketHint = el('div.tk-field.tk-field--hint', { hidden: true, text: '以市價立即成交' });
+    this.marketHint = el('div.tk-field.tk-field--hint', { hidden: true, text: t('以市價立即成交') });
 
-    this.notionalInput = numberInput({ placeholder: '名目價值', onInput: (v) => this.update({ notional: v, reducePct: null }) });
-    this.notionalInput.title = '名目價值（倉位總值），保證金 = 名目價值 ÷ 槓桿';
+    this.notionalInput = numberInput({ placeholder: t('名目價值'), onInput: (v) => this.update({ notional: v, reducePct: null }) });
+    this.notionalInput.title = t('名目價值（倉位總值），保證金 = 名目價值 ÷ 槓桿');
     // Same four buttons either way; their meaning (and labels) change with
     // reduce-only: a share of buying power, or a share of the position.
     this.pctBtns = PCTS.map((_, i) =>
@@ -177,24 +180,24 @@ export class OrderTicket {
     this.reduceToggle.addEventListener('change', () => this.setReduceOnly(this.reduceToggle.checked));
     this.reduceRow = el(
       'label.tk-check',
-      { title: '只減少現有倉位，不會開新倉或反手。不需要保證金，也不受最小下單金額限制。' },
+      { title: t('只減少現有倉位，不會開新倉或反手。不需要保證金，也不受最小下單金額限制。') },
       this.reduceToggle,
-      el('span', { text: '只減倉' })
+      el('span', { text: t('只減倉') })
     );
     this.qtyEl = el('div.tk-sub');
 
     this.tpslToggle = el('input', { type: 'checkbox' });
     this.tpslToggle.addEventListener('change', () => this.update({ tpsl: this.tpslToggle.checked }));
-    this.tpInput = numberInput({ placeholder: '止盈價', onInput: (v) => this.update({ tp: v }) });
-    this.slInput = numberInput({ placeholder: '止損價', onInput: (v) => this.update({ sl: v }) });
+    this.tpInput = numberInput({ placeholder: t('止盈價'), onInput: (v) => this.update({ tp: v }) });
+    this.slInput = numberInput({ placeholder: t('止損價'), onInput: (v) => this.update({ sl: v }) });
     this.tpOut = el('span.tk-outcome');
     this.slOut = el('span.tk-outcome');
     this.tpslBody = el(
       'div.tk-tpsl__body',
       { hidden: true },
-      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--tp', { text: '止盈' }), el('span.tk-input', {}, this.tpInput), this.tpOut),
-      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--sl', { text: '止損' }), el('span.tk-input', {}, this.slInput), this.slOut),
-      el('div.tk-note', { text: '以標記價格觸發，整個倉位平倉。限價單會在成交後才掛上。' })
+      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--tp', { text: t('止盈') }), el('span.tk-input', {}, this.tpInput), this.tpOut),
+      el('label.tk-tpsl__row', {}, el('span.tk-tag.tk-tag--sl', { text: t('止損') }), el('span.tk-input', {}, this.slInput), this.slOut),
+      el('div.tk-note', { text: t('以標記價格觸發，整個倉位平倉。限價單會在成交後才掛上。') })
     );
 
     this.fundRateEl = el('span.tk-mood__rate');
@@ -209,11 +212,9 @@ export class OrderTicket {
         'div.tk-mood__line',
         {
           title:
-            '資金費率：正的由多方付給空方，負的由空方付給多方。\n' +
-            '基準是每 8 小時 0.01%（永續價格貼著現貨時就是這個值）。\n' +
-            '高於基準＝多方願意多付錢持有，多方偏熱；低於基準（即使還是正的）＝永續比現貨便宜，空方偏熱。',
+            t('資金費率：正的由多方付給空方，負的由空方付給多方。\n基準是每 8 小時 0.01%（永續價格貼著現貨時就是這個值）。\n高於基準＝多方願意多付錢持有，多方偏熱；低於基準（即使還是正的）＝永續比現貨便宜，空方偏熱。'),
         },
-        el('span.tk-mood__label', { text: '資金費率' }),
+        el('span.tk-mood__label', { text: t('資金費率') }),
         this.fundRateEl,
         this.fundMoodEl,
         this.fundTimeEl
@@ -223,11 +224,9 @@ export class OrderTicket {
         'div.tk-mood__line',
         {
           title:
-            '多空比（幣安每 5 分鐘更新）：\n' +
-            '人數＝有倉位的帳戶裡，淨做多的比例（散戶居多）。\n' +
-            '大戶＝保證金前 20% 的帳戶，持倉量裡做多的比例。',
+            t('多空比（幣安每 5 分鐘更新）：\n人數＝有倉位的帳戶裡，淨做多的比例（散戶居多）。\n大戶＝保證金前 20% 的帳戶，持倉量裡做多的比例。'),
         },
-        el('span.tk-mood__label', { text: '多空比' }),
+        el('span.tk-mood__label', { text: t('多空比') }),
         this.ratioEl
       )
     );
@@ -242,14 +241,14 @@ export class OrderTicket {
 
     this.root = el(
       'div.tk',
-      { hidden: true, role: 'dialog', 'aria-label': '下單' },
+      { hidden: true, role: 'dialog', 'aria-label': t('下單') },
       el(
         'div.tk-head',
         {},
         this.titleEl,
         this.levEl,
         this.envEl,
-        el('button.tk-close', { type: 'button', title: '關閉 (Esc)', text: '✕', onclick: () => this.hooks.onClose() })
+        el('button.tk-close', { type: 'button', title: t('關閉 (Esc)'), text: '✕', onclick: () => this.hooks.onClose() })
       ),
       this.levBox,
       el('div.tk-seg', {}, this.typeBtns),
@@ -261,7 +260,7 @@ export class OrderTicket {
         el(
           'label.tk-input',
           {},
-          el('span.tk-input__prefix', { text: '金額' }),
+          el('span.tk-input__prefix', { text: t('金額') }),
           this.notionalInput,
           el('span.tk-input__unit', { text: 'USDT' }),
           (this.defaultBtn = el('button.tk-input__btn.tk-default', {
@@ -278,16 +277,16 @@ export class OrderTicket {
         (this.tpslBox = el(
           'div.tk-tpsl',
           {},
-          el('label.tk-check', {}, this.tpslToggle, el('span', { text: '止盈 / 止損' })),
+          el('label.tk-check', {}, this.tpslToggle, el('span', { text: t('止盈 / 止損') })),
           this.tpslBody
         )),
         this.moodBox,
         (this.liqBox = el(
           'div.tk-liq',
-          { title: '成交後的預估強平價（全倉，依目前錢包餘額估算）' },
-          el('span.tk-liq__label', { text: '預估強平' }),
-          el('span.tk-liq__long', {}, '多 ', this.liqLong),
-          el('span.tk-liq__short', {}, '空 ', this.liqShort)
+          { title: t('成交後的預估強平價（全倉，依目前錢包餘額估算）') },
+          el('span.tk-liq__label', { text: t('預估強平') }),
+          el('span.tk-liq__long', {}, t('多') + ' ', this.liqLong),
+          el('span.tk-liq__short', {}, t('空') + ' ', this.liqShort)
         )),
         this.errorEl
       ),
@@ -297,7 +296,7 @@ export class OrderTicket {
     );
 
     // Typing in the ticket must not reach the chart's shortcuts (Ctrl+Z,
-    // Alt+R, Escape closing the measure box, Alt+1..6).
+    // Alt+R, Escape closing the measure box, Alt+1..9, 0).
     this.root.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
@@ -408,21 +407,24 @@ export class OrderTicket {
       this.fundRateEl.className = `tk-mood__rate is-${sum.payer || 'none'}`;
       this.fundMoodEl.textContent = MOOD_TEXT[sum.mood];
       this.fundMoodEl.className = `tk-mood__tag is-${sum.mood}`;
-      this.fundMoodEl.title = `基準 ${formatFundingRate(sum.neutral)}（每 ${sum.intervalHours} 小時結算）`;
+      this.fundMoodEl.title = t('基準 {rate}（每 {h} 小時結算）', { rate: formatFundingRate(sum.neutral), h: sum.intervalHours });
       const left = f.nextFundingTime - Date.now();
-      this.fundTimeEl.textContent = left > 0 ? formatCountdown(left) : '結算中';
-      const who = sum.payer === 'long' ? '多方付給空方' : sum.payer === 'short' ? '空方付給多方' : '這次不收不付';
-      const each = `每 ${sum.intervalHours} 小時結算一次`;
+      this.fundTimeEl.textContent = left > 0 ? formatCountdown(left) : t('結算中');
+      const who = sum.payer === 'long' ? t('多方付給空方') : sum.payer === 'short' ? t('空方付給多方') : t('這次不收不付');
+      const each = t('每 {h} 小時結算一次', { h: sum.intervalHours });
       this.fundPayEl.title = each;
       if (sum.payer && sum.perSettle > 0) {
         // What this amount pays (−) or earns (+) per settlement, by side.
         const amt = fmt(sum.perSettle, sum.perSettle < 1 ? 3 : 2);
         const longSign = sum.payer === 'long' ? '−' : '+';
         const shortSign = sum.payer === 'long' ? '+' : '−';
-        this.fundPayEl.textContent = `${who} · 這筆 多 ${longSign}${amt} / 空 ${shortSign}${amt} U`;
-        this.fundPayEl.title = `${each}。以目前費率和這筆金額估算：做多${longSign === '−' ? '付出' : '收到'} ${amt}、做空${shortSign === '−' ? '付出' : '收到'} ${amt} USDT`;
+        this.fundPayEl.textContent = t('{who} · 這筆 多 {long} / 空 {short} U', { who, long: longSign + amt, short: shortSign + amt });
+        this.fundPayEl.title =
+          sum.payer === 'long'
+            ? t('{each}。以目前費率和這筆金額估算：做多付出 {amt}、做空收到 {amt} USDT', { each, amt })
+            : t('{each}。以目前費率和這筆金額估算：做多收到 {amt}、做空付出 {amt} USDT', { each, amt });
       } else {
-        this.fundPayEl.textContent = `${who}（${each}）`;
+        this.fundPayEl.textContent = t('{who}（{each}）', { who, each });
       }
     } else {
       this.fundRateEl.textContent = '—';
@@ -432,10 +434,12 @@ export class OrderTicket {
     }
     const r = this.ratio;
     if (r && r.accounts) {
-      const top = r.top ? ` · 大戶持倉 多 ${share(r.top.long)}` : '';
-      this.ratioEl.textContent = `人數 多 ${share(r.accounts.long)}${top}`;
+      const acc = share(r.accounts.long);
+      this.ratioEl.textContent = r.top
+        ? t('人數 多 {acc} · 大戶持倉 多 {top}', { acc, top: share(r.top.long) })
+        : t('人數 多 {acc}', { acc });
     } else {
-      this.ratioEl.textContent = '載入中…';
+      this.ratioEl.textContent = t('載入中…');
     }
   }
 
@@ -467,7 +471,7 @@ export class OrderTicket {
       ...picks.map((n) =>
         el('button.tk-pct', {
           type: 'button',
-          text: n === max ? `${n}x 最高` : `${n}x`,
+          text: n === max ? t('{n}x 最高', { n }) : `${n}x`,
           class: String(n) === this.levInput.value ? 'is-active' : '',
           onclick: () => {
             this.levInput.value = String(n);
@@ -480,19 +484,19 @@ export class OrderTicket {
     const bad = !Number.isFinite(want) || want < 1 || want > max;
     this.levApply.disabled = bad || want === this.leverage || this.levBusy;
     this.levHint.textContent = bad
-      ? `這個幣種的槓桿可以設 1～${max}x`
-      : `改在幣安帳戶上，${this.symbol} 之後的所有單都用 ${want}x。倉位越大，可用的最高槓桿越低。`;
+      ? t('這個幣種的槓桿可以設 1～{max}x', { max })
+      : t('改在幣安帳戶上，{symbol} 之後的所有單都用 {lev}x。倉位越大，可用的最高槓桿越低。', { symbol: this.symbol, lev: want });
   }
 
   async applyLeverage() {
     const want = Math.round(Number(this.levInput.value));
     if (this.levApply.disabled) return;
     this.levBusy = true;
-    this.levApply.textContent = '套用中…';
+    this.levApply.textContent = t('套用中…');
     this.renderLeverage();
     const ok = await this.hooks.onLeverage(this.symbol, want);
     this.levBusy = false;
-    this.levApply.textContent = '套用';
+    this.levApply.textContent = t('套用');
     if (ok) {
       this.levOpen = false;
       this.levBox.hidden = true;
@@ -644,7 +648,7 @@ export class OrderTicket {
 
   render() {
     this.titleEl.textContent = this.symbol;
-    this.levEl.textContent = this.leverage ? `全倉 ${this.leverage}x ▾` : '全倉 …x';
+    this.levEl.textContent = this.leverage ? t('全倉 {lev}x ▾', { lev: this.leverage }) : t('全倉 …x');
     this.typeBtns.forEach((b, i) => b.classList.toggle('is-active', ['LIMIT', 'MARKET'][i] === this.type));
     this.priceRow.hidden = this.type !== 'LIMIT';
     this.marketHint.hidden = this.type !== 'MARKET';
@@ -657,34 +661,43 @@ export class OrderTicket {
     const isDefault = !!def && Number(this.notional) === def;
     this.defaultBtn.hidden = this.reduceOnly;
     this.defaultBtn.classList.toggle('is-active', isDefault);
-    this.defaultBtn.textContent = isDefault ? '預設 ✓' : Number(this.notional) > 0 ? '設預設' : def ? '清除預設' : '設預設';
+    this.defaultBtn.textContent = isDefault ? t('預設 ✓') : Number(this.notional) > 0 ? t('設預設') : def ? t('清除預設') : t('設預設');
     this.defaultBtn.title = isDefault
-      ? `這是預設金額：每次開下單票都會自動帶入 ${fmt(def)} USDT`
+      ? t('這是預設金額：每次開下單票都會自動帶入 {amt} USDT', { amt: fmt(def) })
       : Number(this.notional) > 0
-        ? `把 ${this.notional} USDT 存成預設金額，之後每次開下單票都會自動帶入${def ? `（目前預設 ${fmt(def)}）` : ''}`
+        ? def
+          ? t('把 {amt} USDT 存成預設金額，之後每次開下單票都會自動帶入（目前預設 {def}）', { amt: this.notional, def: fmt(def) })
+          : t('把 {amt} USDT 存成預設金額，之後每次開下單票都會自動帶入', { amt: this.notional })
         : def
-          ? `清除預設金額（目前 ${fmt(def)} USDT）`
-          : '先輸入金額，再按這裡存成預設';
+          ? t('清除預設金額（目前 {def} USDT）', { def: fmt(def) })
+          : t('先輸入金額，再按這裡存成預設');
     this.pctBtns.forEach((b, i) => {
       const pct = this.reduceOnly ? REDUCE_PCTS[i] : PCTS[i];
       b.textContent = `${pct}%`;
-      b.title = this.reduceOnly ? `目前倉位的 ${pct}%${pct === 100 ? '（全部平倉）' : ''}` : `可用保證金 × 槓桿的 ${pct}%`;
+      b.title = this.reduceOnly
+        ? pct === 100
+          ? t('目前倉位的 {pct}%（全部平倉）', { pct })
+          : t('目前倉位的 {pct}%', { pct })
+        : t('可用保證金 × 槓桿的 {pct}%', { pct });
       b.classList.toggle('is-active', this.reduceOnly && this.reducePct === pct);
     });
 
     const buy = this.previews.BUY;
     const sell = this.previews.SELL;
     const any = buy || sell;
-    const avail = `可用 ${fmt(this.available)}`;
+    const avail = t('可用 {amt}', { amt: fmt(this.available) });
     if (this.reduceOnly) {
       const pos = this.hooks.getPosition && this.hooks.getPosition();
-      const size = pos && pos.amt ? `${pos.amt > 0 ? '多' : '空'} ${Math.abs(pos.amt)} ${this.baseAsset}` : '沒有倉位';
+      const held = pos && pos.amt ? `${Math.abs(pos.amt)} ${this.baseAsset}` : '';
+      const size = !held ? t('沒有倉位') : pos.amt > 0 ? t('多 {size}', { size: held }) : t('空 {size}', { size: held });
       const ok = (buy && !buy.errors.length && buy) || (sell && !sell.errors.length && sell);
-      this.qtyEl.textContent = ok ? `≈ ${ok.qty} ${this.baseAsset} · 倉位 ${size} · 不需保證金` : `只減倉 · 倉位 ${size}`;
+      this.qtyEl.textContent = ok
+        ? t('≈ {qty} · 倉位 {size} · 不需保證金', { qty: `${ok.qty} ${this.baseAsset}`, size })
+        : t('只減倉 · 倉位 {size}', { size });
     } else if (any && any.qty !== undefined) {
-      this.qtyEl.textContent = `≈ ${any.qty} ${this.baseAsset} · 保證金 ${fmt(any.margin)} · ${avail}`;
+      this.qtyEl.textContent = t('≈ {qty} · 保證金 {margin} · {avail}', { qty: `${any.qty} ${this.baseAsset}`, margin: fmt(any.margin), avail });
     } else {
-      this.qtyEl.textContent = `名目價值 USDT · ${avail}`;
+      this.qtyEl.textContent = t('名目價值 USDT · {avail}', { avail });
     }
     this.renderMood();
     this.liqLong.textContent = buy && buy.liq ? fmt(buy.liq, this.priceDigits()) : '—';
@@ -701,7 +714,7 @@ export class OrderTicket {
     outcome(basis && basis.sl, this.slOut);
 
     // A side is sendable only if its own preview has no complaints.
-    const errorsOf = (p) => (p && p.errors ? p.errors : ['請輸入金額']);
+    const errorsOf = (p) => (p && p.errors ? p.errors : [NO_AMOUNT]);
     const longErr = errorsOf(buy);
     const shortErr = errorsOf(sell);
     this.longBtn.disabled = this.sending || (!!longErr.length && this.armed !== 'BUY');
@@ -711,7 +724,7 @@ export class OrderTicket {
 
     // Show the error that matters: the armed side's, or one both sides share.
     const shown = this.armed ? errorsOf(this.previews[this.armed]) : longErr.filter((e) => shortErr.includes(e));
-    const visible = shown.filter((e) => e !== '請輸入金額');
+    const visible = shown.filter((e) => e !== NO_AMOUNT);
     const message = this.submitError || (Number(this.notional) ? visible[0] : '');
     this.errorEl.hidden = !message;
     this.errorEl.textContent = message || '';
@@ -722,18 +735,18 @@ export class OrderTicket {
     const reduceVerb = (side) => {
       const closesLong = side === 'SELL';
       const has = pos && pos.amt && (closesLong ? pos.amt > 0 : pos.amt < 0);
-      if (closesLong) return has ? '平多（賣出）' : '無多倉';
-      return has ? '平空（買入）' : '無空倉';
+      if (closesLong) return has ? t('平多（賣出）') : t('無多倉');
+      return has ? t('平空（買入）') : t('無空倉');
     };
     const label = (side) => {
       const p = this.previews[side];
-      const verb = this.reduceOnly ? reduceVerb(side) : side === 'BUY' ? '做多' : '做空';
+      const verb = this.reduceOnly ? reduceVerb(side) : side === 'BUY' ? t('做多') : t('做空');
       if (this.armed !== side) return verb;
-      const at = this.type === 'MARKET' ? '市價' : `@ ${p ? p.price : this.price}`;
-      return `確認${verb} ${p ? p.qty : ''} ${this.baseAsset} ${at}`;
+      const at = this.type === 'MARKET' ? t('市價') : `@ ${p ? p.price : this.price}`;
+      return t('確認{verb} {qty} {asset} {at}', { verb, qty: p ? p.qty : '', asset: this.baseAsset, at });
     };
-    this.longBtn.textContent = this.sending && this.armed === 'BUY' ? '送出中…' : label('BUY');
-    this.shortBtn.textContent = this.sending && this.armed === 'SELL' ? '送出中…' : label('SELL');
+    this.longBtn.textContent = this.sending && this.armed === 'BUY' ? t('送出中…') : label('BUY');
+    this.shortBtn.textContent = this.sending && this.armed === 'SELL' ? t('送出中…') : label('SELL');
     this.root.classList.toggle('is-armed', !!this.armed);
     this.root.dataset.armed = this.armed || '';
   }

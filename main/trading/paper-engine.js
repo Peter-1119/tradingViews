@@ -23,6 +23,8 @@
  * shows -- side, size, average entry and exit, gross PnL, fees, funding, net.
  */
 
+const { t } = require('../i18n');
+
 const EPS = 1e-9;
 
 /** Binance's default (VIP 0) USDⓈ-M rates. */
@@ -69,7 +71,7 @@ function maintenanceMargin(notional) {
 
 function newAccount(capital, settings = {}, now = Date.now()) {
   const cap = Number(capital);
-  if (!(cap > 0)) throw new Error('初始資金要大於 0');
+  if (!(cap > 0)) throw new Error(t('初始資金要大於 0'));
   const acct = {
     version: 1,
     capital: cap,
@@ -88,7 +90,8 @@ function newAccount(capital, settings = {}, now = Date.now()) {
     tripSeq: 1,
     lastTick: now,
   };
-  ledger(acct, { time: now, type: 'DEPOSIT', symbol: '', amount: cap, note: '初始資金' });
+  // Ledger notes are stored in Chinese; paper.js translates them for display.
+  ledger(acct, { time: now, type: 'DEPOSIT', symbol: '', amount: cap, note: '初始資金' }); // i18n-ignore
   return acct;
 }
 
@@ -228,7 +231,7 @@ function applyFunding(acct, { symbol, rate, mark, time = Date.now() }) {
   const amount = -pos.amt * mark * rate;
   acct.wallet = round(acct.wallet + amount, 8);
   if (acct.trips[symbol]) acct.trips[symbol].funding += amount;
-  ledger(acct, { time, type: 'FUNDING_FEE', symbol, amount, note: `費率 ${(rate * 100).toFixed(4)}%` });
+  ledger(acct, { time, type: 'FUNDING_FEE', symbol, amount, note: '費率 ' + (rate * 100).toFixed(4) + '%' }); // i18n-ignore
   return amount;
 }
 
@@ -310,7 +313,7 @@ function liquidate(acct, marks, time = Date.now()) {
     const clearance = Math.min(p.maintMargin, Math.max(0, acct.wallet));
     if (clearance > 0) {
       acct.wallet = round(acct.wallet - clearance, 8);
-      ledger(acct, { time, type: 'LIQUIDATION_FEE', symbol: p.symbol, amount: -clearance, note: '強平清算費' });
+      ledger(acct, { time, type: 'LIQUIDATION_FEE', symbol: p.symbol, amount: -clearance, note: '強平清算費' }); // i18n-ignore
       if (last && last.symbol === p.symbol) {
         last.fees = round(last.fees + clearance, 8);
         last.net = round(last.net - clearance, 8);
@@ -318,7 +321,7 @@ function liquidate(acct, marks, time = Date.now()) {
     }
   }
   if (acct.wallet < 0) {
-    ledger(acct, { time, type: 'INSURANCE', symbol: '', amount: -acct.wallet, note: '穿倉由保險基金補足' });
+    ledger(acct, { time, type: 'INSURANCE', symbol: '', amount: -acct.wallet, note: '穿倉由保險基金補足' }); // i18n-ignore
     acct.wallet = 0;
   }
   acct.orders = [];

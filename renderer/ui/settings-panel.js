@@ -10,15 +10,18 @@ import { el, clamp, INTERVAL_LABELS, CHART_TYPE_LABELS, MARKET_LABELS } from '..
 import { SymbolSearch } from './symbol-search.js';
 import { ShortcutInput } from './shortcut-input.js';
 import { TradeSettings } from './trade-settings.js';
+import { t } from '../i18n.js';
 
-const UP_DOWN_LABELS = { greenUp: '綠漲紅跌', redUp: '紅漲綠跌' };
+const UP_DOWN_LABELS = { greenUp: t('綠漲紅跌'), redUp: t('紅漲綠跌') };
+/** Not translated: each language is named in itself. */
+const LANGUAGE_LABELS = { 'zh-TW': '中文', en: 'English' }; // i18n-ignore
 /**
  * 'auto' follows the machine, which is the friendly default. 'UTC' is there
  * because that is the exchange's own clock -- Binance daily candles open at
  * 00:00 UTC -- so it is the one zone where the bar boundaries line up.
  */
 const TIMEZONE_VALUES = ['auto', 'Asia/Taipei', 'UTC'];
-const TIMEZONE_LABELS = { auto: '本機', 'Asia/Taipei': '台北', UTC: 'UTC' };
+const TIMEZONE_LABELS = { auto: t('本機'), 'Asia/Taipei': t('台北'), UTC: 'UTC' };
 
 function segmented(values, labels, current, onSelect) {
   const buttons = new Map();
@@ -104,7 +107,7 @@ function alertGrid(levels, onChange) {
           const chip = el('button.sc-seg__btn.sc-alert-grid__chip', {
             type: 'button',
             text: `${level}`,
-            title: `${name} 碰到 ${level}% 時提醒`,
+            title: t('{name} 碰到 {level}% 時提醒', { name, level }),
             onclick: () => {
               const list = current[name] || [];
               const next = list.includes(level) ? list.filter((l) => l !== level) : [...list, level];
@@ -172,7 +175,7 @@ export class SettingsPanel {
 
     this.anchorSeg = segmented(
       ['utc', 'ny', 'nyse', 'london', 'lse'],
-      { utc: 'UTC', ny: '紐約 0點', nyse: '美股開盤', london: '倫敦 0點', lse: '英股開盤' },
+      { utc: 'UTC', ny: t('紐約 0點'), nyse: t('美股開盤'), london: t('倫敦 0點'), lse: t('英股開盤') },
       card.levelAnchor,
       (levelAnchor) => onPatch({ levelAnchor })
     );
@@ -181,7 +184,7 @@ export class SettingsPanel {
     this.periodRow = el(
       'div.sc-seg',
       {},
-      [['D', '日'], ['W', '週'], ['M', '月']].map(([period, text]) => {
+      [['D', t('日')], ['W', t('週')], ['M', t('月')]].map(([period, text]) => {
         const chip = el('button.sc-seg__btn', {
           type: 'button',
           text,
@@ -224,19 +227,19 @@ export class SettingsPanel {
     });
 
     this.volumeToggle = toggle({
-      label: '顯示成交量副圖',
+      label: t('顯示成交量副圖'),
       checked: card.showVolume,
       onChange: (showVolume) => onPatch({ showVolume }),
     });
 
     this.oiToggle = toggle({
-      label: '顯示未平倉量 (OI) 副圖 · 永續',
+      label: t('顯示未平倉量 (OI) 副圖 · 永續'),
       checked: card.showOI,
       onChange: (showOI) => onPatch({ showOI }),
     });
 
     this.onTopToggle = toggle({
-      label: '視窗置頂',
+      label: t('視窗置頂'),
       checked: card.alwaysOnTop,
       onChange: (alwaysOnTop) => onPatch({ alwaysOnTop }),
     });
@@ -247,12 +250,18 @@ export class SettingsPanel {
       onPrefs({ upDownColor: value })
     );
 
+    // Each language names itself, so whoever cannot read the current one can
+    // still find their own. Switching reloads the windows.
+    this.languageSeg = segmented(['zh-TW', 'en'], LANGUAGE_LABELS, prefs.language || 'zh-TW', (value) =>
+      onPrefs({ language: value })
+    );
+
     this.timezoneSeg = segmented(TIMEZONE_VALUES, TIMEZONE_LABELS, prefs.timezone, (value) =>
       onPrefs({ timezone: value })
     );
 
     this.startupToggle = toggle({
-      label: '開機自動啟動',
+      label: t('開機自動啟動'),
       checked: prefs.launchAtStartup,
       onChange: (launchAtStartup) => onPrefs({ launchAtStartup }),
     });
@@ -264,12 +273,12 @@ export class SettingsPanel {
 
     this.alertLevels = alertGrid(prefs.alerts.levels, (levels) => onPrefs({ alerts: { levels } }));
     this.alertToast = toggle({
-      label: 'Windows 通知（玩遊戲時會被專注輔助收進通知中心）',
+      label: t('Windows 通知（玩遊戲時會被專注輔助收進通知中心）'),
       checked: prefs.alerts.toast,
       onChange: (toast) => onPrefs({ alerts: { toast } }),
     });
     this.alertFlash = toggle({
-      label: '工作列閃爍（點一下卡片停止）',
+      label: t('工作列閃爍（點一下卡片停止）'),
       checked: prefs.alerts.flash,
       onChange: (flash) => onPrefs({ alerts: { flash } }),
     });
@@ -287,23 +296,23 @@ export class SettingsPanel {
       el(
         'div.sc-panel__head',
         {},
-        el('span.sc-panel__title', { text: '卡片設定' }),
+        el('span.sc-panel__title', { text: t('卡片設定') }),
         el('button.sc-icon-btn', {
           type: 'button',
-          title: '關閉設定',
+          title: t('關閉設定'),
           text: '✕',
           onclick: () => onClose(),
         })
       ),
       el('div.sc-panel__body', {},
-        row('市場', this.marketSeg.root),
-        row('交易對', this.symbolSearch.root),
-        row('週期', this.intervalSeg.root),
-        row('圖型', this.typeSeg.root),
-        row('開盤價／高低點的分界', this.anchorSeg.root),
-        row('開盤價／高低點的週期', this.periodRow),
-        row('卡片透明度', this.cardOpacity.root),
-        showWindowOpacity ? row('整體透明度', this.windowOpacity.root) : null,
+        row(t('市場'), this.marketSeg.root),
+        row(t('交易對'), this.symbolSearch.root),
+        row(t('週期'), this.intervalSeg.root),
+        row(t('圖型'), this.typeSeg.root),
+        row(t('開盤價／高低點的分界'), this.anchorSeg.root),
+        row(t('開盤價／高低點的週期'), this.periodRow),
+        row(t('卡片透明度'), this.cardOpacity.root),
+        showWindowOpacity ? row(t('整體透明度'), this.windowOpacity.root) : null,
         el(
           'div.sc-row.sc-row--stack',
           {},
@@ -311,13 +320,14 @@ export class SettingsPanel {
           this.oiToggle.root,
           showWindowOpacity ? this.onTopToggle.root : null
         ),
-        el('div.sc-divider', { text: '全域設定' }),
-        row('漲跌顏色', this.upDownSeg.root),
-        row('時間顯示', this.timezoneSeg.root),
-        row('位置提醒（常用清單）', this.alertLevels.root),
+        el('div.sc-divider', { text: t('全域設定') }),
+        row('語言 Language', this.languageSeg.root), // i18n-ignore
+        row(t('漲跌顏色'), this.upDownSeg.root),
+        row(t('時間顯示'), this.timezoneSeg.root),
+        row(t('位置提醒（常用清單）'), this.alertLevels.root),
         el('div.sc-row.sc-row--stack', {}, this.alertToast.root, this.alertFlash.root),
-        row('顯示/隱藏全部卡片', this.showAccel.root),
-        row('切換滑鼠穿透', this.clickThroughAccel.root),
+        row(t('顯示/隱藏全部卡片'), this.showAccel.root),
+        row(t('切換滑鼠穿透'), this.clickThroughAccel.root),
         el('div.sc-row.sc-row--stack', {}, this.startupToggle.root),
         this.trade.root
       )
@@ -328,6 +338,7 @@ export class SettingsPanel {
   updatePrefs(prefs) {
     this.upDownSeg.setValue(prefs.upDownColor);
     this.timezoneSeg.setValue(prefs.timezone);
+    this.languageSeg.setValue(prefs.language || 'zh-TW');
     this.alertLevels.setValue(prefs.alerts.levels);
     this.alertToast.setValue(prefs.alerts.toast);
     this.alertFlash.setValue(prefs.alerts.flash);
