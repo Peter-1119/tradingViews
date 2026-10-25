@@ -37,6 +37,15 @@ export const CHART_TYPES = ['candlestick', 'line', 'area'];
 const DEFAULT_BAR_SPACING = 6;
 const DEFAULT_RIGHT_OFFSET = 3;
 
+/**
+ * A widget may run for days: past MAX_BARS the oldest are dropped, down to
+ * TRIM_TO -- but never the ones on screen, nor TRIM_MARGIN before them, or the
+ * history prefetch would fetch them straight back on the next candle.
+ */
+const MAX_BARS = 1500;
+const TRIM_TO = 1000;
+const TRIM_MARGIN = 200;
+
 /** Price-axis wheel zoom per notch: e^(100 * 0.0015) is about 16% a click. */
 const PRICE_WHEEL_RATE = 0.0015;
 
@@ -629,8 +638,7 @@ export class CardChart {
     const isNew = !last || bar.time > last.time;
     if (isNew) {
       this.bars.push(bar);
-      // Keep memory bounded on a widget that may run for days.
-      if (this.bars.length > 1500) this.bars.splice(0, this.bars.length - 1000);
+      if (this.bars.length > MAX_BARS && this.trimBars()) return;
     } else if (bar.time === last.time) {
       this.bars[this.bars.length - 1] = bar;
     } else {
@@ -644,6 +652,36 @@ export class CardChart {
 
     this.priceSeries.update(this.toPricePoint(bar));
     if (this.volume) this.volume.update(bar, isNew);
+  }
+
+  /**
+   * Drop the oldest bars from the cache *and* the series, together.
+   *
+   * Trimming the cache alone left the series 500 bars longer than it: every
+   * time -> logical lookup (logicalFromTime) then came out 500 bars short, so
+   * the higher-timeframe boxes, profiles and drawings all jumped 500 bars to
+   * the left -- off screen -- the moment a new candle opened. Like
+   * prependBars, the series is re-fed and the viewport shifted to match.
+   *
+   * @returns {boolean} whether it trimmed (and so already drew the new bar)
+   */
+  trimBars() {
+    const scale = this.chart.timeScale();
+    const range = scale.getVisibleLogicalRange();
+    let drop = this.bars.length - TRIM_TO;
+    if (range) drop = Math.min(drop, Math.floor(range.from) - TRIM_MARGIN);
+    if (drop <= 0) return false;
+
+    this.bars.splice(0, drop);
+    this.render();
+    if (range && !this.paused) {
+      try {
+        scale.setVisibleLogicalRange({ from: range.from - drop, to: range.to - drop });
+      } catch {
+        /* range rejected mid-teardown */
+      }
+    }
+    return true;
   }
 
   render() {
