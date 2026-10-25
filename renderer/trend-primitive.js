@@ -83,6 +83,8 @@ export class TrendPrimitive {
     this.segments = [];
     this.requestUpdate = null;
     this.views = [new TrendPaneView(this)];
+    /** Hidden by the rail's eye: kept, not drawn, and not grabbable. */
+    this.hidden = false;
   }
 
   attached({ requestUpdate }) {
@@ -94,7 +96,13 @@ export class TrendPrimitive {
   }
 
   paneViews() {
-    return this.views;
+    return this.hidden ? [] : this.views;
+  }
+
+  setHidden(hidden) {
+    if (this.hidden === !!hidden) return;
+    this.hidden = !!hidden;
+    this.update();
   }
 
   updateAllViews() {
@@ -150,6 +158,7 @@ export class TrendPrimitive {
    * be reshaped; the topmost (last drawn) line wins.
    */
   hitTest(x, y) {
+    if (this.hidden) return null;
     const segs = this.computeSegments().filter((s) => !s.draft);
     const p = { x, y };
     for (let i = segs.length - 1; i >= 0; i--) {

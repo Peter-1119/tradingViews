@@ -188,6 +188,8 @@ export class VRangePrimitive {
     this.items = [];
     this.requestUpdate = null;
     this.views = [new VRangePaneView(this)];
+    /** Hidden by the rail's eye: kept, not drawn, and not grabbable. */
+    this.hidden = false;
   }
 
   attached({ requestUpdate }) {
@@ -199,7 +201,13 @@ export class VRangePrimitive {
   }
 
   paneViews() {
-    return this.views;
+    return this.hidden ? [] : this.views;
+  }
+
+  setHidden(hidden) {
+    if (this.hidden === !!hidden) return;
+    this.hidden = !!hidden;
+    this.update();
   }
 
   updateAllViews() {
@@ -321,6 +329,7 @@ export class VRangePrimitive {
    *   { id, part: 'left' | 'right' } an edge: resize
    */
   hitTest(x, y) {
+    if (this.hidden) return null;
     const items = this.computeItems().filter((it) => !it.draft);
     for (let i = items.length - 1; i >= 0; i--) {
       const t = items[i].tag;

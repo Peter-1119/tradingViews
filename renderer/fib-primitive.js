@@ -100,6 +100,8 @@ export class FibPrimitive {
     this.layout = [];
     this.requestUpdate = null;
     this.views = [new FibPaneView(this)];
+    /** Hidden by the rail's eye: kept, not drawn, and not grabbable. */
+    this.hidden = false;
   }
 
   attached({ requestUpdate }) {
@@ -111,7 +113,13 @@ export class FibPrimitive {
   }
 
   paneViews() {
-    return this.views;
+    return this.hidden ? [] : this.views;
+  }
+
+  setHidden(hidden) {
+    if (this.hidden === !!hidden) return;
+    this.hidden = !!hidden;
+    this.update();
   }
 
   updateAllViews() {
@@ -177,6 +185,7 @@ export class FibPrimitive {
 
   /** The handle under a pointer position, as {id, end: 'a' | 'b'}, or null. */
   hitTest(x, y) {
+    if (this.hidden) return null;
     const layout = this.computeLayout();
     for (let i = layout.length - 1; i >= 0; i--) {
       const fib = layout[i];

@@ -217,6 +217,8 @@ function sanitizeCard(raw, index = 0) {
     // Row height of every volume profile on the card, range ones included.
     vpDetail: pick(card.vpDetail, ['coarse', 'normal', 'fine', 'ultra'], 'normal'),
     showHtf: card.showHtf === true,
+    // The user's drawings hidden for a clean chart; they stay in their stores.
+    hideDrawings: card.hideDrawings === true,
     // Open interest sub-pane. Perpetuals only; a spot card keeps the setting
     // and shows it again when switched back to perp.
     showOI: card.showOI === true,

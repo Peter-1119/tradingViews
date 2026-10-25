@@ -96,6 +96,8 @@ export class RectPrimitive {
     this.boxes = [];
     this.requestUpdate = null;
     this.views = [new RectPaneView(this)];
+    /** Hidden by the rail's eye: kept, not drawn, and not grabbable. */
+    this.hidden = false;
   }
 
   attached({ requestUpdate }) {
@@ -107,7 +109,13 @@ export class RectPrimitive {
   }
 
   paneViews() {
-    return this.views;
+    return this.hidden ? [] : this.views;
+  }
+
+  setHidden(hidden) {
+    if (this.hidden === !!hidden) return;
+    this.hidden = !!hidden;
+    this.update();
   }
 
   updateAllViews() {
@@ -175,6 +183,7 @@ export class RectPrimitive {
    * Topmost rectangle wins, i.e. the one drawn last.
    */
   hitTest(x, y) {
+    if (this.hidden) return null;
     const boxes = this.computeBoxes().filter((b) => !b.draft);
     for (let i = boxes.length - 1; i >= 0; i--) {
       const b = boxes[i];

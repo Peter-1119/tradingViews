@@ -34,6 +34,8 @@ import {
 
 // 1000: enough closed bars to seed the thin-volume distribution (volume-stats.js).
 const HISTORY_LIMIT = 1000;
+/** Rail tools that add a drawing; arming one shows hidden drawings again. */
+const DRAWING_TOOLS = ['level', 'trend', 'fib', 'rect', 'vrange'];
 
 /** How far back Ctrl+Z reaches. Plenty for "I just grabbed the wrong line". */
 const UNDO_DEPTH = 50;
@@ -397,6 +399,7 @@ export class CardView {
       timezone: this.prefs.timezone,
     });
     this.chart.setOIVisible(this.oiApplies());
+    this.chart.setDrawingsHidden(this.card.hideDrawings);
     this.applyVolumeOptions();
 
     // Each market has its own connection and so its own health; the dot
@@ -521,6 +524,10 @@ export class CardView {
       this.onPatch({ showOI: !this.card.showOI });
       return;
     }
+    if (id === 'drawings') {
+      this.setDrawingsHidden(!this.card.hideDrawings);
+      return;
+    }
     if (id === 'footprint') {
       if (value.startsWith('ratio:')) {
         this.onPatch({ footprint: true, fpRatio: value.slice(6) });
@@ -538,6 +545,9 @@ export class CardView {
       return;
     }
     const next = id === this.activeTool ? 'cursor' : id;
+    // Picking up a drawing tool brings the drawings back: a new line drawn
+    // onto a hidden layer would vanish the moment it was let go.
+    if (DRAWING_TOOLS.includes(next)) this.revealDrawings();
     this.activeTool = next;
     this.toolbar.setActive(next);
     this.dismissMeasure();
@@ -545,6 +555,20 @@ export class CardView {
     this.cancelTrend();
     // The chart's own cursor would otherwise stay a crosshair over a tool.
     this.chartEl.style.cursor = next === 'cursor' ? '' : 'crosshair';
+  }
+
+  /* ------------------------------------------------------------- drawings */
+
+  /** Hide or show the drawings on this card; they are kept either way. */
+  setDrawingsHidden(hidden) {
+    if (!!this.card.hideDrawings === !!hidden) return;
+    // The chart and the rail follow when the store echoes the change back.
+    this.onPatch({ hideDrawings: !!hidden });
+  }
+
+  /** About to add or bring back a drawing: show the layer it lands on. */
+  revealDrawings() {
+    if (this.card.hideDrawings) this.setDrawingsHidden(false);
   }
 
   /* --------------------------------------------------------------- levels */
@@ -589,6 +613,7 @@ export class CardView {
       }
       const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
       if (price === null) return;
+      this.revealDrawings();
       const added = await window.stockcard.addLevel(this.card.symbol, price);
       if (added) this.pushUndo({ kind: 'level-add', id: added.id });
     };
@@ -604,6 +629,7 @@ export class CardView {
       if (this.chart.levelAt(y)) return;
       const price = this.chart.priceAt(x, y, { magnet: event.ctrlKey });
       if (price === null) return;
+      this.revealDrawings();
       const added = await window.stockcard.addLevel(this.card.symbol, price);
       if (added) this.pushUndo({ kind: 'level-add', id: added.id });
     };
@@ -948,6 +974,7 @@ export class CardView {
     this.toolbar.setMenuValue('volume', `sq:${this.card.volSqueeze || '5'}`, 'sq');
     this.toolbar.setMenuValue('volume', `mem:${this.card.volMemory || '1000'}`, 'mem');
     this.toolbar.setToggled('oi', this.card.showOI);
+    this.toolbar.setToggled('drawings', this.card.hideDrawings);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
     this.toolbar.setMenuValue('footprint', this.card.footprint ? 'on' : 'off');
     this.toolbar.setMenuValue('footprint', `ratio:${this.card.fpRatio || '3'}`, 'ratio');
@@ -1309,6 +1336,8 @@ export class CardView {
     // Entries are recorded against the symbol on screen at the time. The stack
     // is cleared on a symbol switch, so this is a backstop, not a path.
     if (op.symbol !== this.card.symbol) return;
+    // Undo edits a drawing; show it, or the undo would look like it did nothing.
+    this.revealDrawings();
     const s = op.symbol;
     try {
       switch (op.kind) {
@@ -1409,6 +1438,11 @@ export class CardView {
       if (event.code === 'KeyR') {
         event.preventDefault();
         this.resetView();
+        return;
+      }
+      if (event.code === 'KeyH') {
+        event.preventDefault();
+        this.setDrawingsHidden(!this.card.hideDrawings);
         return;
       }
       // Alt+1..6: the watchlist, in order. `code` rather than `key`, so it
@@ -2863,6 +2897,7 @@ export class CardView {
         if (next.footprint !== prev.footprint) this.loadFootprint();
         else this.chart.setFootprint(this.fpBook, Number(next.fpRatio) || 3);
       }
+      if (!!next.hideDrawings !== !!prev.hideDrawings) this.chart.setDrawingsHidden(next.hideDrawings);
       if (next.showHtf !== prev.showHtf && !marketChanged) {
         this.toolbar.setToggled('htf', next.showHtf);
         this.setHtfEnabled(next.showHtf);

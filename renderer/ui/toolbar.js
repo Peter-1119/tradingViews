@@ -33,6 +33,9 @@ const ICONS = {
   // Two edges and the profile between them: a volume profile over a chosen span.
   vrange: '<path d="M1.5 1.5v11" stroke-dasharray="1.6 1.4"/><path d="M12.5 1.5v11" stroke-dasharray="1.6 1.4"/>'
     + '<path d="M3.5 4h4"/><path d="M3.5 6.5h7"/><path d="M3.5 9h5"/><path d="M3.5 11.5h2.5"/>',
+  // An eye with a slash: hide the drawings (lit while they are hidden).
+  drawings: '<path d="M1.5 7s2-3.8 5.5-3.8S12.5 7 12.5 7 10.5 10.8 7 10.8 1.5 7 1.5 7z"/>'
+    + '<circle cx="7" cy="7" r="1.6"/><path d="M2.5 12l9-10"/>',
   vp: '<path d="M12.5 2.5h-5"/><path d="M12.5 5h-9"/><path d="M12.5 7.5h-11"/><path d="M12.5 10h-7"/><path d="M12.5 12.5h-4"/>',
   htf: '<rect x="1.5" y="4" width="4.5" height="6" rx="1"/><path d="M3.75 1.5v2.5M3.75 10v2.5"/>'
     + '<rect x="8" y="5.5" width="4.5" height="5" rx="1"/><path d="M10.25 3v2.5M10.25 10.5v2"/>',
@@ -87,6 +90,12 @@ export const TOOLS = [
     id: 'vrange',
     label: '區間成交量分布',
     hint: '區間成交量分布：在圖上左右拖曳，選出要看的時間範圍（x1 到 x2）。拖到最新 K 棒就是「至今」，會持續更新。拖左右邊線調整、拖上方標籤移動、雙擊邊線或標籤刪除',
+  },
+  {
+    id: 'drawings',
+    label: '隱藏繪圖',
+    hint: '隱藏 / 顯示畫的線和圖形（Alt+H）：水平線、趨勢線、斐波那契、矩形、區間成交量分布。只是藏起來，不會刪除，再按一次就回來。隱藏時拿起畫圖工具或新增水平線，會自動顯示',
+    toggle: true,
   },
   {
     id: 'htf',

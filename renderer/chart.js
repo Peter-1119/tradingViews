@@ -268,6 +268,8 @@ export class CardChart {
     /** levelId -> { level, priceLine } */
     this.levels = new Map();
     this.activeLevelId = null;
+    /** The user's drawings are hidden (not deleted); see setDrawingsHidden. */
+    this.drawingsHidden = false;
 
     /*
      * Crosshair follows the pointer; hold Ctrl to magnet onto a price point.
@@ -699,7 +701,8 @@ export class CardChart {
       color: active ? LEVEL_COLOR_ACTIVE : LEVEL_COLOR,
       lineWidth: 1,
       lineStyle: 2, // LineStyle.Dashed -- distinguishes a drawn level from the series
-      axisLabelVisible: true,
+      lineVisible: !this.drawingsHidden,
+      axisLabelVisible: !this.drawingsHidden,
       axisLabelColor: active ? LEVEL_COLOR_ACTIVE : LEVEL_COLOR,
       axisLabelTextColor: '#0b0f17',
       title: '',
@@ -769,9 +772,26 @@ export class CardChart {
     }
   }
 
+  /**
+   * Hide or show everything the user drew -- levels, trend lines, Fibonacci,
+   * rectangles and range profiles -- without touching the stores. Hidden
+   * drawings are not grabbable either, so a drag cannot move a line the user
+   * cannot see.
+   */
+  setDrawingsHidden(hidden) {
+    this.drawingsHidden = !!hidden;
+    for (const [id, entry] of this.levels) {
+      entry.priceLine.applyOptions({ ...this.levelOptions(id), price: entry.priceLine.options().price });
+    }
+    this.rects.setHidden(hidden);
+    this.trends.setHidden(hidden);
+    this.fibLayer.setHidden(hidden);
+    this.vranges.setHidden(hidden);
+  }
+
   /** @returns {string|null} id of the level within grab distance of `y`. */
   levelAt(y) {
-    if (!this.priceSeries) return null;
+    if (!this.priceSeries || this.drawingsHidden) return null;
     let best = null;
     let bestDist = LEVEL_GRAB_PX;
     for (const [id, entry] of this.levels) {
