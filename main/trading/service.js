@@ -868,7 +868,7 @@ async function preview(req) {
     // than its size. TP/SL make no sense on an order that only closes.
     const pos = snap.position;
     const r2 = rules.reduceQuantity(
-      { positionAmt: pos ? pos.amt : 0, pct: Number(req.reducePct) || 0, notional: Number(req.notional), price: at, market },
+      { positionAmt: pos ? pos.amt : 0, pct: Number(req.reducePct) || 0, notional: Number(req.notional), qty: Number(req.qty) || 0, price: at, market },
       r
     );
     if (r2.error) reduceErrors.push(r2.error);
@@ -880,7 +880,10 @@ async function preview(req) {
       }
     }
   } else {
-    q = rules.quantityForNotional(Number(req.notional), at, r, { market });
+    // The ticket sends a quantity in coin mode, a notional in USDT mode.
+    q = Number(req.qty) > 0
+      ? rules.quantityOf(Number(req.qty), at, r, { market })
+      : rules.quantityForNotional(Number(req.notional), at, r, { market });
   }
   const qty = q ? q.qty : '0';
   if (state.client && state.connection === 'ready') await ensureSymbolMeta(symbol);

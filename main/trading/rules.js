@@ -123,6 +123,21 @@ function quantityForNotional(notional, price, rules, { market = false } = {}) {
 }
 
 /**
+ * A quantity typed in coins, floored to the step, with the notional it
+ * comes to at `price`. The ticket's coin mode sends this rather than a
+ * notional, so 0.235 ETH is 0.235 ETH and not whatever 0.235 x price / price
+ * floors to.
+ * @returns {{qty: string, qtyNum: number, notional: number}|null}
+ */
+function quantityOf(qty, price, rules, { market = false } = {}) {
+  if (!(qty > 0) || !(price > 0)) return null;
+  const q = roundQty(qty, rules, { market });
+  if (q === null) return null;
+  const qtyNum = Number(q);
+  return { qty: q, qtyNum, notional: qtyNum * price };
+}
+
+/**
  * Everything wrong with an order, as user-facing messages; empty means sendable.
  * `refPrice` is the price notional is judged at: the limit price, or the
  * current price for a market order (which is what Binance checks against).
@@ -189,12 +204,14 @@ function bracketFor(brackets, notional) {
  *
  * @returns {{qty: string, qtyNum: number, notional: number} | {error: string}}
  */
-function reduceQuantity({ positionAmt, pct, notional, price, market = false }, rules) {
+function reduceQuantity({ positionAmt, pct, notional, qty: wanted, price, market = false }, rules) {
   const size = Math.abs(Number(positionAmt));
   if (!(size > 0)) return { error: t('目前沒有倉位，不能下只減倉單') };
   let qty;
   if (pct > 0) {
     qty = roundQty((size * Math.min(100, pct)) / 100, rules, { market });
+  } else if (wanted > 0) {
+    qty = roundQty(wanted, rules, { market });
   } else {
     const q = quantityForNotional(notional, price, rules, { market });
     qty = q ? q.qty : null;
@@ -357,6 +374,7 @@ module.exports = {
   roundPrice,
   roundQty,
   quantityForNotional,
+  quantityOf,
   validateOrder,
   bracketFor,
   maxLeverage,

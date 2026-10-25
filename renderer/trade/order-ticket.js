@@ -39,6 +39,22 @@ const PCTS = [10, 25, 50, 100];
 const REDUCE_PCTS = [25, 50, 75, 100];
 /** The exchange recomputes its long/short ratios every 5 minutes. */
 const RATIO_REFRESH_MS = 5 * 60 * 1000;
+/** Where the amount unit (USDT or the coin) is remembered, across cards. */
+const UNIT_KEY = 'stockcard.ticketUnit';
+
+function savedUnit() {
+  try {
+    return localStorage.getItem(UNIT_KEY) === 'COIN' ? 'COIN' : 'USDT';
+  } catch {
+    return 'USDT';
+  }
+}
+
+/** A coin quantity for the field: enough decimals for any step, no float noise. */
+function qtyText(qty) {
+  if (!(qty > 0)) return '';
+  return String(Number(qty.toPrecision(8)));
+}
 
 function fmt(n, digits = 2) {
   if (n === null || n === undefined || !Number.isFinite(Number(n))) return '—';
@@ -87,6 +103,10 @@ export class OrderTicket {
     this.type = 'LIMIT';
     this.price = '';
     this.notional = '';
+    /** The amount field's unit: 'USDT' (notional) or 'COIN' (quantity). */
+    this.unit = savedUnit();
+    /** The quantity typed in coin mode; `notional` is unused then. */
+    this.qty = '';
     this.tpsl = false;
     this.tp = '';
     this.sl = '';
@@ -165,8 +185,18 @@ export class OrderTicket {
     );
     this.marketHint = el('div.tk-field.tk-field--hint', { hidden: true, text: t('以市價立即成交') });
 
-    this.notionalInput = numberInput({ placeholder: t('名目價值'), onInput: (v) => this.update({ notional: v, reducePct: null }) });
-    this.notionalInput.title = t('名目價值（倉位總值），保證金 = 名目價值 ÷ 槓桿');
+    this.notionalInput = numberInput({
+      placeholder: t('名目價值'),
+      onInput: (v) => this.update(this.unit === 'COIN' ? { qty: v, reducePct: null } : { notional: v, reducePct: null }),
+    });
+    this.amountLabel = el('span.tk-input__prefix', { text: t('金額') });
+    this.unitBtn = el('button.tk-input__unit.tk-unit', {
+      type: 'button',
+      onclick: (event) => {
+        event.preventDefault(); // a button inside a <label> would refocus the field
+        this.setUnit(this.unit === 'COIN' ? 'USDT' : 'COIN');
+      },
+    });
     // Same four buttons either way; their meaning (and labels) change with
     // reduce-only: a share of buying power, or a share of the position.
     this.pctBtns = PCTS.map((_, i) =>
@@ -260,9 +290,9 @@ export class OrderTicket {
         el(
           'label.tk-input',
           {},
-          el('span.tk-input__prefix', { text: t('金額') }),
+          this.amountLabel,
           this.notionalInput,
-          el('span.tk-input__unit', { text: 'USDT' }),
+          this.unitBtn,
           (this.defaultBtn = el('button.tk-input__btn.tk-default', {
             type: 'button',
             onclick: (event) => {
@@ -339,14 +369,21 @@ export class OrderTicket {
       this.reduceToggle.checked = false;
     }
     // The default amount, every time: a ticket opened in a hurry is ready to send.
-    if (!this.reduceOnly && this.defaultNotional) {
-      this.notional = String(this.defaultNotional);
-      this.notionalInput.value = this.notional;
-    }
     this.root.hidden = false;
     if (price > 0) {
       this.setType('LIMIT', { silent: true });
       this.setPrice(price, { silent: true });
+    }
+    // After the price: in coin mode the default USDT becomes a quantity at it.
+    if (!this.reduceOnly && this.defaultNotional) {
+      if (this.unit === 'COIN') {
+        const at = this.refPrice();
+        this.qty = at > 0 ? qtyText(this.defaultNotional / at) : '';
+        this.notionalInput.value = this.qty;
+      } else {
+        this.notional = String(this.defaultNotional);
+        this.notionalInput.value = this.notional;
+      }
     }
     this.disarm();
     if (switched || !this.ratio) this.loadRatio();
@@ -399,7 +436,7 @@ export class OrderTicket {
 
   renderMood() {
     const f = this.hooks.getFunding ? this.hooks.getFunding() : null;
-    const notional = this.reduceOnly ? 0 : Number(this.notional) || 0;
+    const notional = this.reduceOnly ? 0 : this.amountUsd();
     const sum = fundingSummary(f, notional);
     this.moodBox.hidden = this.reduceOnly || (!sum && !this.ratio);
     if (sum) {
@@ -542,8 +579,64 @@ export class OrderTicket {
     // The amount meant buying power a moment ago; it means nothing now.
     this.reducePct = null;
     this.notional = '';
+    this.qty = '';
     this.notionalInput.value = '';
     this.update({});
+  }
+
+  /* --------------------------------------------------------------- amount */
+
+  /** The price an amount is judged at: the limit price, or the last trade. */
+  refPrice() {
+    if (this.type === 'LIMIT' && Number(this.price) > 0) return Number(this.price);
+    const { last } = this.hooks.getMarket();
+    return last || 0;
+  }
+
+  /** The amount in USDT, whichever unit it was typed in. */
+  amountUsd() {
+    if (this.unit !== 'COIN') return Number(this.notional) || 0;
+    const qty = Number(this.qty);
+    const at = this.refPrice();
+    return qty > 0 && at > 0 ? qty * at : 0;
+  }
+
+  /**
+   * Switch the amount field between USDT and the coin, converting what is
+   * typed at the ticket's price. Remembered for every card.
+   */
+  setUnit(unit) {
+    if (unit === this.unit) return;
+    const at = this.refPrice();
+    if (unit === 'COIN') {
+      const usd = Number(this.notional);
+      this.qty = usd > 0 && at > 0 ? qtyText(usd / at) : '';
+      this.notionalInput.value = this.qty;
+    } else {
+      const qty = Number(this.qty);
+      this.notional = qty > 0 && at > 0 ? String(Math.round(qty * at * 100) / 100) : '';
+      this.notionalInput.value = this.notional;
+    }
+    this.unit = unit;
+    try {
+      localStorage.setItem(UNIT_KEY, unit);
+    } catch {
+      /* remembered for this ticket only */
+    }
+    this.update({});
+    this.notionalInput.focus();
+  }
+
+  /** Put a USDT amount in the field, in whichever unit it shows. */
+  fillUsd(usd) {
+    if (this.unit === 'COIN') {
+      const at = this.refPrice();
+      this.qty = at > 0 ? qtyText(usd / at) : '';
+      this.notionalInput.value = this.qty;
+    } else {
+      this.notional = String(usd);
+      this.notionalInput.value = this.notional;
+    }
   }
 
   /**
@@ -552,6 +645,7 @@ export class OrderTicket {
    */
   async saveDefault() {
     const value = Number(this.notional);
+    if (this.unit === 'COIN') return; // the default is kept in USDT; the button is hidden
     const next = value > 0 ? value : null;
     if (next === this.defaultNotional || (!next && !this.defaultNotional)) return;
     this.defaultBtn.disabled = true;
@@ -569,8 +663,13 @@ export class OrderTicket {
       const { last } = this.hooks.getMarket();
       const at = this.type === 'LIMIT' && Number(this.price) > 0 ? Number(this.price) : last;
       if (!pos || !pos.amt || !(at > 0)) return;
-      this.notional = String(Math.round(Math.abs(pos.amt) * at * (pct / 100) * 100) / 100);
-      this.notionalInput.value = this.notional;
+      if (this.unit === 'COIN') {
+        this.qty = qtyText(Math.abs(pos.amt) * (pct / 100));
+        this.notionalInput.value = this.qty;
+      } else {
+        this.notional = String(Math.round(Math.abs(pos.amt) * at * (pct / 100) * 100) / 100);
+        this.notionalInput.value = this.notional;
+      }
       this.update({ reducePct: pct });
       return;
     }
@@ -579,8 +678,7 @@ export class OrderTicket {
     // A hair under 100%: fees and the mark/last gap would otherwise make a
     // "100%" order fail for insufficient margin.
     const value = Math.floor(max * (pct === 100 ? 0.98 : pct / 100));
-    this.notional = String(value);
-    this.notionalInput.value = this.notional;
+    this.fillUsd(value);
     this.update({});
   }
 
@@ -604,7 +702,9 @@ export class OrderTicket {
       side,
       type: this.type,
       price: this.type === 'LIMIT' ? Number(this.price) : undefined,
-      notional: Number(this.notional),
+      notional: this.amountUsd(),
+      // Coin mode sends the quantity itself, so it is not re-derived from USDT.
+      qty: this.unit === 'COIN' && Number(this.qty) > 0 ? Number(this.qty) : undefined,
       tp: !this.reduceOnly && this.tpsl && Number(this.tp) > 0 ? Number(this.tp) : null,
       sl: !this.reduceOnly && this.tpsl && Number(this.sl) > 0 ? Number(this.sl) : null,
       reduceOnly: this.reduceOnly,
@@ -617,7 +717,7 @@ export class OrderTicket {
   async refresh() {
     if (!this.isOpen || !this.symbol) return;
     const seq = ++this.seq;
-    if (!(Number(this.notional) > 0) || (this.type === 'LIMIT' && !(Number(this.price) > 0))) {
+    if (!(this.amountUsd() > 0) || (this.type === 'LIMIT' && !(Number(this.price) > 0))) {
       this.previews = { BUY: null, SELL: null };
       this.render();
       this.emitDraft();
@@ -657,9 +757,20 @@ export class OrderTicket {
     this.tpslBox.hidden = this.reduceOnly;
     this.liqBox.hidden = this.reduceOnly;
     this.root.classList.toggle('is-reduce-only', this.reduceOnly);
+    const coin = this.unit === 'COIN';
+    this.unitBtn.textContent = coin ? `${this.baseAsset || t('幣')} ⇄` : 'USDT ⇄';
+    this.unitBtn.title = coin
+      ? t('目前以 {asset} 數量下單，點一下改用 USDT 金額', { asset: this.baseAsset })
+      : t('目前以 USDT 金額下單，點一下改用 {asset} 數量', { asset: this.baseAsset || t('幣') });
+    this.amountLabel.textContent = coin ? t('數量') : t('金額');
+    this.notionalInput.placeholder = coin ? t('數量') : t('名目價值');
+    this.notionalInput.title = coin
+      ? t('要買賣的 {asset} 數量（會依交易所的最小單位無條件捨去）', { asset: this.baseAsset })
+      : t('名目價值（倉位總值），保證金 = 名目價值 ÷ 槓桿');
     const def = this.defaultNotional;
     const isDefault = !!def && Number(this.notional) === def;
-    this.defaultBtn.hidden = this.reduceOnly;
+    // The default amount is kept in USDT; in coin mode the button steps aside.
+    this.defaultBtn.hidden = this.reduceOnly || coin;
     this.defaultBtn.classList.toggle('is-active', isDefault);
     this.defaultBtn.textContent = isDefault ? t('預設 ✓') : Number(this.notional) > 0 ? t('設預設') : def ? t('清除預設') : t('設預設');
     this.defaultBtn.title = isDefault
@@ -695,9 +806,13 @@ export class OrderTicket {
         ? t('≈ {qty} · 倉位 {size} · 不需保證金', { qty: `${ok.qty} ${this.baseAsset}`, size })
         : t('只減倉 · 倉位 {size}', { size });
     } else if (any && any.qty !== undefined) {
-      this.qtyEl.textContent = t('≈ {qty} · 保證金 {margin} · {avail}', { qty: `${any.qty} ${this.baseAsset}`, margin: fmt(any.margin), avail });
+      // The other unit than the one typed: what the amount comes to.
+      const other = coin ? `${fmt(any.notional)} USDT` : `${any.qty} ${this.baseAsset}`;
+      this.qtyEl.textContent = t('≈ {qty} · 保證金 {margin} · {avail}', { qty: other, margin: fmt(any.margin), avail });
     } else {
-      this.qtyEl.textContent = t('名目價值 USDT · {avail}', { avail });
+      this.qtyEl.textContent = coin
+        ? t('{asset} 數量 · {avail}', { asset: this.baseAsset, avail })
+        : t('名目價值 USDT · {avail}', { avail });
     }
     this.renderMood();
     this.liqLong.textContent = buy && buy.liq ? fmt(buy.liq, this.priceDigits()) : '—';
@@ -725,7 +840,7 @@ export class OrderTicket {
     // Show the error that matters: the armed side's, or one both sides share.
     const shown = this.armed ? errorsOf(this.previews[this.armed]) : longErr.filter((e) => shortErr.includes(e));
     const visible = shown.filter((e) => e !== NO_AMOUNT);
-    const message = this.submitError || (Number(this.notional) ? visible[0] : '');
+    const message = this.submitError || (this.amountUsd() ? visible[0] : '');
     this.errorEl.hidden = !message;
     this.errorEl.textContent = message || '';
 

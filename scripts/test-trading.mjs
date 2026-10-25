@@ -52,6 +52,14 @@ t('notional converts to a floored quantity and the real notional', () => {
   assert.ok(Math.abs(q.notional - 421) < 1e-6);
 });
 
+t('a quantity typed in coins floors to the step and is not re-derived from USDT', () => {
+  const q = r.quantityOf(0.235, 2551.52, BTC);
+  assert.equal(q.qty, '0.235');
+  assert.ok(Math.abs(q.notional - 0.235 * 2551.52) < 1e-9);
+  assert.equal(r.quantityOf(0.0069999, 84200, BTC).qty, '0.006');
+  assert.equal(r.quantityOf(0, 84200, BTC), null);
+});
+
 t('validation: below min notional and zero quantity', () => {
   const e1 = r.validateOrder({ side: 'BUY', type: 'LIMIT', price: '84200.0', qty: '0.001', refPrice: 84200 }, BTC);
   assert.ok(e1.some((m) => m.includes('100 USDT')), e1.join());
@@ -188,6 +196,11 @@ t('reduce-only: a notional larger than the position is refused, not trimmed', ()
   assert.ok(/超過目前倉位/.test(res.error), res.error);
   const ok = r.reduceQuantity({ positionAmt: 0.01, notional: 400, price: 80000 }, BTC);
   assert.equal(ok.qty, '0.005');
+});
+
+t('reduce-only: a coin quantity closes exactly that much', () => {
+  assert.equal(r.reduceQuantity({ positionAmt: -0.01, qty: 0.004, price: 80000 }, BTC).qty, '0.004');
+  assert.ok(/超過目前倉位/.test(r.reduceQuantity({ positionAmt: 0.01, qty: 0.02, price: 80000 }, BTC).error));
 });
 
 t('reduce-only: no position, no order', () => {
