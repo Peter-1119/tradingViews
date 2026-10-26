@@ -259,7 +259,15 @@ export class CardChart {
         secondsVisible: false,
         rightOffset: DEFAULT_RIGHT_OFFSET,
         barSpacing: DEFAULT_BAR_SPACING,
-        minBarSpacing: 1,
+        // Zoomed out as far as TradingView goes: under a pixel a bar, each
+        // candle is little more than its high-low line, and a 700px card
+        // holds some 7,000 of them -- weeks of 5m, the shape of the trend.
+        minBarSpacing: 0.1,
+        // Zoom holds the right edge, as TradingView does, rather than the bar
+        // under the cursor: zoomed far out from the middle of the plot, the
+        // latest candles were otherwise squeezed into the centre with half
+        // the card empty to their right.
+        rightBarStaysOnScroll: true,
         fixLeftEdge: false,
         lockVisibleTimeRangeOnResize: true,
         tickMarkFormatter: (time, tickMarkType) => this.formatters.tickMark(time, tickMarkType),

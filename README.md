@@ -32,7 +32,7 @@ On first launch a BTCUSDT 1-minute candlestick card opens automatically.
 | Resize | Drag the diagonal grip in the bottom-right corner |
 | Visible high / low | The highest and lowest points currently on screen are labeled with their price automatically (candles use high / low; line and area charts use close), updating live as you scroll or zoom |
 | Read a price | The crosshair follows the cursor; the price axis on the right shows the price under it |
-| Zoom time | Mouse wheel on the chart, or drag the time axis below |
+| Zoom time | Mouse wheel on the chart, or drag the time axis below. Zooming keeps the right edge where it is, as on TradingView. Zoomed all the way out a candle is a tenth of a pixel, little more than its high-low line, so a wide card shows about a month of 5m bars; older history loads in pages as wide as the screen until the view is filled |
 | Zoom price | **Mouse wheel** or **drag up/down** on the price axis on the right. Stretching it turns autoscale off, after which dragging on the chart pans freely in any direction. **Double-click the price axis** to turn autoscale back on |
 | Reset view | After you move the view, a reset button appears where the two axes meet; or press `Alt+R`. Restores autoscale and the default bar width and jumps back to the latest bar **in one step** (however far back you have scrolled) |
 | Last price | The price label and dashed line on the price axis always show the **latest** bar's price, even while you look at history. When the last price is off screen, the label is pinned to the top or bottom of the price axis as `▲ price` / `▼ price` |

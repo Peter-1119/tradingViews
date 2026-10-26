@@ -48,8 +48,13 @@ const UNDO_DEPTH = 50;
  * the user was actually working in should undo.
  */
 let lastActive = null;
-/** How many more bars to pull per backfill, and how near the edge triggers one. */
+/**
+ * How many more bars to pull per backfill, and how near the edge triggers one.
+ * Zoomed far out a page is as wide as the screen instead (up to
+ * HISTORY_PAGE_MAX), and pages chain until the view is filled.
+ */
 const HISTORY_PAGE = 500;
+const HISTORY_PAGE_MAX = 5000;
 const HISTORY_PREFETCH_BARS = 20;
 
 /**
@@ -896,7 +901,12 @@ export class CardView {
     const feed = this.feed;
     const step = intervalToMs(interval) / 1000;
     const oldest = bars[0].time;
-    const from = oldest - step * HISTORY_PAGE;
+    // A page at least as wide as the view, so zooming out fills in a few
+    // requests rather than one 500-bar page per scroll.
+    const range = this.chart.chart.timeScale().getVisibleLogicalRange();
+    const visible = range ? Math.ceil(range.to - range.from) : 0;
+    const page = Math.min(HISTORY_PAGE_MAX, Math.max(HISTORY_PAGE, visible));
+    const from = oldest - step * page;
     const to = oldest - step;
     if (to <= 0) return;
 
@@ -932,15 +942,25 @@ export class CardView {
         this.historyExhausted = true;
         return;
       }
-      this.chart.prependBars(older);
+      // Nothing older than what is loaded came back: chaining would spin.
+      if (!this.chart.prependBars(older)) {
+        this.historyExhausted = true;
+        return;
+      }
       this.renderFibs();
       // The OI pane has to cover the bars that just arrived too.
       this.loadOI();
     } catch (err) {
       console.error('[card] history extend failed', err);
+      return;
     } finally {
       this.loadingMore = false;
     }
+    // Still short of the left edge (zoomed out further than one page): the
+    // range event that would ask again fired while this one was in flight.
+    if (this.destroyed || seq !== this.loadSeq || !this.chart) return;
+    const after = this.chart.chart.timeScale().getVisibleLogicalRange();
+    if (after && after.from < HISTORY_PREFETCH_BARS) this.extendHistory();
   }
 
   /* --------------------------------------------------------- volume profile */
