@@ -67,6 +67,13 @@ const OI_PERIOD_MS = { '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
 const PROACTIVE_RECYCLE_MS = 23 * 60 * 60 * 1000; // stay ahead of the 24h cut
+/**
+ * A live socket is never quiet: the tickers alone push every second (and
+ * mark price every 3s on perps). One silent this long is dead without having
+ * said so -- a half-open TCP after sleep or a network switch -- and `onclose`
+ * may not come for many minutes. Reconnecting also backfills what was missed.
+ */
+const SILENT_SOCKET_MS = 60 * 1000;
 const SYMBOLS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -204,6 +211,8 @@ export class BinanceProvider extends DataProvider {
     this.reconnectAttempt = 0;
     this.reconnectTimer = null;
     this.recycleTimer = null;
+    this.watchdogTimer = null;
+    this.lastMessageAt = 0;
     this.requestId = 1;
     this.intentionalClose = false;
 
@@ -813,11 +822,15 @@ export class BinanceProvider extends DataProvider {
         this.reconnect();
       }, PROACTIVE_RECYCLE_MS);
 
+      this.lastMessageAt = Date.now();
+      this.armWatchdog(ws);
+
       if (wasReconnect) this.backfillAll();
     };
 
     ws.onmessage = (event) => {
       if (this.ws !== ws) return;
+      this.lastMessageAt = Date.now();
       let msg;
       try {
         msg = JSON.parse(event.data);
@@ -837,16 +850,33 @@ export class BinanceProvider extends DataProvider {
       if (this.ws !== ws) return;
       this.ws = null;
       clearTimeout(this.recycleTimer);
+      clearTimeout(this.watchdogTimer);
       if (this.intentionalClose || this.streamRefs.size === 0) return;
       this.setStatus(STATUS.RECONNECTING);
       this.scheduleReconnect();
     };
   }
 
+  /** Reconnect a socket that has gone silent (see SILENT_SOCKET_MS). */
+  armWatchdog(ws) {
+    clearTimeout(this.watchdogTimer);
+    this.watchdogTimer = setTimeout(() => {
+      if (this.ws !== ws) return;
+      const quiet = Date.now() - this.lastMessageAt;
+      if (quiet >= SILENT_SOCKET_MS && this.streamRefs.size > 0) {
+        this.log(`no message for ${Math.round(quiet / 1000)}s, reconnecting`);
+        this.reconnect();
+        return;
+      }
+      this.armWatchdog(ws);
+    }, SILENT_SOCKET_MS + 5000);
+  }
+
   disconnect(nextStatus = STATUS.IDLE) {
     this.intentionalClose = true;
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.recycleTimer);
+    clearTimeout(this.watchdogTimer);
     if (this.ws) {
       try {
         this.ws.close();
@@ -860,6 +890,7 @@ export class BinanceProvider extends DataProvider {
 
   reconnect() {
     this.intentionalClose = true;
+    clearTimeout(this.watchdogTimer);
     if (this.ws) {
       try {
         this.ws.close();
@@ -921,7 +952,9 @@ export class BinanceProvider extends DataProvider {
    * likes and the card still sees exactly one repaint per window.
    */
   deliverBar(sub, { immediate = false } = {}) {
-    if (!sub.liveBar) return;
+    // Held while the bars before it are fetched: the chart drops a bar older
+    // than its newest, so they must land first (see fillGap).
+    if (!sub.liveBar || sub.filling) return;
 
     const waited = Date.now() - sub.lastEmitAt;
     if (immediate || waited >= LIVE_TICK_MS) {
@@ -946,6 +979,13 @@ export class BinanceProvider extends DataProvider {
       const interval = data.k.i;
       for (const sub of this.subs.values()) {
         if (sub.symbol !== symbol || sub.interval !== interval) continue;
+        // A kline more than one bar past the last one seen: the stream went
+        // quiet without the socket closing, so no reconnect backfilled it.
+        // Fetch the bars in between before this one goes out.
+        const step = intervalToMs(interval) / 1000;
+        if (!sub.filling && sub.lastBarTime && bar.time > sub.lastBarTime + step) {
+          this.fillGap(sub, sub.lastBarTime, bar.time);
+        }
         sub.lastBarTime = Math.max(sub.lastBarTime, bar.time);
         sub.liveBar = bar;
         this.deliverBar(sub, { immediate: true });
@@ -1023,6 +1063,31 @@ export class BinanceProvider extends DataProvider {
   /* ------------------------------------------------------------ backfill */
 
   /**
+   * The bars from `fromSec` (the last one seen, which may never have had its
+   * closing frame) up to `toSec` (the new one, not included), from REST, ahead
+   * of the live bar. Live delivery is held until they land.
+   */
+  async fillGap(sub, fromSec, toSec) {
+    sub.filling = true;
+    const step = intervalToMs(sub.interval) / 1000;
+    this.log(`${sub.symbol} ${sub.interval}: ${Math.round((toSec - fromSec) / step) - 1} bars missing, fetching`);
+    try {
+      const bars = await this.getRange(sub.symbol, sub.interval, fromSec * 1000, toSec * 1000 - 1);
+      if (![...this.subs.values()].includes(sub)) return;
+      for (const b of bars) {
+        if (b.time < fromSec || b.time >= toSec) continue;
+        b.closed = true;
+        if (sub.handlers.onBar) sub.handlers.onBar(b);
+      }
+    } catch (err) {
+      this.logger.error('[binance] gap fill failed', sub.symbol, err);
+    } finally {
+      sub.filling = false;
+      this.deliverBar(sub, { immediate: true });
+    }
+  }
+
+  /**
    * After a reconnect, pull the bars we missed and replay them so the chart is
    * continuous instead of jumping from the pre-outage bar to the live one.
    */
@@ -1069,6 +1134,7 @@ export class BinanceProvider extends DataProvider {
     for (const entry of this.footprints.values()) entry.collector.stop();
     this.footprints.clear();
     this.subs.clear();
+    clearTimeout(this.watchdogTimer);
     for (const entry of this.oiPolls.values()) clearTimeout(entry.timer);
     this.oiPolls.clear();
     this.streamRefs.clear();

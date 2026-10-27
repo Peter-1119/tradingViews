@@ -90,6 +90,8 @@ const OI_MAX_FETCH_RANGES = 8;
  * (recheckOIHistory), and the last day fetched again now and then and written
  * over what is cached, for corrections that land while the app runs.
  */
+/** How often a shown OI pane fills holes from the exchange's history. */
+const OI_REFRESH_MS = 5 * 60 * 1000;
 const OI_RECHECK_SEC = 24 * 3600;
 const OI_RECHECK_EVERY_MS = 30 * 60 * 1000;
 /**
@@ -1183,9 +1185,14 @@ export class CardView {
    * the hub while the app runs, so there is nothing to fetch for it.
    */
   async loadOI() {
+    clearTimeout(this.oiRefreshTimer);
     if (!this.chart || !this.oiApplies()) return;
     const bars = this.chart.bars;
     if (!bars.length) return;
+    // Again every few minutes while shown: a hole left while the computer
+    // slept (no polls, no recording) is filled from the exchange's 5m history
+    // without waiting for a reload. With nothing missing it costs no request.
+    this.oiRefreshTimer = setTimeout(() => this.loadOI(), OI_REFRESH_MS);
     const seq = ++this.oiSeq;
     const key = this.dataKey();
     const { symbol, interval } = this.card;
@@ -2587,6 +2594,7 @@ export class CardView {
       window.removeEventListener('mousemove', this.onFibMove);
       window.removeEventListener('mouseup', this.onFibUp);
     }
+    clearTimeout(this.oiRefreshTimer);
     clearTimeout(this.fibProjectTimer);
     clearInterval(this.profileTimer);
     clearTimeout(this.periodScrollTimer);

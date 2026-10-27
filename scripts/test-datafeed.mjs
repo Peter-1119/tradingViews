@@ -437,6 +437,42 @@ await test('bars missed during an outage are backfilled before live bars resume'
   );
 });
 
+await test('a kline that skips bars without a reconnect fills the gap from REST first', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  const bars = [];
+  provider.subscribe('card', 'BTCUSDT', '1m', { onBar: (b) => bars.push(b) });
+  sockets[0].open();
+
+  const t0 = Date.now() - 30 * MINUTE;
+  sockets[0].emit(klineEvent('BTCUSDT', '1m', t0, 100, false));
+  // The stream goes quiet for 25 minutes -- no close, no reconnect -- then resumes.
+  klineResponder = (url) => (url.includes('/klines') ? klines(t0, 25, 200) : []);
+  const resumed = t0 + 25 * MINUTE;
+  sockets[0].emit(klineEvent('BTCUSDT', '1m', resumed, 300, false));
+  await flush();
+  await flush();
+
+  const times = bars.map((b) => b.time);
+  assert.equal(times[times.length - 1], resumed / 1000, 'the live bar comes last');
+  assert.ok(times.every((t, i) => i === 0 || t >= times[i - 1]), 'never out of order');
+  for (let m = 1; m < 25; m++) assert.ok(times.includes((t0 + m * MINUTE) / 1000), `bar ${m} of the gap is missing`);
+  assert.ok(bars.filter((b) => b.time === t0 / 1000).some((b) => b.closed), 'the last bar seen is closed with its final values');
+});
+
+await test('a socket silent for a minute is reconnected; a talking one is left alone', async () => {
+  const provider = new BinanceProvider({ logger: silent });
+  provider.subscribe('card', 'BTCUSDT', '1m', { onBar() {} });
+  sockets[0].open();
+  for (let i = 0; i < 70; i++) {
+    advance(1000);
+    sockets[0].emit(klineEvent('BTCUSDT', '1m', Date.now() - (Date.now() % MINUTE), 100, false));
+  }
+  assert.equal(sockets.length, 1, 'messages keep arriving: no reconnect');
+  advance(70_000);
+  advance(1000);
+  assert.ok(sockets.length >= 2, 'a minute of silence opens a new socket');
+});
+
 await test('streams added while the socket is still connecting are subscribed once it opens', async () => {
   const provider = new BinanceProvider({ logger: silent });
   // The 4h overlay subscribes first and opens the socket...
