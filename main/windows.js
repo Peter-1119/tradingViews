@@ -24,6 +24,7 @@ const state = {
   cards: new Map(), // cardId -> BrowserWindow
   board: null,
   journal: null,
+  guide: null,
   allHidden: false,
   clickThrough: false,
   // Set by shutdown(). Teardown fires the same events as a user closing one
@@ -172,7 +173,7 @@ function contentWindows() {
  * would drop every market connection.
  */
 function reloadContent() {
-  for (const win of [...contentWindows(), state.journal]) {
+  for (const win of [...contentWindows(), state.journal, state.guide]) {
     if (canSend(win)) win.webContents.reload();
   }
 }
@@ -342,6 +343,48 @@ function openJournal() {
     state.journal = null;
   });
   state.journal = win;
+  return win;
+}
+
+/* -------------------------------------------------------- guide window */
+
+/**
+ * Shortcuts & tips: like the journal, an ordinary framed window -- read,
+ * kept beside the cards while learning them, not hidden with them.
+ */
+function openGuide() {
+  if (state.guide && !state.guide.isDestroyed()) {
+    if (state.guide.isMinimized()) state.guide.restore();
+    state.guide.show();
+    state.guide.focus();
+    return state.guide;
+  }
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(1120, area.width - 80);
+  const height = Math.min(720, area.height - 80);
+  const win = new BrowserWindow({
+    width,
+    height,
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
+    minWidth: 420,
+    minHeight: 360,
+    title: t('快捷鍵與提示'),
+    backgroundColor: '#0b0f17',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: baseWebPreferences(),
+  });
+  win.setMenu(null);
+  win.loadURL(url('guide.html'));
+  win.once('ready-to-show', () => {
+    win.show();
+    if (state.openDevTools) win.webContents.openDevTools({ mode: 'detach' });
+  });
+  win.on('closed', () => {
+    state.guide = null;
+  });
+  state.guide = win;
   return win;
 }
 
@@ -762,5 +805,6 @@ module.exports = {
   windowFromEvent,
   contentWindows,
   openJournal,
+  openGuide,
   sendToJournal,
 };

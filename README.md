@@ -6,6 +6,12 @@ Transparent desktop ticker cards. Frameless, translucent, optionally always-on-t
 
 **Electron 43 + TradingView Lightweight Charts v5 + Binance public market data API** (no sign-up, no API key)
 
+![A perpetual card: candles with the 4H overlay, opens, a trend line and levels, a paper long with its TP / SL and a resting limit order, the volume split into taker buys and sells, and the toolbar on the left](docs/images/overview.png)
+
+| Order ticket | Footprint |
+| --- | --- |
+| ![The order ticket: limit price, amount, TP / SL with their PnL, funding and the long/short ratio, estimated liquidation](docs/images/order-ticket.png) | ![Footprint: taker sells and buys per price inside each 1m candle, the POC boxed, delta along the bottom](docs/images/footprint.png) |
+
 **Interface language:** the app starts in English. To switch to Traditional Chinese, open a card's settings (gear icon) and, in "Global settings", set the "語言 Language" row to "中文"; the windows reload. The UI labels quoted below are the English ones; the original Chinese label is given in parentheses where it helps.
 
 ---
@@ -23,6 +29,27 @@ npm run dist      # build a Windows installer + portable build -> release/
 ```
 
 On first launch a BTCUSDT 1-minute candlestick card opens automatically.
+
+## Shortcuts & tips
+
+Press **`F1`** on any card (or the **?** in its title bar, or tray menu → "Shortcuts & tips") for a one-page cheat sheet of every key and gesture, grouped by what you are doing: reading the chart, drawing, symbols & alerts, trading and windows. Type to filter it. The two global shortcuts show as you have set them.
+
+![The shortcuts & tips window](docs/images/guide.png)
+
+The ones worth learning first:
+
+| Keys | Does |
+| --- | --- |
+| `Alt+1` … `Alt+0` | Switch to watchlist entry 1–10 |
+| Double-click the chart | Add a horizontal line (`Ctrl` snaps to OHLC) |
+| `Shift` + drag | Measure price, % and time |
+| `Alt+A` | Price alert at the cursor |
+| `Alt+R` | Reset the view to the latest bar |
+| `Alt+H` | Hide / show all drawings |
+| `Ctrl+Z` | Undo a drawing change |
+| `Esc` | Back to the cursor; cancels a drag or a half-drawn line |
+| Long / Short, then `Enter` | Send the order (within 3 seconds) |
+| `Ctrl+Alt+S` | Show / hide every card (global) |
 
 ## Usage
 
@@ -64,6 +91,7 @@ On first launch a BTCUSDT 1-minute candlestick card opens automatically.
 | Drawing colors | **Right-click** a horizontal line, trend line or rectangle for a row of colors: default blue, **green** (support), **red** (resistance), orange, yellow, purple and white, e.g. one color for a weekly level and another for an intraday one. The current color is ringed. The color is saved with the drawing (it stays across restarts and intervals, on spot and perp alike), and `Ctrl+Z` undoes a change. Right-clicking anywhere else still opens the settings panel |
 | Hide drawings | The **eye** icon in the toolbar (or `Alt+H`): hides all horizontal lines, trend lines, Fib retracements, rectangles and fixed range volume profiles at once for a clean chart; press again to bring them all back. They are only **not drawn**, not deleted, and the state is saved in the card settings (still hidden after a restart). Hidden lines can't be grabbed, so you won't drag a line you can't see; picking up a drawing tool, adding a horizontal line or pressing `Ctrl+Z` while hidden shows them again, so a new line doesn't vanish as soon as you let go. Price alerts, position / order lines, Opens and Highs/Lows are not drawings and stay visible |
 | Undo | `Ctrl+Z` undoes adding, moving and deleting horizontal lines, trend lines, Fib retracements, rectangles and fixed range volume profiles (e.g. a line dragged by accident while dragging the time axis). Each card keeps its own history; switching symbols clears it |
+| Shortcuts & tips | `F1` on a card, the **?** in the title bar, or tray menu → "Shortcuts & tips" |
 | Open settings | The gear button, or right-click the card |
 | Close settings | `Esc`, right-click again, or the ✕ in the top-right of the panel |
 | Clock | The title bar shows the time to the second (`HH:MM:SS`) in its center, in the same time zone as the chart (settings → "Time zone"); it ticks on the system clock's second. Settings → Global settings → "Title bar clock": **Always** (the default — readable at a glance without touching the card), **On hover** (with the rest of the title bar), or **Off**. While the title bar is shown on hover, the clock moves into the gap between the symbol and the price if the center is taken, and steps aside on a card too narrow for any gap (around 450px and below) rather than cover them |
@@ -208,7 +236,9 @@ Keys (the HMAC secret, or the self-generated private key) are encrypted with Win
 | **Market reverse** | **Double-press** "**Market reverse**" on the position bar: the first press turns the button into a blue "Confirm reverse→Short", and a second press within 3 seconds reverses immediately without opening a panel (the same double-press confirmation as "Close"). If the position changes between the two presses, the confirmation is void and you have to start again |
 | **Limit reverse** | "**Limit reverse**" on the position bar opens the reverse panel (directly in limit mode), headed "Long 0.01 → Short 0.01". Choose the price by clicking the chart, typing, or dragging the "Reverse price" line; a long can only sell **above** the current price and a short can only buy **below** it (the wrong side would fill immediately, so the panel blocks it and asks you to use market instead). Once placed, the chart label reads "Rev. sell / Rev. buy", and you can drag it to reprice or press ✕ to cancel. You can optionally add **TP / SL for the new position** (for a limit reverse, placed only after it fills) |
 
-**How a reverse is sent**: just **one** order in the opposite direction for twice the position size (long 0.01 → sell 0.02: the first 0.01 closes, the next 0.01 opens a short), not two orders "close, then open". It fills once, with no flat gap in between; if margin is insufficient, Binance rejects the whole order and **the position is unchanged** — you can't end up flat with "close succeeded, open failed". Fees are the same either way: twice the size. Safeguards:
+**How a reverse is sent**: normally **one** order in the opposite direction for twice the position size (long 0.01 → sell 0.02: the first 0.01 closes, the next 0.01 opens a short), not two orders "close, then open". It fills once, with no flat gap in between. Fees are the same either way: twice the size.
+
+**When the margin can't take one order**: the old position's margin is only freed once the order fills, so the opening half has to fit beside it — a position using about half the balance or more can't. Then the reverse goes as **two orders**: a reduce-only close, then an open of the same size. The app judges this from the last account read (opening half ÷ leverage + taker fee, with 2% headroom), and if Binance still answers `-2019` the single order did nothing and it falls back to two. A **limit** reverse in two rests the reduce-only close at your price; once it has filled in full and the position is flat, the open goes in at the same price (filling at once at that price or better if the market is through it, otherwise resting there), carrying the reverse's TP / SL. If the close is cancelled, part-filled or leaves a position, the open is not sent; if the open fails you are flat, and the notice says so. Safeguards:
 
 - **The size you confirm is the size that's sent**: the panel shows "Long 0.01"; the position is re-fetched from Binance before sending, and if the size differs nothing is sent and you're asked to confirm again.
 - **The original position's TP/SL and reduce-only orders are canceled only after the reverse fills.** A long's stop loss is a "sell", which is meaningless once the position is reversed to short, so it's cleaned up automatically; but until the fill it still protects the original position, so a pending limit reverse leaves it alone. It's also cleaned up on a partial fill that has already crossed zero.
@@ -283,6 +313,7 @@ renderer/
   cardview.js         card component (shared by both modes)
   chart.js            lightweight-charts v5 wrapper
   journal.html/js     paper trading journal window
+  guide.html/js       shortcuts & tips window (F1)
   i18n.js             t(): looks up English in i18n/en.json, falls back to the Chinese source string
   i18n/en.json        Chinese UI string -> English
   footprint.js        footprint rows, delta, POC, imbalances (footprint-primitive.js draws them)

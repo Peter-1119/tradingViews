@@ -198,6 +198,11 @@ function buildMenu() {
     },
     { type: 'separator' },
     {
+      label: t('快捷鍵與提示'),
+      click: () => windows.openGuide(),
+    },
+    { type: 'separator' },
+    {
       label: t('結束程式'),
       click: () => {
         app.quit();

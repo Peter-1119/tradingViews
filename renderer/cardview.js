@@ -231,6 +231,13 @@ export class CardView {
       onclick: () => this.onPatch({ alwaysOnTop: !this.card.alwaysOnTop }),
     });
 
+    this.helpBtn = el('button.sc-icon-btn.card__help', {
+      type: 'button',
+      title: t('快捷鍵與提示 (F1)'),
+      text: '?',
+      onclick: () => window.stockcard.openGuide(),
+    });
+
     this.gearBtn = el('button.sc-icon-btn', {
       type: 'button',
       title: t('設定'),
@@ -256,6 +263,7 @@ export class CardView {
       'div.card__tools',
       {},
       this.windowControls ? this.pinBtn : null,
+      this.helpBtn,
       this.gearBtn,
       this.lockBtn,
       this.closeBtn
@@ -484,6 +492,18 @@ export class CardView {
     this.loadLevels();
 
     await this.loadData();
+    this.hintGuideOnce();
+  }
+
+  /** The first time the app runs, say where the shortcuts are -- once, on one card. */
+  hintGuideOnce() {
+    try {
+      if (localStorage.getItem('guideHinted')) return;
+      localStorage.setItem('guideHinted', '1');
+    } catch {
+      return;
+    }
+    this.notify(t('按 F1 或標題列的 ? 查看快捷鍵與提示'), 8000);
   }
 
   /* ----------------------------------------------------------------- tools */
@@ -1587,6 +1607,12 @@ export class CardView {
     window.addEventListener('keydown', this.onUndoKey);
 
     this.onResetKey = (event) => {
+      // F1: the shortcuts & tips window (one for every card, so any card opens it).
+      if (event.key === 'F1' && lastActive === this) {
+        event.preventDefault();
+        window.stockcard.openGuide();
+        return;
+      }
       if (lastActive !== this || !event.altKey || event.ctrlKey || event.metaKey) return;
       if (event.code === 'KeyR') {
         event.preventDefault();
@@ -2856,13 +2882,13 @@ export class CardView {
   }
 
   /** A short message over the chart that clears itself. */
-  notify(text) {
+  notify(text, ms = NOTICE_MS) {
     clearTimeout(this.noticeTimer);
     this.noticeEl.textContent = text;
     this.noticeEl.hidden = false;
     this.noticeTimer = setTimeout(() => {
       this.noticeEl.hidden = true;
-    }, NOTICE_MS);
+    }, ms);
   }
 
   /* --------------------------------------------------------------- render */

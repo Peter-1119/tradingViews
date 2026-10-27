@@ -1,0 +1,199 @@
+/* Shortcuts & tips: a cheat sheet, read at a glance. Same palette as the journal. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0f17;
+  --panel: #111723;
+  --line: rgba(148, 163, 184, 0.14);
+  --ink: #e6edf6;
+  --ink-dim: rgba(203, 213, 225, 0.66);
+  --ink-faint: rgba(203, 213, 225, 0.42);
+  --accent: #4f8ff7;
+  --key-bg: #1a2232;
+  --key-edge: #2a3548;
+  --mouse: #f0b45a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Segoe UI', -apple-system, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  font-size: 13px;
+}
+
+#root {
+  height: 100%;
+}
+
+.gd {
+  height: 100%;
+  overflow-y: auto;
+  padding: 18px 20px 24px;
+}
+
+.gd-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.gd-title h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.gd-sub {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.gd-search {
+  width: min(260px, 100%);
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+
+.gd-search:focus {
+  border-color: var(--accent);
+}
+
+/* Columns rather than a grid: panels of different heights pack without gaps. */
+.gd-grid {
+  columns: 330px 3;
+  column-gap: 12px;
+}
+
+.gd-panel {
+  break-inside: avoid;
+  margin-bottom: 12px;
+  padding: 12px 14px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.gd-panel__title {
+  margin: 0 0 6px;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gd-row {
+  display: grid;
+  grid-template-columns: 136px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+.gd-row:first-child {
+  border-top: 0;
+}
+
+.gd-row[hidden] {
+  display: none;
+}
+
+.gd-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.gd-key {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 6px;
+  border: 1px solid var(--key-edge);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--key-bg);
+  color: var(--ink);
+  font: 600 11px/1.4 'Cascadia Mono', Consolas, 'Segoe UI', monospace;
+  text-align: center;
+}
+
+.gd-plus,
+.gd-sep {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.gd-mouse {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px 2px 5px;
+  border: 1px solid rgba(240, 180, 90, 0.35);
+  border-radius: 999px;
+  background: rgba(240, 180, 90, 0.08);
+  color: var(--mouse);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.gd-mouse__icon {
+  display: inline-flex;
+}
+
+.gd-mouse svg .fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.gd-what {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.gd-where {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+}
+
+.gd-tips {
+  margin: 0;
+  padding: 2px 0 6px 18px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+}
+
+.gd-tips li + li {
+  margin-top: 4px;
+}
+
+.gd-empty {
+  padding: 40px 0;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+[hidden] {
+  display: none !important;
+}

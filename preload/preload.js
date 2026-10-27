@@ -29,6 +29,7 @@ const api = {
   hideAll: () => ipcRenderer.invoke('app:hide-all'),
   quit: () => ipcRenderer.invoke('app:quit'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+  openGuide: () => ipcRenderer.invoke('app:open-guide'),
 
   /* ----------------------------------------------------------- cards */
   listCards: () => ipcRenderer.invoke('cards:list'),

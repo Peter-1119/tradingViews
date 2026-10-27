@@ -600,6 +600,10 @@ tradingHandle('trading:default-notional', (_e, { value }) => trading.setDefaultN
 tradingHandle('paper:reset', (_e, { capital, makerFee, takerFee }) => trading.paperReset(capital, { makerFee, takerFee }));
 tradingHandle('paper:fees', (_e, { makerFee, takerFee }) => trading.paperSetFees({ makerFee, takerFee }));
 tradingHandle('paper:journal', () => paper.journal());
+ipcMain.handle('app:open-guide', () => {
+  windows.openGuide();
+  return true;
+});
 tradingHandle('paper:open-journal', () => {
   windows.openJournal();
   return true;
