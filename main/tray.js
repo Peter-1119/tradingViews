@@ -77,7 +77,7 @@ function buildMenu() {
 
   return Menu.buildFromTemplate([
     {
-      label: 'StockCard',
+      label: 'TapeCard',
       enabled: false,
     },
     { type: 'separator' },
@@ -215,7 +215,7 @@ function refresh() {
   if (!tray || tray.isDestroyed()) return;
   tray.setContextMenu(buildMenu());
   const hiddenNote = windows.isHidden() ? t(' · 已隱藏(點圖示顯示)') : '';
-  tray.setToolTip(t('StockCard — {n} 張卡片 · {mode} 模式', { n: store.getCards().length, mode: windows.getMode() }) + hiddenNote);
+  tray.setToolTip(t('TapeCard — {n} 張卡片 · {mode} 模式', { n: store.getCards().length, mode: windows.getMode() }) + hiddenNote);
 }
 
 function create() {

@@ -81,7 +81,7 @@ async function main() {
   const bar = el(
     'div.board__bar',
     {},
-    el('span.board__title', { text: 'StockCard' }),
+    el('span.board__title', { text: 'TapeCard' }),
     countEl,
     el(
       'div.board__tools',

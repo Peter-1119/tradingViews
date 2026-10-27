@@ -27,7 +27,7 @@
   "Secret Key（System generated 才需要）": "Secret Key (System generated only)",
   "Self-generated（Ed25519 或 RSA）：選你產生的私鑰 .pem 檔": "Self-generated (Ed25519 or RSA): choose the private key .pem file you generated",
   "Self-generated：填 API Key，再選私鑰檔案": "Self-generated: enter the API Key, then choose the private key file",
-  "StockCard — {n} 張卡片 · {mode} 模式": "StockCard — {n} cards · {mode} mode",
+  "TapeCard — {n} 張卡片 · {mode} 模式": "TapeCard — {n} cards · {mode} mode",
   "System generated：填 API Key 和 Secret Key": "System generated: enter the API Key and Secret Key",
   "Windows 通知（玩遊戲時會被專注輔助收進通知中心）": "Windows notifications (Focus Assist sends them to the notification center while gaming)",
   "{arrow} {target}　目前 {price}": "{arrow} {target}  now {price}",

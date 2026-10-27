@@ -1,8 +1,8 @@
 [English](README.md) | **繁體中文**
 
-# StockCard
+# TapeCard
 
-桌面透明行情小卡片。無邊框、半透明、可置頂,即時顯示加密貨幣線圖，現貨與 USDⓈ-M 永續合約一鍵切換。
+*舊名 StockCard。* 給短線交易用、以快捷鍵操作的加密貨幣看盤卡片：桌面透明行情小卡片。無邊框、半透明、可置頂,即時顯示加密貨幣線圖，現貨與 USDⓈ-M 永續合約一鍵切換。
 
 **Electron 43 + TradingView Lightweight Charts v5 + Binance 公開行情 API**(免註冊、免 API key)
 
@@ -387,7 +387,7 @@ getTicker(symbol)                     // -> { symbol, last, changePercent, high,
 
 ## 設定檔
 
-`%APPDATA%/stock-card/stock-card-config.json`。開發版與打包版共用同一份(asar 內的 `name` 一樣是 `stock-card`),所以 `npm start` 調好的卡片,裝起來的版本會直接沿用。
+`%APPDATA%/stock-card/stock-card-config.json`。資料夾在 `main/main.js` 固定為 `stock-card`（沿用舊名 StockCard），所以不論產品名稱叫什麼，開發版與打包版都共用同一份，`npm start` 調好的卡片，裝起來的版本會直接沿用。
 
 位置與大小的變動會 debounce 500ms 才寫入;啟動時會檢查存下來的座標是否還落在現有螢幕範圍內,螢幕配置變了會自動拉回可見區域。
 

@@ -1,7 +1,7 @@
 {
   "name": "stock-card",
   "version": "1.0.0",
-  "description": "StockCard — desktop transparent crypto chart widget (Electron + Lightweight Charts + Binance)",
+  "description": "TapeCard — desktop crypto chart cards for short-term trading, keyboard first (Electron + Lightweight Charts + Binance)",
   "main": "main/main.js",
   "author": "ccvs04306102@gmail.com",
   "license": "MIT",
@@ -18,7 +18,7 @@
   },
   "build": {
     "appId": "com.stockcard.desktop",
-    "productName": "StockCard",
+    "productName": "TapeCard",
     "copyright": "Copyright (c) 2026",
     "directories": {
       "output": "release",
@@ -57,10 +57,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "StockCard"
+      "shortcutName": "TapeCard"
     },
     "portable": {
-      "artifactName": "StockCard-${version}-portable.exe"
+      "artifactName": "TapeCard-${version}-portable.exe"
     }
   },
   "dependencies": {

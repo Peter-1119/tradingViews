@@ -9,8 +9,18 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 const { app, ipcMain, BrowserWindow, shell, dialog } = require('electron');
 const { randomUUID } = require('crypto');
+
+// The app was called StockCard, and its settings, bar cache and encrypted
+// keys live under %APPDATA%/stock-card. Electron names that folder after the
+// app, and the packaged build's product name is now TapeCard -- so pin it,
+// before anything below (the store opens its file as it loads) can ask.
+// An explicit --user-data-dir (a separate test profile) still wins.
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'stock-card'));
+}
 
 const protocolSetup = require('./protocol');
 const store = require('./store');

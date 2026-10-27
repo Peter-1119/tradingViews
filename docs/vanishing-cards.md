@@ -1,6 +1,6 @@
 # 卡片「消失」排查手冊
 
-StockCard 的卡片是**透明、無邊框、置頂、不在工作列**的 Electron 視窗。這四個特性組合起來，讓它比一般視窗更容易「看起來消失」：
+TapeCard（舊名 StockCard）的卡片是**透明、無邊框、置頂、不在工作列**的 Electron 視窗。這四個特性組合起來，讓它比一般視窗更容易「看起來消失」：
 
 | 特性 | 帶來的問題 |
 | --- | --- |
@@ -56,7 +56,7 @@ win.setAlwaysOnTop(true, 'floating');
 視窗是可見、沒被最小化的，但 `WS_EX_TOPMOST` 是 `False`（查法見第 5 節的診斷腳本）。當時實際查到的結果：
 
 ```
-StockCard   visible=True  minimized=False  topmost=False  1551,816 365x235
+TapeCard    visible=True  minimized=False  topmost=False  1551,816 365x235
 Warcraft III 前景視窗                                     288,0 1344x1040
 ```
 
@@ -287,7 +287,7 @@ public class W {
 $found = New-Object System.Collections.ArrayList
 [W]::EnumWindows({ param($h, $l)
   $sb = New-Object System.Text.StringBuilder 256; [W]::GetWindowText($h, $sb, 256) | Out-Null
-  if ($sb.ToString() -eq 'StockCard') { [void]$found.Add($h) }
+  if ($sb.ToString() -eq 'TapeCard') { [void]$found.Add($h) }
   return $true }, [IntPtr]::Zero) | Out-Null
 foreach ($h in $found) {
   $r = New-Object W+RECT; [W]::GetWindowRect($h, [ref]$r) | Out-Null
@@ -295,7 +295,7 @@ foreach ($h in $found) {
     [W]::IsWindowVisible($h), [W]::IsIconic($h), [bool]([W]::GetWindowLong($h, -20) -band 0x8), `
     $r.L, $r.T, ($r.R - $r.L), ($r.B - $r.T)
 }
-if (-not $found.Count) { '找不到視窗：App 沒在跑，或標題不是 StockCard' }
+if (-not $found.Count) { '找不到視窗：App 沒在跑，或標題不是 TapeCard' }
 ```
 
 實際在正常運作的 App 上跑出來的結果長這樣：
@@ -304,7 +304,7 @@ if (-not $found.Count) { '找不到視窗：App 沒在跑，或標題不是 Stoc
 visible=True minimized=False topmost=True rect=1551,816 365x235
 ```
 
-把 `'StockCard'` 換成你的視窗標題（也就是 HTML 的 `<title>`），就能用在其他專案。
+把 `'TapeCard'` 換成你的視窗標題（也就是 HTML 的 `<title>`），就能用在其他專案。
 
 | 結果 | 代表的情況 |
 | --- | --- |

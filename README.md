@@ -1,8 +1,8 @@
 **English** | [繁體中文](README.zh-TW.md)
 
-# StockCard
+# TapeCard
 
-Transparent desktop ticker cards. Frameless, translucent, optionally always-on-top, showing live crypto charts, with one-click switching between spot and USDⓈ-M perpetual futures.
+*Formerly StockCard.* Crypto chart cards for short-term trading, run from the keyboard: transparent desktop ticker cards. Frameless, translucent, optionally always-on-top, showing live crypto charts, with one-click switching between spot and USDⓈ-M perpetual futures.
 
 **Electron 43 + TradingView Lightweight Charts v5 + Binance public market data API** (no sign-up, no API key)
 
@@ -385,7 +385,7 @@ To add Taiwan or US stocks, write a second implementation and swap out `new Bina
 
 ## Config file
 
-`%APPDATA%/stock-card/stock-card-config.json`. The dev and packaged builds share the same file (the `name` inside the asar is also `stock-card`), so cards set up under `npm start` carry over directly to the installed version.
+`%APPDATA%/stock-card/stock-card-config.json`. The folder is pinned to `stock-card` in `main/main.js` (it keeps the app's old name, StockCard), so the dev and packaged builds share the same file whatever the product is called, and cards set up under `npm start` carry over directly to the installed version.
 
 Position and size changes are debounced 500ms before being written; at startup the saved coordinates are checked against the current screens, and if the screen layout has changed, cards are pulled back into the visible area automatically.
 
