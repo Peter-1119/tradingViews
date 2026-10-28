@@ -8,6 +8,9 @@
  *
  * Entries are {symbol, market}: the same symbol on spot and on perp are two
  * different rows, and picking one switches the card's market as well.
+ *
+ * Rows reorder by dragging: press one and move, and the others slide aside
+ * to make room, so the digit keys follow the new order.
  */
 
 import { el, prettySymbol, formatPrice, formatPercent, MARKET_LABELS } from '../util.js';
@@ -43,6 +46,17 @@ export function entryLabel(entry) {
 
 const entryKey = (entry) => `${entry.market}:${entry.symbol}`;
 
+/** Movement before a press becomes a drag; less is a click. */
+const DRAG_START_PX = 4;
+
+/** `list` with the entry at `from` moved to `to`. */
+export function moveEntry(list, from, to) {
+  const next = list.slice();
+  const [entry] = next.splice(from, 1);
+  next.splice(to, 0, entry);
+  return next;
+}
+
 export class WatchlistMenu {
   /**
    * @param {{
@@ -52,15 +66,23 @@ export class WatchlistMenu {
    *   onAdd: () => void,
    *   onSearch: () => void,
    *   onToggleAlert: (entry: {symbol, market, alert}) => void,
+   *   onReorder: (list: Array<{symbol, market}>) => void,
    * }} options
    */
-  constructor({ feedFor, onPick, onRemove, onAdd, onSearch, onToggleAlert }) {
+  constructor({ feedFor, onPick, onRemove, onAdd, onSearch, onToggleAlert, onReorder }) {
     this.feedFor = feedFor;
     this.onPick = onPick;
     this.onRemove = onRemove;
     this.onAdd = onAdd;
     this.onSearch = onSearch;
     this.onToggleAlert = onToggleAlert;
+    this.onReorder = onReorder;
+    /** The row being pressed or dragged: {index, startY, step, target, rows, active}. */
+    this.drag = null;
+    /** Set when a drag ends, so the click that follows the release is not a pick. */
+    this.dragged = false;
+    /** A render that came in mid-drag (a ticker, a prefs echo), run once it ends. */
+    this.renderPending = false;
     /** The tray's master switch: a symbol alerts only when this and its own bell are on. */
     this.alertsOn = true;
     this.list = [];
@@ -81,7 +103,10 @@ export class WatchlistMenu {
       this.close();
     };
     this.onKey = (event) => {
-      if (this.isOpen && event.key === 'Escape') this.close();
+      if (!this.isOpen || event.key !== 'Escape') return;
+      // Escape mid-drag puts the row back; a second one closes the menu.
+      if (this.drag && this.drag.active) this.endDrag(false);
+      else this.close();
     };
     window.addEventListener('mousedown', this.onOutside, true);
     window.addEventListener('keydown', this.onKey);
@@ -115,6 +140,7 @@ export class WatchlistMenu {
   }
 
   close() {
+    if (this.drag) this.endDrag(false);
     this.root.hidden = true;
     this.openSeq += 1;
   }
@@ -137,6 +163,10 @@ export class WatchlistMenu {
   }
 
   render() {
+    if (this.drag) {
+      this.renderPending = true;
+      return;
+    }
     const rows = this.list.map((entry, index) => {
       const tick = this.tickers.get(entryKey(entry));
       const current = sameEntry(entry, this.current);
@@ -171,8 +201,13 @@ export class WatchlistMenu {
         {
           role: 'menuitem',
           class: current ? 'is-current' : '',
-          title: t('切換到 {name} (Alt+{n})', { name: entryLabel(entry), n: watchKey(index) }),
+          title: `${t('切換到 {name} (Alt+{n})', { name: entryLabel(entry), n: watchKey(index) })}\n${t('按住拖曳可調整順序')}`,
+          onpointerdown: (event) => this.pressRow(event, index),
           onclick: () => {
+            if (this.dragged) {
+              this.dragged = false;
+              return;
+            }
             this.close();
             if (!current) this.onPick(entry);
           },
@@ -223,7 +258,97 @@ export class WatchlistMenu {
     this.rows.replaceChildren(...rows, el('div.card__watch-actions', {}, actions));
   }
 
+  /* ------------------------------------------------------------ reorder */
+
+  pressRow(event, index) {
+    if (event.button !== 0 || this.list.length < 2) return;
+    if (event.target.closest('button')) return; // the bell and the ✕ are their own clicks
+    const rows = [...this.rows.querySelectorAll('.card__watch-row')];
+    // Row pitch, margins included: the distance between two neighbours.
+    const step = rows.length > 1 ? rows[1].offsetTop - rows[0].offsetTop : rows[index].offsetHeight;
+    this.dragged = false;
+    const move = (e) => this.moveRow(e);
+    const up = () => this.endDrag(true);
+    const cancel = () => this.endDrag(false);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    this.drag = {
+      index,
+      target: index,
+      startY: event.clientY,
+      pointerId: event.pointerId,
+      step,
+      rows,
+      active: false,
+      detach: () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', cancel);
+      },
+    };
+  }
+
+  moveRow(event) {
+    const d = this.drag;
+    if (!d || event.pointerId !== d.pointerId) return;
+    if (!d.active) {
+      if (Math.abs(event.clientY - d.startY) < DRAG_START_PX) return;
+      d.active = true;
+      this.rows.classList.add('is-sorting');
+      d.rows[d.index].classList.add('is-lifted');
+    }
+    event.preventDefault();
+    const n = d.rows.length;
+    // Kept within the list: the row goes as far as the top or the bottom.
+    const dy = Math.max(-d.index * d.step, Math.min((n - 1 - d.index) * d.step, event.clientY - d.startY));
+    d.target = Math.round(d.index + dy / d.step);
+    d.rows.forEach((row, i) => {
+      let slot = i;
+      if (i === d.index) {
+        row.style.transform = `translateY(${dy}px)`;
+        slot = d.target;
+      } else {
+        // The rows between the old place and the new one each move one over.
+        if (d.index < i && i <= d.target) slot = i - 1;
+        else if (d.target <= i && i < d.index) slot = i + 1;
+        row.style.transform = slot !== i ? `translateY(${(slot - i) * d.step}px)` : '';
+      }
+      row.querySelector('.card__watch-key').textContent = watchKey(slot);
+    });
+  }
+
+  /** Finish (`commit`) or abandon a press. */
+  endDrag(commit) {
+    const d = this.drag;
+    if (!d) return;
+    d.detach();
+    this.drag = null;
+    this.rows.classList.remove('is-sorting');
+    if (d.active) {
+      this.dragged = commit;
+      if (commit && d.target !== d.index) {
+        // Shown at once; the prefs round trip that follows draws the same list.
+        this.list = moveEntry(this.list, d.index, d.target);
+        this.renderPending = false;
+        this.render();
+        this.onReorder(this.list);
+        return;
+      }
+      d.rows.forEach((row, i) => {
+        row.style.transform = '';
+        row.classList.remove('is-lifted');
+        row.querySelector('.card__watch-key').textContent = watchKey(i);
+      });
+    }
+    if (this.renderPending) {
+      this.renderPending = false;
+      this.render();
+    }
+  }
+
   destroy() {
+    if (this.drag) this.drag.detach();
     window.removeEventListener('mousedown', this.onOutside, true);
     window.removeEventListener('keydown', this.onKey);
     this.root.remove();

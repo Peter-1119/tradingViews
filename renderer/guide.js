@@ -108,6 +108,7 @@ function sections(prefs) {
       rows: [
         { keys: ['Alt', '1', '…', '0'], what: t('切換到常用幣種第 1～10 個') },
         { keys: ['@click'], what: t('開啟常用清單'), where: t('標題列的幣種名稱') },
+        { keys: ['@drag'], what: t('調整常用清單順序'), where: t('按住清單裡的一列上下拖') },
         { keys: ['@click'], what: t('現貨 ⇄ 永續'), where: t('幣種名稱旁的市場標籤') },
         { keys: ['Alt', 'A'], what: t('在游標價格設價格提醒') },
         { keys: ['@drag'], what: t('改提醒價格'), where: t('金色提醒標籤') },

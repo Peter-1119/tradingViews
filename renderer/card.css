@@ -255,6 +255,28 @@ button {
   background: rgba(79, 143, 247, 0.2);
 }
 
+/* Reordering: the pressed row rides the pointer, the rest slide aside. */
+.card__watch-rows.is-sorting {
+  user-select: none;
+}
+
+.card__watch-rows.is-sorting .card__watch-row {
+  position: relative;
+  transition: transform 0.12s ease;
+  cursor: grabbing;
+}
+
+.card__watch-rows.is-sorting .card__watch-row:hover:not(.is-current) {
+  background: none;
+}
+
+.card__watch-rows.is-sorting .card__watch-row.is-lifted {
+  z-index: 1;
+  transition: none;
+  background: #1e2737;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+}
+
 .card__watch-key {
   font-size: 9px;
   color: var(--ink-dim);

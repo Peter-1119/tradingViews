@@ -207,6 +207,7 @@ export class CardView {
       onToggleAlert: (entry) =>
         this.setWatchlist(this.watchlistEntries().map((e) => (sameEntry(e, entry) ? { ...e, alert: entry.alert } : e))),
       onSearch: () => this.panel.open(),
+      onReorder: (list) => this.setWatchlist(list),
     });
     this.watchlist.setAnchor(this.symbolEl);
     // One click flips between spot and the perpetual of the same coin. The
