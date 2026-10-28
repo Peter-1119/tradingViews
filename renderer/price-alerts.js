@@ -144,7 +144,9 @@ export class PriceAlertController {
   }
 
   async addVolume(raw) {
-    if (!(raw > 0)) return;
+    // No bar yet means the interval has just changed and the volume bars on
+    // screen -- and the scale read off them -- may still be the old one's.
+    if (!(raw > 0) || !this.view.lastBar) return;
     const volume = roundVolume(raw);
     const interval = this.view.card.interval;
     const added = await api().add({

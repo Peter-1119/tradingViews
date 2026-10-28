@@ -12,7 +12,9 @@
  * Price is judged on the live price (each kline update's close, several a
  * second), not on a bar's high or low: a high since the bar opened can predate
  * the alert, and would fire it for a touch that happened before it was set.
- * Volume is judged on the open bar's volume so far, from `notBefore` on.
+ * Volume is judged on the open bar's volume so far, from `notBefore` on --
+ * and never on the bar that was open when the alert was set or moved if that
+ * bar was already past it when first seen here, whatever the card thought.
  */
 
 import { volumeValue } from './volume-stats.js';
@@ -34,6 +36,8 @@ export class PriceAlertMonitor {
     this.watched = new Map();
     /** Hits reported but not yet removed by main -- never report one twice. */
     this.reported = new Set();
+    /** "id:volume" -> the first bar time a volume alert may fire on, from what this monitor saw. */
+    this.armedFrom = new Map();
   }
 
   setAlerts(list) {
@@ -48,6 +52,8 @@ export class PriceAlertMonitor {
     }
     const live = new Set((list || []).map((a) => a.id));
     for (const id of [...this.reported]) if (!live.has(id)) this.reported.delete(id);
+    const levels = new Set((list || []).filter(isVolume).map((a) => `${a.id}:${a.volume}`));
+    for (const key of [...this.armedFrom.keys()]) if (!levels.has(key)) this.armedFrom.delete(key);
 
     for (const [key, alerts] of byKey) {
       let w = this.watched.get(key);
@@ -87,7 +93,7 @@ export class PriceAlertMonitor {
     for (const a of w.alerts.values()) {
       if (this.reported.has(a.id)) continue;
       const hit = isVolume(a)
-        ? bar.time >= (a.notBefore || 0) && volume >= a.volume
+        ? bar.time >= this.volumeFrom(a, bar, volume) && volume >= a.volume
         : a.direction === 'up'
           ? price >= a.price
           : price <= a.price;
@@ -97,6 +103,17 @@ export class PriceAlertMonitor {
       else this.logger.log(`[price-alert] ${w.key} ${a.direction} ${a.price} hit at ${price}`);
       this.onHit({ id: a.id, price, volume });
     }
+  }
+
+  /**
+   * The first bar `a` may fire on. Its level is armed on the first bar seen
+   * after it is set (or moved): a bar already past it then reached it
+   * before the alert existed, so the next one is the first that counts.
+   */
+  volumeFrom(a, bar, volume) {
+    const key = `${a.id}:${a.volume}`;
+    if (!this.armedFrom.has(key)) this.armedFrom.set(key, volume >= a.volume ? bar.time + 1 : bar.time);
+    return Math.max(a.notBefore || 0, this.armedFrom.get(key));
   }
 
   destroy() {

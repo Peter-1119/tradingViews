@@ -987,7 +987,9 @@ export class BinanceProvider extends DataProvider {
           this.fillGap(sub, sub.lastBarTime, bar.time);
         }
         sub.lastBarTime = Math.max(sub.lastBarTime, bar.time);
-        sub.liveBar = bar;
+        // A copy each: trades below add to every subscription's live bar, and
+        // a shared one would count each trade once per subscriber.
+        sub.liveBar = { ...bar };
         this.deliverBar(sub, { immediate: true });
       }
       return;

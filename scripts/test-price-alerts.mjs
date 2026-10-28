@@ -33,6 +33,8 @@ t('fires once when the open bar reaches the level', () => {
   monitor.setAlerts([vol()]);
   push('5m', bar(300, 100, 4e5));
   assert.equal(hits.length, 0);
+  push('5m', bar(300, 100, 9e5));
+  assert.equal(hits.length, 0);
   push('5m', bar(300, 100, 1.2e6));
   push('5m', bar(300, 100, 1.5e6));
   assert.equal(hits.length, 1);
@@ -45,7 +47,31 @@ t('a bar before notBefore does not fire, the next one does', () => {
   monitor.setAlerts([vol({ notBefore: 600 })]);
   push('5m', bar(300, 100, 3e6));
   assert.equal(hits.length, 0);
+  push('5m', bar(600, 100, 1e5));
   push('5m', bar(600, 100, 1e6));
+  assert.equal(hits.length, 1);
+});
+
+t('a bar already past the level when the alert is set never fires it, even with notBefore 0', () => {
+  const { hits, monitor, push } = setup();
+  push('5m', bar(300, 100, 1));
+  monitor.setAlerts([vol({ notBefore: 0 })]);
+  push('5m', bar(300, 100, 3e6));
+  push('5m', bar(300, 100, 4e6));
+  assert.equal(hits.length, 0);
+  push('5m', bar(600, 100, 2e5));
+  push('5m', bar(600, 100, 1.1e6));
+  assert.equal(hits.length, 1);
+});
+
+t('moving the level re-arms it on the bar open at the time', () => {
+  const { hits, monitor, push } = setup();
+  monitor.setAlerts([vol({ volume: 5e6 })]);
+  push('5m', bar(300, 100, 2e6));
+  monitor.setAlerts([vol({ volume: 1e6 })]); // dragged below the open bar's volume
+  push('5m', bar(300, 100, 2.5e6));
+  assert.equal(hits.length, 0);
+  push('5m', bar(600, 100, 1.2e6));
   assert.equal(hits.length, 1);
 });
 
