@@ -111,6 +111,7 @@ function sections(prefs) {
         { keys: ['@drag'], what: t('調整常用清單順序'), where: t('按住清單裡的一列上下拖') },
         { keys: ['@click'], what: t('現貨 ⇄ 永續'), where: t('幣種名稱旁的市場標籤') },
         { keys: ['Alt', 'A'], what: t('在游標價格設價格提醒') },
+        { keys: ['Alt', 'A'], what: t('在成交量上設提醒'), where: t('鈴鐺或 Alt+A，點在成交量柱上') },
         { keys: ['@drag'], what: t('改提醒價格'), where: t('金色提醒標籤') },
         { keys: ['@click'], what: t('停止位置提醒的閃爍'), where: t('點一下卡片') },
       ],

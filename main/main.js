@@ -122,8 +122,12 @@ ipcMain.handle('priceAlerts:add', (_event, partial = {}) => {
   if (alert) priceAlertsChanged();
   return alert;
 });
-ipcMain.handle('priceAlerts:update', (_event, { id, price, direction } = {}) => {
-  const alert = store.updatePriceAlert(id, { price, direction });
+ipcMain.handle('priceAlerts:update', (_event, { id, ...fields } = {}) => {
+  const patch = {};
+  for (const key of ['price', 'direction', 'volume', 'notBefore']) {
+    if (fields[key] !== undefined) patch[key] = fields[key];
+  }
+  const alert = store.updatePriceAlert(id, patch);
   if (alert) priceAlertsChanged();
   return alert;
 });
@@ -132,12 +136,13 @@ ipcMain.handle('priceAlerts:remove', (_event, id) => {
   if (removed) priceAlertsChanged();
   return !!removed;
 });
-ipcMain.on('hub:price-alert-hit', (_event, { id, price } = {}) => {
+ipcMain.on('hub:price-alert-hit', (_event, { id, price, volume } = {}) => {
   // Removed first: a second report of the same hit finds nothing to deliver.
   const alert = store.removePriceAlert(id);
   if (!alert) return;
   priceAlertsChanged();
-  alerts.firePrice(alert, price);
+  if (alert.kind === 'volume') alerts.fireVolume(alert, volume);
+  else alerts.firePrice(alert, price);
 });
 
 /** Tell the hub what to monitor for position alerts, and at which levels. */

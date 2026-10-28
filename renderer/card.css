@@ -1389,6 +1389,20 @@ button {
   background: rgba(245, 197, 66, 0.16);
 }
 
+/* Bell armed over the volume bars: what a click there would set. */
+.pa-tip {
+  position: absolute;
+  padding: 1px 6px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  background: rgba(245, 197, 66, 0.92);
+  color: #0b0f17;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .pa-label__bell {
   display: inline-flex;
 }

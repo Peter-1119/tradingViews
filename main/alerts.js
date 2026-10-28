@@ -79,24 +79,22 @@ function fire(alert) {
 }
 
 /**
- * A price alert the user set by hand. Unlike the position alerts it ignores
- * the "all alerts off" switch and the per-symbol mute: those govern automatic
- * alerts, and a price someone placed deliberately is never noise. The toast
- * and flash preferences still decide how it is delivered -- but if both are
- * off, the toast is sent anyway, or a hidden app would have no way to say it.
+ * A price or volume alert the user set by hand. Unlike the position alerts it
+ * ignores the "all alerts off" switch and the per-symbol mute: those govern
+ * automatic alerts, and a level someone placed deliberately is never noise.
+ * The toast and flash preferences still decide how it is delivered -- but if
+ * both are off, the toast is sent anyway, or a hidden app would have no way
+ * to say it.
  */
-function firePrice(alert, price) {
+function deliverManual(alert, hit, title, body) {
   const settings = store.getAlerts();
-  const name = alert.market === 'perp' ? t('{symbol} 永續', { symbol: pretty(alert.symbol) }) : pretty(alert.symbol);
-  const arrow = alert.direction === 'up' ? t('↑ 漲到') : t('↓ 跌到');
-  console.log(`[alerts] price ${alert.market}:${alert.symbol} ${alert.direction} ${alert.price} hit at ${price}`);
-  windows.broadcast('priceAlerts:fired', { ...alert, hitPrice: price, time: Date.now() });
+  windows.broadcast('priceAlerts:fired', { ...alert, ...hit, time: Date.now() });
 
   const toastOn = settings.toast || !settings.flash;
   if (toastOn && Notification.isSupported()) {
     const toast = new Notification({
-      title: t('{name} · 價格提醒', { name }),
-      body: t('{arrow} {target}　目前 {price}', { arrow, target: alert.price, price }),
+      title,
+      body,
       silent: true, // no sound, like the position alerts (by request)
     });
     live.add(toast);
@@ -109,6 +107,45 @@ function firePrice(alert, price) {
     toast.show();
   }
   if (settings.flash) windows.flashFor(alert);
+}
+
+function displayName(alert) {
+  return alert.market === 'perp' ? t('{symbol} 永續', { symbol: pretty(alert.symbol) }) : pretty(alert.symbol);
+}
+
+function firePrice(alert, price) {
+  const arrow = alert.direction === 'up' ? t('↑ 漲到') : t('↓ 跌到');
+  console.log(`[alerts] price ${alert.market}:${alert.symbol} ${alert.direction} ${alert.price} hit at ${price}`);
+  deliverManual(
+    alert,
+    { hitPrice: price },
+    t('{name} · 價格提醒', { name: displayName(alert) }),
+    t('{arrow} {target}　目前 {price}', { arrow, target: alert.price, price })
+  );
+}
+
+/** 1.25M: volume in the quote currency, as the chart's label shows it. */
+function compact(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  return n.toFixed(2);
+}
+
+function fireVolume(alert, volume) {
+  console.log(`[alerts] volume ${alert.market}:${alert.symbol} ${alert.interval} ${alert.volume} hit at ${volume}`);
+  deliverManual(
+    alert,
+    { hitVolume: volume },
+    t('{name} · 成交量提醒', { name: displayName(alert) }),
+    t('{interval} 成交量達到 {target}　目前 {volume}', {
+      interval: alert.interval,
+      target: compact(alert.volume),
+      volume: compact(volume),
+    })
+  );
 }
 
 function setState(state) {
@@ -125,6 +162,7 @@ function prune(entries) {
 module.exports = {
   fire,
   firePrice,
+  fireVolume,
   setState,
   prune,
   getStates: () => [...states.values()],

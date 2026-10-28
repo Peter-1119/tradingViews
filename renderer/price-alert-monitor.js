@@ -1,26 +1,36 @@
 /**
- * Price alerts, run in the hub.
+ * Price and volume alerts, run in the hub.
  *
- * One live subscription per market:symbol that has an alert, and none for
- * symbols without -- the hub's streams are ref-counted, so a symbol a card is
- * already showing costs no extra socket stream. The hub keeps running with
- * every card hidden or closed, which is the point: an alert has to fire when
- * nothing is on screen.
+ * One live subscription per market:symbol:interval that has an alert, and
+ * none for symbols without -- the hub's streams are ref-counted, so a symbol
+ * a card is already showing costs no extra socket stream. Price alerts all
+ * ride the 1m stream; a volume alert rides its own interval's, since that is
+ * the bar whose volume it counts. The hub keeps running with every card
+ * hidden or closed, which is the point: an alert has to fire when nothing is
+ * on screen.
  *
- * Judged on the live price (each kline update's close, several a second), not
- * on a bar's high or low: a high since the bar opened can predate the alert,
- * and would fire it for a touch that happened before it was set.
+ * Price is judged on the live price (each kline update's close, several a
+ * second), not on a bar's high or low: a high since the bar opened can predate
+ * the alert, and would fire it for a touch that happened before it was set.
+ * Volume is judged on the open bar's volume so far, from `notBefore` on.
  */
+
+import { volumeValue } from './volume-stats.js';
+
+const isVolume = (a) => a.kind === 'volume';
+
+/** The stream an alert is judged on. */
+const streamKey = (a) => `${a.market}:${a.symbol}:${isVolume(a) ? a.interval : '1m'}`;
 
 export class PriceAlertMonitor {
   /**
-   * @param {{feedFor: (market) => object, onHit: ({id, price}) => void, logger?: object}} options
+   * @param {{feedFor: (market) => object, onHit: ({id, price, volume}) => void, logger?: object}} options
    */
   constructor({ feedFor, onHit, logger = console }) {
     this.feedFor = feedFor;
     this.onHit = onHit;
     this.logger = logger;
-    /** "market:symbol" -> {symbol, market, subId, alerts: Map(id -> alert), price} */
+    /** "market:symbol:interval" -> {symbol, market, interval, subId, alerts: Map(id -> alert), bar} */
     this.watched = new Map();
     /** Hits reported but not yet removed by main -- never report one twice. */
     this.reported = new Set();
@@ -29,7 +39,7 @@ export class PriceAlertMonitor {
   setAlerts(list) {
     const byKey = new Map();
     for (const a of list || []) {
-      const key = `${a.market}:${a.symbol}`;
+      const key = streamKey(a);
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key).push(a);
     }
@@ -43,18 +53,22 @@ export class PriceAlertMonitor {
       let w = this.watched.get(key);
       if (!w) w = this.start(key, alerts[0]);
       w.alerts = new Map(alerts.map((a) => [a.id, a]));
-      // A moved alert is judged against the price we already have, at once.
-      if (w.price !== null) this.evaluate(w);
+      // A moved alert is judged against the bar we already have, at once.
+      if (w.bar) this.evaluate(w);
     }
   }
 
-  start(key, { symbol, market }) {
-    const w = { key, symbol, market, subId: `price-alert:${key}`, alerts: new Map(), price: null };
+  start(key, alert) {
+    const { symbol, market } = alert;
+    const interval = isVolume(alert) ? alert.interval : '1m';
+    const w = { key, symbol, market, interval, subId: `price-alert:${key}`, alerts: new Map(), bar: null };
     this.watched.set(key, w);
-    this.feedFor(market).subscribe(w.subId, symbol, '1m', {
+    this.feedFor(market).subscribe(w.subId, symbol, interval, {
       onBar: (bar) => {
         if (!bar || !Number.isFinite(bar.close)) return;
-        w.price = bar.close;
+        // A backfilled closed bar can arrive after the live one; judge the newest.
+        if (w.bar && bar.time < w.bar.time) return;
+        w.bar = bar;
         this.evaluate(w);
       },
     });
@@ -67,14 +81,21 @@ export class PriceAlertMonitor {
   }
 
   evaluate(w) {
-    const price = w.price;
+    const bar = w.bar;
+    const price = bar.close;
+    const volume = volumeValue(bar);
     for (const a of w.alerts.values()) {
       if (this.reported.has(a.id)) continue;
-      const hit = a.direction === 'up' ? price >= a.price : price <= a.price;
+      const hit = isVolume(a)
+        ? bar.time >= (a.notBefore || 0) && volume >= a.volume
+        : a.direction === 'up'
+          ? price >= a.price
+          : price <= a.price;
       if (!hit) continue;
       this.reported.add(a.id);
-      this.logger.log(`[price-alert] ${w.key} ${a.direction} ${a.price} hit at ${price}`);
-      this.onHit({ id: a.id, price });
+      if (isVolume(a)) this.logger.log(`[price-alert] ${w.key} volume ${a.volume} hit at ${volume}`);
+      else this.logger.log(`[price-alert] ${w.key} ${a.direction} ${a.price} hit at ${price}`);
+      this.onHit({ id: a.id, price, volume });
     }
   }
 

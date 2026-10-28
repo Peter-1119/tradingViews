@@ -70,7 +70,7 @@ class TradeAxisView {
 
   text() {
     const it = this.item();
-    return it ? this.source.card.formatPrice(it.price) : '';
+    return it ? this.source.format(it.price) : '';
   }
 
   textColor() {
@@ -93,9 +93,15 @@ class TradeAxisView {
 }
 
 export class TradePrimitive {
-  /** @param {import('../chart.js').CardChart} card */
-  constructor(card) {
+  /**
+   * @param {import('../chart.js').CardChart} card
+   * @param {{toY?: (value: number) => number|null, format?: (value: number) => string}} [scale]
+   *        for lines on another series' scale (volume); the price's by default
+   */
+  constructor(card, { toY, format } = {}) {
     this.card = card;
+    this.toY = toY || ((price) => card.priceToY(price));
+    this.format = format || ((price) => card.formatPrice(price));
     /** [{id, price, color, dash?, width?, alpha?, axis?: boolean, axisText?}] */
     this.items = [];
     this.layout = [];
@@ -125,7 +131,7 @@ export class TradePrimitive {
   updateAllViews() {
     const out = [];
     for (const it of this.items) {
-      const y = this.card.priceToY(it.price);
+      const y = this.toY(it.price);
       if (y === null || !Number.isFinite(y)) continue;
       out.push({ ...it, y });
     }

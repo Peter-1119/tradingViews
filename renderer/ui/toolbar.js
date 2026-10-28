@@ -63,7 +63,7 @@ export const TOOLS = [
   { id: 'cursor', label: t('游標'), hint: t('游標(雙擊加水平線、Shift 拖曳量測)') },
   { id: 'level', label: t('水平線'), hint: t('水平支撐壓力線:點一下放線') },
   { id: 'trend', label: t('趨勢線'), hint: t('趨勢線（兩點連線）：拖曳畫出，或點兩下各點一個端點。拖端點調整、拖線移動、雙擊刪除') },
-  { id: 'alert', label: t('價格提醒'), hint: t('價格提醒：點一下設定（或滑鼠在圖上按 Alt+A）。到價時通知一次，卡片隱藏時也會提醒') },
+  { id: 'alert', label: t('價格提醒'), hint: t('價格／成交量提醒：點在 K 線上設價格，點在成交量柱上設成交量（或滑鼠在圖上按 Alt+A）。到達時通知一次，卡片隱藏時也會提醒') },
   { id: 'measure', label: t('量測'), hint: t('量測區間:直接拖曳') },
   { id: 'fib', label: t('斐波那契'), hint: t('斐波那契回撤:拖曳畫出波段') },
   { id: 'rect', label: t('矩形'), hint: t('矩形區間:拖曳畫出。拖邊框移動、拖角調整、雙擊內部刪除') },

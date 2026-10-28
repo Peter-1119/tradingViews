@@ -378,6 +378,12 @@ export class CardChart {
     this.tradeLayer = new TradePrimitive(this);
     // Price alerts reuse the trade layer's line-and-axis-tag drawing.
     this.alertLayer = new TradePrimitive(this);
+    // ...and volume alerts the same, on the volume's own scale (VolumePane
+    // attaches it to its bars).
+    this.volumeAlertLayer = new TradePrimitive(this, {
+      toY: (value) => (this.volume ? this.volume.total.priceToCoordinate(value) : null),
+      format: (value) => formatCompact(value),
+    });
     this.livePrice = new LivePricePrimitive(this);
 
     this.createPriceSeries();
@@ -1230,6 +1236,39 @@ export class CardChart {
     this.htf.setColors(this.colors);
     this.footprint.setColors(this.colors);
     if (this.volume) this.volume.render();
+  }
+
+  /**
+   * Where the volume bars are, in chart pixels: the bottom of the price pane
+   * when overlaid (the candles are lifted off it), else their own pane.
+   * `origin` is the top of the pane they are drawn in, for converting to their
+   * scale. Null with volume off.
+   */
+  volumeZone() {
+    if (!this.volume) return null;
+    try {
+      const panes = this.chart.panes();
+      if (this.volumeOpts.overlay) {
+        const height = panes[0].getHeight();
+        return { top: Math.round(height * (1 - OVERLAY_SHARE)), bottom: height, origin: 0 };
+      }
+      const pane = panes[1];
+      const node = pane.getHTMLElement();
+      const origin = node
+        ? node.getBoundingClientRect().top - this.container.getBoundingClientRect().top
+        : panes[0].getHeight() + 1;
+      return { top: origin, bottom: origin + pane.getHeight(), origin };
+    } catch {
+      return null;
+    }
+  }
+
+  /** The volume level under a point on the volume bars, or null anywhere else. */
+  volumeAt(x, y) {
+    const zone = this.volumeZone();
+    if (!zone || x < 0 || x >= this.plotWidth() || y < zone.top || y >= zone.bottom) return null;
+    const value = this.volume.total.coordinateToPrice(y - zone.origin);
+    return Number.isFinite(value) && value > 0 ? value : null;
   }
 
   /**

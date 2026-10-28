@@ -3161,7 +3161,9 @@ export class CardView {
     this.renderRail();
     this.panel.update(next);
     if (this.trade && (next.symbol !== prev.symbol || marketChanged)) this.trade.sync();
-    if (this.priceAlerts && (next.symbol !== prev.symbol || marketChanged)) this.priceAlerts.render();
+    if (this.priceAlerts && (next.symbol !== prev.symbol || marketChanged || next.interval !== prev.interval)) {
+      this.priceAlerts.render();
+    }
 
     if (symbolChanged) {
       this.ticker = null;

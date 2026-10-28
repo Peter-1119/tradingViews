@@ -244,6 +244,7 @@ export class VolumePane {
     });
     this.overlay = new VolumeOverlay(this);
     this.total.attachPrimitive(this.overlay);
+    this.total.attachPrimitive(card.volumeAlertLayer);
 
     this.onCrosshair = (param) => {
       const next = param && param.point && Number.isFinite(param.logical) ? Math.round(param.logical) : null;
@@ -264,6 +265,7 @@ export class VolumePane {
     const chart = this.card.chart;
     chart.unsubscribeCrosshairMove(this.onCrosshair);
     this.total.detachPrimitive(this.overlay);
+    this.total.detachPrimitive(this.card.volumeAlertLayer);
     chart.removeSeries(this.line);
     chart.removeSeries(this.buy);
     chart.removeSeries(this.total);

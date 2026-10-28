@@ -697,15 +697,36 @@ function removeTrendline(symbol, id) {
 
 /* ----------------------------------------------------------- price alerts */
 
+/**
+ * A price alert, or with `kind: 'volume'` a volume alert: one bar of
+ * `interval` reaching `volume` (quote currency), on a bar opened at or after
+ * `notBefore` (unix seconds).
+ */
 function sanitizePriceAlert(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const symbol = String(raw.symbol || '').toUpperCase();
-  const price = Number(raw.price);
-  if (!/^[A-Z0-9]{2,30}$/.test(symbol) || !Number.isFinite(price) || price <= 0) return null;
-  return {
+  if (!/^[A-Z0-9]{2,30}$/.test(symbol)) return null;
+  const base = {
     id: typeof raw.id === 'string' && raw.id ? raw.id : randomUUID(),
     symbol,
     market: pickMarket(raw.market),
+  };
+  if (raw.kind === 'volume') {
+    const volume = Number(raw.volume);
+    if (!Number.isFinite(volume) || volume <= 0) return null;
+    return {
+      ...base,
+      kind: 'volume',
+      interval: pick(raw.interval, INTERVALS, '1m'),
+      volume,
+      notBefore: Math.max(0, Number(raw.notBefore) || 0),
+      createdAt: Number(raw.createdAt) || Date.now(),
+    };
+  }
+  const price = Number(raw.price);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  return {
+    ...base,
     price,
     direction: raw.direction === 'down' ? 'down' : 'up',
     createdAt: Number(raw.createdAt) || Date.now(),
