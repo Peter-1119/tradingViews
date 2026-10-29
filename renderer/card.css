@@ -1456,3 +1456,82 @@ button {
 .card__swatch.is-current {
   border-color: rgba(255, 255, 255, 0.9);
 }
+
+/* --------------------------------------------------------------- compact */
+
+/*
+ * Shrunk out of the way (Alt+M / Alt+T): 'mini' keeps the last few candles,
+ * 'ticker' only the bar. The window is sized by main. The quote is the point
+ * of both, so the bar's contents stay up without a hover, and nothing in it
+ * takes a click -- the whole strip drags the window.
+ */
+.card[data-compact] .card__id,
+.card[data-compact] .card__quote {
+  opacity: 1;
+  pointer-events: none;
+}
+
+.card[data-compact] .card__bar::before {
+  opacity: 1;
+}
+
+.card[data-compact] .card__symbol {
+  -webkit-app-region: drag;
+}
+
+.card[data-compact] .card__tools,
+.card[data-compact] .card__star,
+.card[data-compact] .card__symbol-caret,
+.card[data-compact] .card__clock,
+.card[data-compact] .card__watch,
+.card[data-compact] .card__rail,
+.card[data-compact] .card__reset,
+.card[data-compact] .card__position,
+.card[data-compact] .card__funding,
+.card[data-compact] .pa-overlay,
+.card[data-compact] .tr-overlay,
+.card[data-compact] .pb {
+  display: none !important;
+}
+
+.card[data-compact] .card__bar {
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.card[data-compact] .card__quote {
+  gap: 5px;
+}
+
+.card[data-compact='ticker'] .card__bar {
+  flex: 1 1 auto;
+}
+
+.card[data-compact='ticker'] .card__chart,
+.card[data-compact='ticker'] .card__interval {
+  display: none;
+}
+
+.card[data-compact='ticker'] .card__price {
+  font-size: 14px;
+}
+
+.card[data-compact='ticker'] .card__dot {
+  top: 50%;
+}
+
+/* Back to the full card: a corner button, on hover. */
+.card__expand {
+  display: none;
+  flex: 0 0 auto;
+  width: 18px;
+  -webkit-app-region: no-drag;
+}
+
+.card[data-compact]:hover .card__expand {
+  display: inline-flex;
+}
+
+.card[data-compact='mini'] .card__change {
+  display: none;
+}

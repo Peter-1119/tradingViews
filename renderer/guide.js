@@ -138,6 +138,8 @@ function sections(prefs) {
         { keys: ['@right'], what: t('開啟設定'), where: t('卡片任意處') },
         { keys: ['@drag'], what: t('移動卡片'), where: t('卡片頂端') },
         { keys: ['@drag'], what: t('調整大小'), where: t('右下角斜紋') },
+        { keys: ['Alt', 'M'], what: t('縮成迷你 K 線（最新 5 根）'), where: t('再按一次還原；浮動模式') },
+        { keys: ['Alt', 'T'], what: t('縮成只顯示價格'), where: t('再按一次還原；浮動模式') },
         { keys: ['F1'], what: t('開啟這份說明') },
       ],
     },

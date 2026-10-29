@@ -233,11 +233,42 @@ function createHub() {
 
 /* --------------------------------------------------------- card windows */
 
+/**
+ * Where a card's window is to be remembered: the full card's bounds, or the
+ * spot its compact form sits in.
+ */
+function cardGeometry(card, win) {
+  const b = win.getBounds();
+  if (card.compact === 'off') return { bounds: b };
+  return { compactPos: { ...card.compactPos, [card.compact]: { x: b.x, y: b.y } } };
+}
+
+function saveCardGeometry(cardId, win) {
+  const card = store.getCard(cardId);
+  if (card && win && !win.isDestroyed()) store.updateCard(cardId, cardGeometry(card, win));
+}
+
+/** Size a card's window for its form: full, or a compact one of fixed size. */
+function applyCardForm(win, card) {
+  const compact = store.compactBounds(card);
+  if (compact) {
+    // The minimum first: the full card's would hold the window open.
+    win.setMinimumSize(compact.width, compact.height);
+    win.setBounds(compact);
+    win.setResizable(false);
+  } else {
+    win.setResizable(true);
+    win.setBounds(store.normalizeBounds(card.bounds));
+    win.setMinimumSize(store.CARD_MIN_WIDTH, store.CARD_MIN_HEIGHT);
+  }
+}
+
 function createCardWindow(card) {
   const existing = windowForCard(card.id);
   if (existing) return existing;
 
-  const bounds = store.normalizeBounds(card.bounds);
+  const compact = store.compactBounds(card);
+  const bounds = compact || store.normalizeBounds(card.bounds);
 
   const win = new BrowserWindow({
     ...bounds,
@@ -245,15 +276,15 @@ function createCardWindow(card) {
     transparent: true,
     backgroundColor: '#00000000',
     alwaysOnTop: card.alwaysOnTop !== false,
-    resizable: true,
+    resizable: !compact,
     // Transparent windows cannot be maximized on Windows (spec 4.2 caveat).
     maximizable: false,
     // No taskbar button means no way back from a minimize; see keepUnminimized.
     minimizable: false,
     fullscreenable: false,
     skipTaskbar: true,
-    minWidth: store.CARD_MIN_WIDTH,
-    minHeight: store.CARD_MIN_HEIGHT,
+    minWidth: compact ? compact.width : store.CARD_MIN_WIDTH,
+    minHeight: compact ? compact.height : store.CARD_MIN_HEIGHT,
     show: false,
     hasShadow: false,
     webPreferences: baseWebPreferences(),
@@ -276,10 +307,7 @@ function createCardWindow(card) {
 
   const persistBounds = () => {
     if (win.isDestroyed()) return;
-    debouncePersist('card:' + card.id, () => {
-      if (win.isDestroyed()) return;
-      store.updateCard(card.id, { bounds: win.getBounds() });
-    });
+    debouncePersist('card:' + card.id, () => saveCardGeometry(card.id, win));
   };
   win.on('move', persistBounds);
   win.on('resize', persistBounds);
@@ -298,7 +326,7 @@ function destroyCardWindow(cardId) {
   if (win && !win.isDestroyed()) {
     // Persist the final position before the window goes away.
     clearTimeout(boundsTimers.get('card:' + cardId));
-    if (store.getCard(cardId)) store.updateCard(cardId, { bounds: win.getBounds() });
+    saveCardGeometry(cardId, win);
     win.destroy();
   }
 }
@@ -532,11 +560,20 @@ function removeCard(cardId) {
 
 /** Applies a settings patch and forwards any window-level side effects. */
 function updateCard(cardId, patch) {
+  const win = windowForCard(cardId);
+  const before = store.getCard(cardId);
+  const reform = win && before && 'compact' in patch && patch.compact !== before.compact;
+  if (reform) {
+    // Remember where the window is in the form it is leaving -- a move or
+    // resize still waiting on its debounce would otherwise be lost.
+    clearTimeout(boundsTimers.get('card:' + cardId));
+    patch = { ...cardGeometry(before, win), ...patch };
+  }
   const card = store.updateCard(cardId, patch);
   if (!card) return null;
 
-  const win = windowForCard(cardId);
   if (win) {
+    if (reform) applyCardForm(win, card);
     if ('alwaysOnTop' in patch) {
       win.setAlwaysOnTop(card.alwaysOnTop, card.alwaysOnTop ? 'floating' : 'normal');
     }
@@ -760,11 +797,7 @@ function shutdown() {
   stopAlwaysOnTopWatch();
   flushPersistTimers();
   // Persist final geometry so the next launch restores exactly what was on screen.
-  for (const [id, win] of state.cards) {
-    if (win && !win.isDestroyed() && store.getCard(id)) {
-      store.updateCard(id, { bounds: win.getBounds() });
-    }
-  }
+  for (const [id, win] of state.cards) saveCardGeometry(id, win);
   if (state.board && !state.board.isDestroyed()) {
     store.setBoard({ bounds: state.board.getBounds() });
   }

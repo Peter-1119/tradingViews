@@ -260,6 +260,14 @@ export class CardView {
       onclick: () => this.onRemove(),
     });
 
+    // Compact forms only: back to the full card.
+    this.expandBtn = el('button.sc-icon-btn.card__expand', {
+      type: 'button',
+      title: t('還原卡片 (Alt+M / Alt+T)'),
+      text: '⤢',
+      onclick: () => this.setCompact('off'),
+    });
+
     this.tools = el(
       'div.card__tools',
       {},
@@ -283,7 +291,8 @@ export class CardView {
       (this.idEl = el('div.card__id', {}, this.starBtn, this.symbolEl, this.marketBtn, this.intervalEl)),
       this.clockEl,
       (this.quoteEl = el('div.card__quote', {}, this.priceEl, this.changeEl)),
-      this.tools
+      this.tools,
+      this.windowControls ? this.expandBtn : null
     );
 
     this.dot = el('span.card__dot', { title: STATUS_LABELS[this.status] || '' });
@@ -419,6 +428,7 @@ export class CardView {
       upDownColor: this.prefs.upDownColor,
       timezone: this.prefs.timezone,
     });
+    this.applyCompact();
     this.chart.setOIVisible(this.oiApplies());
     this.chart.setDrawingsHidden(this.card.hideDrawings);
     this.applyVolumeOptions();
@@ -1625,6 +1635,13 @@ export class CardView {
         this.setDrawingsHidden(!this.card.hideDrawings);
         return;
       }
+      // Alt+M: shrink to the last few candles; Alt+T: to the price alone.
+      // The same key again brings the full card back.
+      if (event.code === 'KeyM' || event.code === 'KeyT') {
+        event.preventDefault();
+        this.setCompact(event.code === 'KeyM' ? 'mini' : 'ticker');
+        return;
+      }
       // Alt+1..9, 0: the watchlist, in keyboard order (0 is the tenth).
       // `code` rather than `key`, so it works the same whatever the keyboard
       // layout or IME state.
@@ -1667,6 +1684,29 @@ export class CardView {
   resetView() {
     if (!this.chart) return;
     this.chart.resetView();
+    this.syncResetButton();
+  }
+
+  /** Toggle a compact form: `form` again, or 'off', restores the full card. */
+  setCompact(form) {
+    if (!this.windowControls) {
+      this.notify(t('縮小卡片只在浮動模式可用'));
+      return;
+    }
+    const next = form === 'off' || this.card.compact === form ? 'off' : form;
+    if (next === this.card.compact) return;
+    this.watchlist.close();
+    this.panel.close();
+    if (this.activeTool !== 'cursor') this.setActiveTool('cursor');
+    this.onPatch({ compact: next });
+  }
+
+  /** The card's look for its form. The window itself is sized by main. */
+  applyCompact() {
+    const form = this.windowControls ? this.card.compact || 'off' : 'off';
+    if (form === 'off') delete this.root.dataset.compact;
+    else this.root.dataset.compact = form;
+    if (this.chart) this.chart.setCompact(form === 'mini');
     this.syncResetButton();
   }
 
@@ -3116,6 +3156,7 @@ export class CardView {
     }
 
     if (next.cardOpacity !== prev.cardOpacity) this.applyOpacity();
+    if (next.compact !== prev.compact) this.applyCompact();
     if (this.chart) {
       if (next.chartType !== prev.chartType) this.chart.setChartType(next.chartType);
       if (next.showVolume !== prev.showVolume) this.chart.setVolumeVisible(next.showVolume);

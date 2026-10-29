@@ -29,6 +29,11 @@ const CARD_MIN_WIDTH = 220;
 const CARD_MIN_HEIGHT = 140;
 const CARD_DEFAULT_WIDTH = 340;
 const CARD_DEFAULT_HEIGHT = 220;
+/** A card shrunk out of the way: the last few candles, or the price alone. */
+const COMPACT_SIZES = {
+  mini: { width: 200, height: 150 },
+  ticker: { width: 230, height: 30 },
+};
 
 const DEFAULTS = {
   mode: 'float',
@@ -253,8 +258,36 @@ function sanitizeCard(raw, index = 0) {
       ? ['D', 'W', 'M'].filter((p) => card.levelPeriods.includes(p))
       : ['D', 'W', 'M'],
     alwaysOnTop: card.alwaysOnTop !== false,
+    // Shrunk out of the way (Float only): 'mini' or 'ticker'. `bounds` stays
+    // the full card's, to come back to; `compactPos` is where each small form
+    // was last put, so it goes back there next time.
+    compact: pick(card.compact, ['off', ...Object.keys(COMPACT_SIZES)], 'off'),
+    compactPos: sanitizeCompactPos(card.compactPos),
     bounds: normalizeBounds(card.bounds || defaultCardBounds(index)),
   };
+}
+
+function sanitizeCompactPos(raw) {
+  const out = {};
+  for (const form of Object.keys(COMPACT_SIZES)) {
+    const p = raw && raw[form];
+    out[form] = p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))
+      ? { x: Math.round(Number(p.x)), y: Math.round(Number(p.y)) }
+      : null;
+  }
+  return out;
+}
+
+/**
+ * The window for a card in its compact form: that form's size, where it was
+ * last put -- or the first time, at the full card's top-left corner, so the
+ * title bar stays where it was.
+ */
+function compactBounds(card) {
+  const size = COMPACT_SIZES[card.compact];
+  if (!size) return null;
+  const pos = (card.compactPos && card.compactPos[card.compact]) || { x: card.bounds.x, y: card.bounds.y };
+  return normalizeBounds({ ...pos, ...size }, { minWidth: size.width, minHeight: size.height });
 }
 
 /* ------------------------------------------------------------------- API */
@@ -831,6 +864,7 @@ module.exports = {
   pickMarket,
   CARD_MIN_WIDTH,
   CARD_MIN_HEIGHT,
+  compactBounds,
   CARD_DEFAULT_WIDTH,
   CARD_DEFAULT_HEIGHT,
   store,

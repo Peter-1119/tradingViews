@@ -36,6 +36,8 @@ export const CHART_TYPES = ['candlestick', 'line', 'area'];
 /** The view "Reset" returns to: the spacing and right-edge gap the chart starts with. */
 const DEFAULT_BAR_SPACING = 6;
 const DEFAULT_RIGHT_OFFSET = 3;
+/** Candles a mini card shows. */
+const MINI_BARS = 5;
 
 /**
  * A widget may run for days: past MAX_BARS the oldest are dropped, down to
@@ -391,7 +393,14 @@ export class CardChart {
 
     // autoSize handles the common case; this catches pane height ratios, which
     // are expressed in pixels and so must be recomputed per resize.
-    this.resizeObserver = new ResizeObserver(() => this.layoutPanes());
+    this.resizeObserver = new ResizeObserver(() => {
+      this.layoutPanes();
+      // The window changes size after the form does: fit again, or -- back
+      // to the full card -- reset again, as the library rescales the zoom with
+      // the width and would blow the mini's few bars up across the full card.
+      if (this.compact) this.fitMini();
+      else if (Date.now() < this.resetOnResizeUntil) this.resetView();
+    });
     this.resizeObserver.observe(container);
   }
 
@@ -506,18 +515,21 @@ export class CardChart {
     this.volume = null;
     this.oiSeries = null;
 
+    // A mini card has room for the candles only; the choices come back with it.
+    const showVolume = this.showVolume && !this.compact;
+    const showOI = this.showOI && !this.compact;
     let pane = 1;
-    const overlay = this.showVolume && this.volumeOpts.overlay;
+    const overlay = showVolume && this.volumeOpts.overlay;
     // Overlaid volume takes the bottom of the price pane: lift the candles
     // off most of it, as TradingView does, leaving a little overlap.
     this.chart.priceScale('right').applyOptions({
       scaleMargins: { top: 0.14, bottom: overlay ? OVERLAY_SHARE * 0.9 : 0.12 },
     });
-    if (this.showVolume) {
+    if (showVolume) {
       this.volume = new VolumePane(this, overlay ? 0 : pane++, this.volumeOpts);
       this.volume.render();
     }
-    if (this.showOI) {
+    if (showOI) {
       this.oiSeries = this.chart.addSeries(
         LineSeries,
         {
@@ -647,7 +659,8 @@ export class CardChart {
       }
     }
     this.render();
-    this.chart.timeScale().scrollToRealTime();
+    if (this.compact) this.fitMini();
+    else this.chart.timeScale().scrollToRealTime();
   }
 
   /** Merge one live bar into the cache and push it to the renderer. */
@@ -1347,6 +1360,33 @@ export class CardChart {
     if (Math.abs(spacing - this.zoomBaseline.spacing) > 0.25) return true;
     // Scrolled back into history by more than a couple of bars.
     return ts.scrollPosition() < DEFAULT_RIGHT_OFFSET - 2;
+  }
+
+  /**
+   * The mini card: the newest few candles and the price axis -- no time axis,
+   * no volume or OI panes.
+   */
+  setCompact(on) {
+    const next = on === true;
+    if (next === !!this.compact) return;
+    this.compact = next;
+    this.chart.timeScale().applyOptions({ visible: !next });
+    this.syncSubPanes();
+    if (next) {
+      this.fitMini();
+    } else {
+      this.resetView();
+      this.resetOnResizeUntil = Date.now() + 1000;
+    }
+  }
+
+  fitMini() {
+    const width = this.plotWidth();
+    if (!width) return;
+    const ts = this.chart.timeScale();
+    ts.applyOptions({ barSpacing: width / (MINI_BARS + 1), rightOffset: 0.6 });
+    ts.scrollToPosition(0.6, false);
+    this.priceSeries.priceScale().setAutoScale(true);
   }
 
   /** Back to the view the chart opened with: autoscale, default zoom, live edge. */

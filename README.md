@@ -46,6 +46,7 @@ The ones worth learning first:
 | `Alt+A` | Price alert at the cursor |
 | `Alt+R` | Reset the view to the latest bar |
 | `Alt+H` | Hide / show all drawings |
+| `Alt+M` / `Alt+T` | Shrink the card to a mini chart / to the price alone (again to restore) |
 | `Ctrl+Z` | Undo a drawing change |
 | `Esc` | Back to the cursor; cancels a drag or a half-drawn line |
 | Long / Short, then `Enter` | Send the order (within 3 seconds) |
@@ -91,6 +92,7 @@ The ones worth learning first:
 | Price alert notifications | Watched by the hidden data window, so **they fire even when cards are hidden with `Ctrl+Alt+S` or closed**; only symbols with alerts are watched. When the price is reached, a Windows notification is sent (silently) and the taskbar flashes (following the range alert notification settings); each alert fires once and is then removed |
 | Drawing colors | **Right-click** a horizontal line, trend line or rectangle for a row of colors: default blue, **green** (support), **red** (resistance), orange, yellow, purple and white, e.g. one color for a weekly level and another for an intraday one. The current color is ringed. The color is saved with the drawing (it stays across restarts and intervals, on spot and perp alike), and `Ctrl+Z` undoes a change. Right-clicking anywhere else still opens the settings panel |
 | Hide drawings | The **eye** icon in the toolbar (or `Alt+H`): hides all horizontal lines, trend lines, Fib retracements, rectangles and fixed range volume profiles at once for a clean chart; press again to bring them all back. They are only **not drawn**, not deleted, and the state is saved in the card settings (still hidden after a restart). Hidden lines can't be grabbed, so you won't drag a line you can't see; picking up a drawing tool, adding a horizontal line or pressing `Ctrl+Z` while hidden shows them again, so a new line doesn't vanish as soon as you let go. Price alerts, position / order lines, Opens and Highs/Lows are not drawings and stay visible |
+| Shrink a card | With a card active, `Alt+M` shrinks it to a **mini chart** of the last 5 candles with the price (no time axis, volume or OI), `Alt+T` to a **ticker** strip with just the symbol, live price and 24h change. The same key again, or the **⤢** that shows on hover, brings the full card back where it was. Each small form remembers where you last dragged it, and the form survives a restart. Float mode only |
 | Undo | `Ctrl+Z` undoes adding, moving and deleting horizontal lines, trend lines, Fib retracements, rectangles and fixed range volume profiles (e.g. a line dragged by accident while dragging the time axis). Each card keeps its own history; switching symbols clears it |
 | Shortcuts & tips | `F1` on a card, the **?** in the title bar, or tray menu → "Shortcuts & tips" |
 | Open settings | The gear button, or right-click the card |
