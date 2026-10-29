@@ -37,6 +37,8 @@ const PREVIEW_DEBOUNCE_MS = 120;
 const PCTS = [10, 25, 50, 100];
 /** Shares of the position, when reduce-only. */
 const REDUCE_PCTS = [25, 50, 75, 100];
+/** Keep in step with MAX_SPLITS in main/trading/rules.js. */
+const MAX_SPLITS = 10;
 /** The exchange recomputes its long/short ratios every 5 minutes. */
 const RATIO_REFRESH_MS = 5 * 60 * 1000;
 /** Where the amount unit (USDT or the coin) is remembered, across cards. */
@@ -113,6 +115,8 @@ export class OrderTicket {
     this.reduceOnly = false;
     /** The share of the position picked with a button; null once a notional is typed. */
     this.reducePct = null;
+    /** A limit order sent as this many equal orders at the price, to drag apart after. */
+    this.splits = 1;
     /** This symbol's leverage on Binance, and its ceiling; null until known. */
     this.leverage = null;
     this.maxLeverage = null;
@@ -216,6 +220,29 @@ export class OrderTicket {
     );
     this.qtyEl = el('div.tk-sub');
 
+    this.splitVal = el('span.tk-split__val');
+    this.splitMinus = el('button.tk-split__btn', { type: 'button', text: '−', onclick: () => this.setSplits(this.splits - 1) });
+    this.splitPlus = el('button.tk-split__btn', { type: 'button', text: '+', onclick: () => this.setSplits(this.splits + 1) });
+    this.splitHint = el('span.tk-split__hint');
+    this.splitRow = el(
+      'div.tk-split',
+      { title: t('把這筆限價單平均拆成幾筆，掛在同一個價格；掛上後可以在圖上把每一筆拖到想要的價位（也可以在這裡用滾輪調）') },
+      el('span.tk-split__label', { text: t('拆單') }),
+      this.splitMinus,
+      this.splitVal,
+      this.splitPlus,
+      el('span.tk-split__unit', { text: t('筆') }),
+      this.splitHint
+    );
+    this.splitRow.addEventListener(
+      'wheel',
+      (event) => {
+        event.preventDefault();
+        this.setSplits(this.splits + (event.deltaY < 0 ? 1 : -1));
+      },
+      { passive: false }
+    );
+
     this.tpslToggle = el('input', { type: 'checkbox' });
     this.tpslToggle.addEventListener('change', () => this.update({ tpsl: this.tpslToggle.checked }));
     this.tpInput = numberInput({ placeholder: t('止盈價'), onInput: (v) => this.update({ tp: v }) });
@@ -302,6 +329,7 @@ export class OrderTicket {
           }))
         ),
         el('div.tk-pcts', {}, this.pctBtns),
+        this.splitRow,
         this.qtyEl,
         this.reduceRow,
         (this.tpslBox = el(
@@ -368,6 +396,8 @@ export class OrderTicket {
       this.reducePct = null;
       this.reduceToggle.checked = false;
     }
+    // One order unless asked again: a split is chosen per order, not kept.
+    this.splits = 1;
     // The default amount, every time: a ticket opened in a hurry is ready to send.
     this.root.hidden = false;
     if (price > 0) {
@@ -682,6 +712,11 @@ export class OrderTicket {
     this.update({});
   }
 
+  setSplits(n) {
+    const next = Math.max(1, Math.min(MAX_SPLITS, Math.round(n)));
+    if (next !== this.splits) this.update({ splits: next });
+  }
+
   update(patch) {
     Object.assign(this, patch);
     this.submitError = '';
@@ -709,6 +744,7 @@ export class OrderTicket {
       sl: !this.reduceOnly && this.tpsl && Number(this.sl) > 0 ? Number(this.sl) : null,
       reduceOnly: this.reduceOnly,
       reducePct: this.reduceOnly ? this.reducePct : null,
+      splits: this.type === 'LIMIT' ? this.splits : 1,
       lastPrice: last,
       markPrice: mark,
     };
@@ -814,6 +850,13 @@ export class OrderTicket {
         ? t('{asset} 數量 · {avail}', { asset: this.baseAsset, avail })
         : t('名目價值 USDT · {avail}', { avail });
     }
+    this.splitRow.hidden = this.type !== 'LIMIT';
+    this.splitVal.textContent = String(this.splits);
+    this.splitMinus.disabled = this.splits <= 1;
+    this.splitPlus.disabled = this.splits >= MAX_SPLITS;
+    const parts = any && any.parts;
+    this.splitHint.textContent =
+      this.splits > 1 && parts ? t('每筆 ≈ {qty} {asset}', { qty: parts[0], asset: this.baseAsset }) : this.splits > 1 ? '' : t('不拆');
     this.renderMood();
     this.liqLong.textContent = buy && buy.liq ? fmt(buy.liq, this.priceDigits()) : '—';
     this.liqShort.textContent = sell && sell.liq ? fmt(sell.liq, this.priceDigits()) : '—';
@@ -858,7 +901,8 @@ export class OrderTicket {
       const verb = this.reduceOnly ? reduceVerb(side) : side === 'BUY' ? t('做多') : t('做空');
       if (this.armed !== side) return verb;
       const at = this.type === 'MARKET' ? t('市價') : `@ ${p ? p.price : this.price}`;
-      return t('確認{verb} {qty} {asset} {at}', { verb, qty: p ? p.qty : '', asset: this.baseAsset, at });
+      const text = t('確認{verb} {qty} {asset} {at}', { verb, qty: p ? p.qty : '', asset: this.baseAsset, at });
+      return p && p.parts ? text + t('（{n} 筆）', { n: p.parts.length }) : text;
     };
     this.longBtn.textContent = this.sending && this.armed === 'BUY' ? t('送出中…') : label('BUY');
     this.shortBtn.textContent = this.sending && this.armed === 'SELL' ? t('送出中…') : label('SELL');

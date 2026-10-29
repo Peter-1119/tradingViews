@@ -124,6 +124,7 @@ function sections(prefs) {
         { keys: ['@click'], what: t('鎖定價格，方便點 ＋'), where: t('圖表上單擊') },
         { keys: ['Enter'], what: t('確認送出'), where: t('按下做多／做空後 3 秒內') },
         { keys: ['@drag'], what: t('改委託或止盈止損價'), where: t('拖曳圖上的標籤') },
+        { keys: ['@click'], what: t('限價單拆成幾筆'), where: t('下單面板的「拆單」，之後在圖上拖開') },
         { keys: ['@click'], what: t('取消委託'), where: t('標籤上的 ✕') },
         { keys: ['@dbl'], what: t('平倉／市價反手'), where: t('倉位列的按鈕連按兩次') },
         { keys: ['Esc'], what: t('拖曳中取消，不送出') },

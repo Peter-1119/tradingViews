@@ -895,6 +895,21 @@ async function preview(req) {
     ...rules.validateOrder({ side, type: market ? 'MARKET' : 'LIMIT', price, qty, refPrice, tp, sl, markPrice, reduceOnly }, r),
   ];
 
+  // Split (limit only): the same quantity as several orders at the price, to
+  // be dragged apart on the chart. Each must be an order Binance takes.
+  const count = market ? 1 : Math.max(1, Math.min(rules.MAX_SPLITS, Math.floor(Number(req.splits) || 1)));
+  let parts = null;
+  if (count > 1 && q) {
+    parts = rules.splitQuantity(q.qty, count, r);
+    if (!parts) {
+      errors.push(t('數量太小，拆不成 {n} 筆', { n: count }));
+    } else {
+      const smallest = parts[parts.length - 1];
+      const partErrors = rules.validateOrder({ side, type: 'LIMIT', price, qty: smallest, refPrice, reduceOnly }, r);
+      if (partErrors.length) errors.push(t('拆成 {n} 筆後每筆太小：{error}', { n: count, error: partErrors[0] }));
+    }
+  }
+
   const account = state.account ? summarizeAccount(state.account) : null;
   const notional = q ? q.notional : 0;
   // Closing frees margin rather than using it, and cannot grow the position.
@@ -930,6 +945,7 @@ async function preview(req) {
     type: market ? 'MARKET' : 'LIMIT',
     price,
     qty,
+    parts,
     notional,
     margin,
     leverage,
@@ -961,19 +977,50 @@ async function placeOrder(req) {
     const p = await preview({ ...req, symbol, lastPrice, markPrice });
     if (p.errors.length) throw new Error(p.errors[0]);
 
-    const params = {
-      symbol,
-      side: p.side,
-      type: p.type,
-      quantity: p.qty,
-      newClientOrderId: `sc_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
-    };
-    if (!market) Object.assign(params, { price: p.price, timeInForce: 'GTC' });
-    if (reduceOnly) params.reduceOnly = 'true';
-
-    const order = await state.client.newOrder(params);
     const side = reduceOnly ? (p.side === 'BUY' ? t('只減倉買入') : t('只減倉賣出')) : p.side === 'BUY' ? t('做多') : t('做空');
     const hasBracket = !reduceOnly && (req.tp || req.sl);
+    const send = (quantity) => {
+      const params = {
+        symbol,
+        side: p.side,
+        type: p.type,
+        quantity,
+        newClientOrderId: `sc_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+      };
+      if (!market) Object.assign(params, { price: p.price, timeInForce: 'GTC' });
+      if (reduceOnly) params.reduceOnly = 'true';
+      return state.client.newOrder(params);
+    };
+
+    if (p.parts) {
+      // One after another; each one placed keeps its TP/SL, however far the
+      // rest get. A failure part-way leaves those on the book and says so.
+      const placed = [];
+      for (const quantity of p.parts) {
+        let order;
+        try {
+          order = await send(quantity);
+        } catch (err) {
+          if (!placed.length) throw err;
+          queueRefresh(symbol, 300);
+          const why = err.unknown ? t('送單結果不明，請確認掛單') : friendly(err);
+          const partial = new Error(t('已掛 {done} / {n} 筆，其餘沒有送出：{error}', { done: placed.length, n: p.parts.length, error: why }));
+          partial.partial = true;
+          throw partial;
+        }
+        placed.push(order);
+        if (hasBracket) setPending(String(order.orderId), { symbol, tp: req.tp || null, sl: req.sl || null, at: Date.now() });
+      }
+      notice(
+        'info',
+        t('{symbol} 限價{side} {qty} @ {price} 已掛單，拆成 {n} 筆', { symbol, side, qty: p.qty, price: p.price, n: placed.length }),
+        symbol
+      );
+      queueRefresh(symbol, 200);
+      return { ok: true, orderId: String(placed[0].orderId), orderIds: placed.map((o) => String(o.orderId)) };
+    }
+
+    const order = await send(p.qty);
     if (market) {
       const avg = order.avgPrice ? t('，均價 {avg}', { avg: order.avgPrice }) : '';
       notice('fill', t('{symbol} 市價{side} {qty} 已送出', { symbol, side, qty: order.executedQty || p.qty }) + avg, symbol);
@@ -989,6 +1036,7 @@ async function placeOrder(req) {
     queueRefresh(symbol, 200);
     return { ok: true, orderId: String(order.orderId) };
   } catch (err) {
+    if (err.partial) throw err;
     if (err.unknown) {
       queueRefresh(symbol, 500);
       throw new Error(t('送單結果不明（逾時或幣安忙碌），請確認倉位與掛單後再操作'));

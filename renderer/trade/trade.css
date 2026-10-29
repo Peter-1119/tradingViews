@@ -662,6 +662,60 @@
   color: var(--ink);
 }
 
+/* Split a limit order into several at the price. */
+.tk-split {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-dim);
+  font-size: 10px;
+}
+
+.tk-split[hidden] {
+  display: none;
+}
+
+.tk-split__label {
+  margin-right: 2px;
+}
+
+.tk-split__btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tk-split__btn:hover:not(:disabled) {
+  border-color: rgba(79, 143, 247, 0.6);
+  color: var(--ink);
+}
+
+.tk-split__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tk-split__val {
+  min-width: 16px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.tk-split__hint {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
 .tk-sub {
   margin-top: -2px;
   color: var(--ink-dim);

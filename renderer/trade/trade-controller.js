@@ -699,22 +699,32 @@ export class TradeController {
         drag: pos ? { kind: 'algo', which: kind } : null,
       });
     }
-    for (const o of (snap && snap.orders) || []) {
+    // A split order puts several at one price, one label on top of the next:
+    // each says how many share it, and the axis gets one tag, not a column.
+    const orders = (snap && snap.orders) || [];
+    const stackKey = (o) => `${o.side}:${o.price}`;
+    const stacks = new Map();
+    for (const o of orders) stacks.set(stackKey(o), (stacks.get(stackKey(o)) || 0) + 1);
+    const tagged = new Set();
+    for (const o of orders) {
       const buy = o.side === 'BUY';
       const reversal = (snap.pending || []).some((p) => p.orderId === o.id && p.reverse);
+      const stacked = stacks.get(stackKey(o));
       items.push({
         id: `order:${o.id}`,
         price: o.price,
         color: buy ? COLORS.long : COLORS.short,
         dash: [2, 3],
-        axis: true,
+        axis: !tagged.has(stackKey(o)),
         label: {
           text: `${ORDER_LABEL[reversal ? (o.reduceOnly ? 'reverseClose' : 'reverse') : o.reduceOnly ? 'reduce' : 'limit'][buy ? 'BUY' : 'SELL']} ${o.qty - o.filled}`,
+          value: stacked > 1 ? `×${stacked}` : '',
           color: buy ? COLORS.long : COLORS.short,
           cancel: { kind: 'order', id: o.id },
         },
         drag: { kind: 'order', orderId: o.id, side: o.side },
       });
+      tagged.add(stackKey(o));
       const pend = (snap.pending || []).find((p) => p.orderId === o.id);
       if (pend) {
         const meta = (which) => ({ kind: 'pending', which, orderId: o.id, side: o.side, entry: o.price });

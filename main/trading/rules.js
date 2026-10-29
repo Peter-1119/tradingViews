@@ -137,6 +137,25 @@ function quantityOf(qty, price, rules, { market = false } = {}) {
   return { qty: q, qtyNum, notional: qtyNum * price };
 }
 
+/** The most orders one ticket splits into. */
+const MAX_SPLITS = 10;
+
+/**
+ * A limit quantity cut into `count` orders of whole steps, as even as they
+ * go: the steps left over add one each to the first orders, so the parts sum
+ * to `qty` exactly and the smallest is last.
+ * @returns {string[]|null} null when a part would come to less than a step
+ */
+function splitQuantity(qty, count, rules) {
+  const step = Number(rules.stepSize);
+  const n = Math.floor(Number(count));
+  const units = Math.round(Number(qty) / step);
+  if (!(step > 0) || !(n >= 1) || !(units >= n)) return null;
+  const base = Math.floor(units / n);
+  const extra = units - base * n;
+  return Array.from({ length: n }, (_, i) => ((base + (i < extra ? 1 : 0)) * step).toFixed(rules.qtyDecimals));
+}
+
 /**
  * Everything wrong with an order, as user-facing messages; empty means sendable.
  * `refPrice` is the price notional is judged at: the limit price, or the
@@ -376,6 +395,8 @@ module.exports = {
   quantityForNotional,
   quantityOf,
   validateOrder,
+  MAX_SPLITS,
+  splitQuantity,
   bracketFor,
   maxLeverage,
   maxNotionalAt,

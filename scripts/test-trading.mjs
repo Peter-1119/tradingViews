@@ -246,6 +246,20 @@ t('a reversal too big for one market order says so', () => {
   assert.ok(plan.errors.some((e) => /單筆上限/.test(e)));
 });
 
+t('a split cuts the quantity into whole steps that add back up, the larger parts first', () => {
+  assert.deepEqual(r.splitQuantity('0.010', 3, BTC), ['0.004', '0.003', '0.003']);
+  assert.deepEqual(r.splitQuantity('0.012', 6, BTC), Array(6).fill('0.002'));
+  assert.deepEqual(r.splitQuantity('0.005', 1, BTC), ['0.005']);
+  const parts = r.splitQuantity('1.237', 7, BTC);
+  assert.equal(parts.length, 7);
+  assert.equal(Math.round(parts.reduce((s, q) => s + Number(q), 0) * 1000), 1237, 'nothing lost to rounding');
+});
+
+t('a split smaller than a step per order is refused', () => {
+  assert.equal(r.splitQuantity('0.002', 3, BTC), null);
+  assert.equal(r.splitQuantity('0.003', 0, BTC), null);
+});
+
 t('a reversal goes as one order only while its opening half fits beside the position', () => {
   // 0.01 BTC at 80000, 10x: the new half needs 80 USDT, the fee on 0.02 is 0.8.
   const base = { positionAmt: 0.01, price: 80000, leverage: 10 };
