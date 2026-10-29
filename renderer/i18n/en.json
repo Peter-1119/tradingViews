@@ -772,5 +772,9 @@
   "滑鼠移到卡片上，左側會出現工具列；同一個工具再點一次就放下。": "Hover a card and the toolbar slides out on the left; click a tool again to put it down.",
   "繪圖依幣種儲存：現貨、永續與各個週期都看得到同一條線。": "Drawings are saved per symbol: the same line shows on spot, perp and every interval.",
   "價格提醒在卡片隱藏或關閉時也會通知。": "Price alerts fire even with the cards hidden or closed.",
-  "交易預設連到幣安測試網；設定 → 交易可改用不需要 API Key 的本機模擬。": "Trading starts on the Binance testnet; Settings → Trading switches to local paper trading, no API key needed."
+  "交易預設連到幣安測試網；設定 → 交易可改用不需要 API Key 的本機模擬。": "Trading starts on the Binance testnet; Settings → Trading switches to local paper trading, no API key needed.",
+  "MACD 副圖 (12, 26, 9)：快慢線與柱狀圖，即時更新": "MACD pane (12, 26, 9): MACD and signal lines with the histogram; updates live",
+  "RSI 副圖（Wilder 平滑，與 TradingView 相同）：70 以上偏熱、30 以下偏冷，即時更新": "RSI pane (Wilder smoothing, as on TradingView): above 70 is stretched, below 30 is washed out; updates live",
+  "RSI 長度": "Length",
+  "顯示 RSI": "Show RSI"
 }

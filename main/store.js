@@ -239,6 +239,10 @@ function sanitizeCard(raw, index = 0) {
     // Open interest sub-pane. Perpetuals only; a spot card keeps the setting
     // and shows it again when switched back to perp.
     showOI: card.showOI === true,
+    // Oscillator panes: RSI (Wilder) with a choice of period, MACD (12, 26, 9).
+    showRsi: card.showRsi === true,
+    rsiPeriod: pick(card.rsiPeriod, ['7', '14', '21'], '14'),
+    showMacd: card.showMacd === true,
     // Footprint inside the candles (per-price taker sells and buys), and the
     // diagonal imbalance multiple it marks.
     footprint: card.footprint === true,

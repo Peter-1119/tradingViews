@@ -55,6 +55,12 @@ const ICONS = {
   // A candle split down the middle, rows of selling left and buying right.
   footprint: '<path d="M7 1.5v11"/><path d="M6 3.5H3.5"/><path d="M8 3.5h2"/><path d="M6 6H2"/>'
     + '<path d="M8 6h4.5"/><path d="M6 8.5H4"/><path d="M8 8.5h3"/><path d="M6 11H5"/><path d="M8 11h1.5"/>',
+  // A line between its two bounds, 70 and 30.
+  rsi: '<path d="M1.5 4h11" stroke-width="1" stroke-dasharray="1.5 1.5"/><path d="M1.5 10h11" stroke-width="1" stroke-dasharray="1.5 1.5"/>'
+    + '<path d="M1.5 9l2.5-5.5 3 6.5 2.5-5 3 2.5"/>',
+  // A histogram about its zero line, and the line over it.
+  macd: '<path d="M1.5 8h11" stroke-width="0.8"/><path d="M3.5 8V6M6 8V4.5M8.5 8v2M11 8v3.5" stroke-width="1.8"/>'
+    + '<path d="M1.5 5.5c2.5-3 5-3 7 0s3 3 4 2" stroke-width="1"/>',
   oi: '<text x="7" y="10.2" text-anchor="middle" font-size="7.5" font-weight="700" letter-spacing="-0.2"'
     + ' font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">OI</text>',
 };
@@ -184,6 +190,21 @@ export const TOOLS = [
   },
   // Hidden on spot cards: there is no open interest to show.
   { id: 'oi', label: t('未平倉量'), hint: t('未平倉量 (OI) 副圖，約每 3 秒更新'), toggle: true },
+  {
+    id: 'rsi',
+    label: 'RSI',
+    hint: t('RSI 副圖（Wilder 平滑，與 TradingView 相同）：70 以上偏熱、30 以下偏冷，即時更新'),
+    toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: 'on', label: t('顯示 RSI') },
+      { heading: t('RSI 長度') },
+      { value: 'len:7', group: 'len', label: '7' },
+      { value: 'len:14', group: 'len', label: '14' },
+      { value: 'len:21', group: 'len', label: '21' },
+    ],
+  },
+  { id: 'macd', label: 'MACD', hint: t('MACD 副圖 (12, 26, 9)：快慢線與柱狀圖，即時更新'), toggle: true },
 ];
 
 function icon(name) {

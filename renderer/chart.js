@@ -29,6 +29,7 @@ import { ExtremesPrimitive } from './extremes-primitive.js';
 import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
 import { VolumePane, SqueezeBandsPrimitive, OVERLAY_SHARE } from './volume-pane.js';
+import { RsiPane, MacdPane } from './oscillator-pane.js';
 import { locale as uiLocale, isEnglish } from './i18n.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
@@ -291,7 +292,6 @@ export class CardChart {
     });
 
     this.crosshairMode = CrosshairMode.Normal;
-    this.paneRetryTimer = null;
 
     /** levelId -> { level, priceLine } */
     this.levels = new Map();
@@ -338,6 +338,10 @@ export class CardChart {
     this.volumeOpts = { threshold: 0.05, memory: 1000, intervalSec: 60, color: 'split', overlay: false };
     this.oiSeries = null;
     this.showOI = false;
+    /** Oscillator panes under the rest: RSI period (null = off), MACD on/off. */
+    this.indicatorOpts = { rsi: null, macd: false };
+    this.rsi = null;
+    this.macd = null;
     /** OHLC records aligned to `bars`, from open-interest.js; the line plots close. */
     this.oiData = [];
 
@@ -510,10 +514,7 @@ export class CardChart {
    * any change keeps the order fixed; both are re-fed from data we hold.
    */
   syncSubPanes() {
-    if (this.volume) this.volume.destroy();
-    if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
-    this.volume = null;
-    this.oiSeries = null;
+    this.clearSubPanes();
 
     // A mini card has room for the candles only; the choices come back with it.
     const showVolume = this.showVolume && !this.compact;
@@ -541,7 +542,7 @@ export class CardChart {
           priceLineVisible: false,
           crosshairMarkerRadius: 2,
         },
-        pane
+        pane++
       );
       this.oiSeries.priceScale().applyOptions({
         scaleMargins: { top: 0.2, bottom: 0.1 },
@@ -549,56 +550,67 @@ export class CardChart {
       });
       this.oiSeries.setData(this.oiSeriesData());
     }
+    if (!this.compact && this.indicatorOpts.rsi) {
+      this.rsi = new RsiPane(this, pane++, this.indicatorOpts.rsi);
+      this.rsi.render();
+    }
+    if (!this.compact && this.indicatorOpts.macd) {
+      this.macd = new MacdPane(this, pane++);
+      this.macd.render();
+    }
     this.layoutPanes();
   }
 
+  /** Every sub-pane's series gone (and so the panes), the price pane left alone. */
+  clearSubPanes() {
+    if (this.volume) this.volume.destroy();
+    if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
+    if (this.rsi) this.rsi.destroy();
+    if (this.macd) this.macd.destroy();
+    this.volume = null;
+    this.oiSeries = null;
+    this.rsi = null;
+    this.macd = null;
+  }
+
+  /** RSI period or null, MACD true/false. */
+  setIndicators(opts) {
+    const next = { ...this.indicatorOpts, ...opts };
+    if (next.rsi === this.indicatorOpts.rsi && next.macd === this.indicatorOpts.macd) return;
+    this.indicatorOpts = next;
+    this.syncSubPanes();
+  }
+
   /**
-   * Pane heights are pixel values, so they need recomputing whenever we resize.
+   * Pane heights, recomputed whenever we resize or the sub-panes change.
    *
-   * `setHeight()` is not a plain setter. Internally it derives the new split
-   * from the panes' *current* pixel heights:
-   *
-   *     const totalHeight = panes.reduce((s, p) => s + p.height(), 0);
-   *     const pixelStretchFactor = totalStretch / totalHeight;
-   *
-   * So calling it on a pane the chart has not laid out yet does the arithmetic
-   * against a height of 0 and silently does nothing -- no throw, no effect. The
-   * volume pane is then stuck at zero height, and since the only other caller
-   * of this is the ResizeObserver, it stays stuck until the card is resized.
-   * That is exactly the "toggle it on, nothing looks right until I drag the
-   * corner" failure, so verify the result and take one more run at it.
+   * Set as stretch factors -- relative sizes -- in pixels of the target
+   * split, rather than with `setHeight()`. That one is not a plain setter: it
+   * derives the new split from the panes' *current* heights, so on a pane not
+   * laid out yet it silently did nothing (the "toggle volume on, nothing looks
+   * right until I drag the corner" failure, once patched with a retry), and
+   * with several sub-panes each call undid part of the last: RSI and MACD
+   * together came out 34px and 109px instead of 91px each. Stretch factors
+   * are plain proportions, independent of what the layout currently is.
    */
-  layoutPanes({ retry = true } = {}) {
+  layoutPanes() {
     const panes = this.chart.panes();
     if (panes.length < 2) return;
     const total = this.container.clientHeight || 200;
-    // Two sub-panes share a little more than one would get, so the price pane
-    // keeps the majority of a card this small.
-    const ratio = panes.length > 2 ? VOLUME_PANE_RATIO * 0.75 : VOLUME_PANE_RATIO;
+    // Several sub-panes share a little more than one would get, and never
+    // more than half the card between them: the candles keep the majority.
+    const subs = panes.length - 1;
+    const ratio = subs === 1 ? VOLUME_PANE_RATIO : Math.min(VOLUME_PANE_RATIO * 0.75, 0.5 / subs);
     const subHeight = Math.max(MIN_VOLUME_PANE_PX, Math.round(total * ratio));
 
     try {
-      for (let i = 1; i < panes.length; i++) panes[i].setHeight(subHeight);
+      panes[0].setStretchFactor(Math.max(subHeight, total - subs * subHeight));
+      for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(subHeight);
     } catch (err) {
       // A pane really can vanish mid-resize during teardown. Anything else is
-      // worth seeing -- the old bare `catch {}` here meant a broken layout left
-      // no trace at all.
-      if (this.chart) console.warn('[chart] volume pane layout failed', err);
-      return;
+      // worth seeing.
+      if (this.chart) console.warn('[chart] sub-pane layout failed', err);
     }
-
-    if (!retry) return;
-    clearTimeout(this.paneRetryTimer);
-    this.paneRetryTimer = setTimeout(() => {
-      this.paneRetryTimer = null;
-      if (!this.chart) return;
-      const current = this.chart.panes();
-      // Zero height means the first attempt landed before the chart had laid
-      // the pane out. Deliberately setTimeout and not requestAnimationFrame:
-      // a hidden or occluded card window gets its frames throttled, which is
-      // when this retry matters most.
-      if (current.slice(1).some((p) => p.getHeight() === 0)) this.layoutPanes({ retry: false });
-    }, 50);
   }
 
   /* --------------------------------------------------------------- data */
@@ -685,6 +697,9 @@ export class CardChart {
 
     this.priceSeries.update(this.toPricePoint(bar));
     if (this.volume) this.volume.update(bar, isNew);
+    // From the state carried over the closed bars: a few multiplications.
+    if (this.rsi) this.rsi.update(bar, isNew);
+    if (this.macd) this.macd.update(bar, isNew);
   }
 
   /**
@@ -727,6 +742,8 @@ export class CardChart {
     if (this.oiSeries) {
       this.oiSeries.setData(this.oiSeriesData());
     }
+    if (this.rsi) this.rsi.render();
+    if (this.macd) this.macd.render();
   }
 
   /* ------------------------------------------------------------ options */
@@ -751,10 +768,7 @@ export class CardChart {
     // the OI pane, on OI's scale: a price of 2,670 against an axis running to
     // 2.3M, flat along the bottom. Clear them, swap the price series in the
     // (now empty) top pane, and rebuild them underneath from the data held.
-    if (this.volume) this.volume.destroy();
-    if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
-    this.volume = null;
-    this.oiSeries = null;
+    this.clearSubPanes();
     this.chart.removeSeries(this.priceSeries);
     this.levels.clear();
     this.createPriceSeries();
@@ -1249,6 +1263,7 @@ export class CardChart {
     this.htf.setColors(this.colors);
     this.footprint.setColors(this.colors);
     if (this.volume) this.volume.render();
+    if (this.macd) this.macd.render();
   }
 
   /**
@@ -1483,7 +1498,6 @@ export class CardChart {
     this.viewportListeners.clear();
     this.levels.clear();
     this.resizeObserver.disconnect();
-    clearTimeout(this.paneRetryTimer);
     this.container.removeEventListener('mouseleave', this.onPointerLeave);
     try {
       this.chart.remove();
@@ -1494,6 +1508,8 @@ export class CardChart {
     this.priceSeries = null;
     this.volume = null;
     this.oiSeries = null;
+    this.rsi = null;
+    this.macd = null;
     this.bars = [];
     this.oiData = [];
   }

@@ -432,6 +432,7 @@ export class CardView {
     this.chart.setOIVisible(this.oiApplies());
     this.chart.setDrawingsHidden(this.card.hideDrawings);
     this.applyVolumeOptions();
+    this.applyIndicators();
 
     // Each market has its own connection and so its own health; the dot
     // reports the one this card is on.
@@ -564,6 +565,15 @@ export class CardView {
       else if (value.startsWith('col:')) this.onPatch({ showVolume: true, volColor: value.slice(4) });
       else if (value.startsWith('lay:')) this.onPatch({ showVolume: true, volLayout: value.slice(4) });
       else this.onPatch({ showVolume: value === 'on' });
+      return;
+    }
+    if (id === 'rsi') {
+      if (value.startsWith('len:')) this.onPatch({ showRsi: true, rsiPeriod: value.slice(4) });
+      else this.onPatch({ showRsi: value === 'on' });
+      return;
+    }
+    if (id === 'macd') {
+      this.onPatch({ showMacd: !this.card.showMacd });
       return;
     }
     if (id === 'oi') {
@@ -1134,6 +1144,15 @@ export class CardView {
     });
   }
 
+  /** The oscillator panes, from the card. */
+  applyIndicators() {
+    if (!this.chart) return;
+    this.chart.setIndicators({
+      rsi: this.card.showRsi ? Number(this.card.rsiPeriod) || 14 : null,
+      macd: this.card.showMacd === true,
+    });
+  }
+
   oiApplies() {
     return this.card.market === 'perp' && this.card.showOI === true;
   }
@@ -1149,6 +1168,9 @@ export class CardView {
     this.toolbar.setMenuValue('volume', `col:${this.card.volColor || 'split'}`, 'col');
     this.toolbar.setMenuValue('volume', `lay:${this.card.volLayout || 'overlay'}`, 'lay');
     this.toolbar.setToggled('oi', this.card.showOI);
+    this.toolbar.setMenuValue('rsi', this.card.showRsi ? 'on' : 'off');
+    this.toolbar.setMenuValue('rsi', `len:${this.card.rsiPeriod || '14'}`, 'len');
+    this.toolbar.setToggled('macd', this.card.showMacd);
     this.toolbar.setMenuValue('htf', this.card.showHtf ? this.htfInterval() : 'off');
     this.toolbar.setToggled('drawings', this.card.hideDrawings);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
@@ -3177,6 +3199,9 @@ export class CardView {
         next.hilo !== prev.hilo ||
         String(next.levelPeriods) !== String(prev.levelPeriods);
       if (levelsChanged && !identityChanged) this.loadPeriodLevels();
+      if (next.showRsi !== prev.showRsi || next.rsiPeriod !== prev.rsiPeriod || next.showMacd !== prev.showMacd) {
+        this.applyIndicators();
+      }
       if (next.showOI !== prev.showOI || marketChanged) {
         this.chart.setOIVisible(this.oiApplies());
         // A symbol or market change reloads it with the bars, below.
