@@ -32,6 +32,9 @@ const footprintStore = require('./footprint-store');
 const alerts = require('./alerts');
 const trading = require('./trading/service');
 const paper = require('./trading/paper');
+
+// A resting order filled or a TP/SL went off: say so on the desktop too.
+trading.onFill((batch) => alerts.fireFill(batch));
 const { t } = require('./i18n');
 
 // Toasts are attributed by AppUserModelID; the same id the installer uses,

@@ -160,8 +160,9 @@ function emit(data) {
   }
 }
 
-function emitFill(symbol, side, qty, price, status = 'FILLED') {
-  emit({ e: 'ORDER_TRADE_UPDATE', o: { s: symbol, S: side, X: status, z: String(qty), ap: String(price) } });
+/** `type` and `maker` as Binance sends them (o, m): a resting limit filled is LIMIT and maker. */
+function emitFill(symbol, side, qty, price, { type = 'MARKET', maker = false } = {}) {
+  emit({ e: 'ORDER_TRADE_UPDATE', o: { s: symbol, S: side, X: 'FILLED', o: type, m: maker, z: String(qty), ap: String(price) } });
   emit({ e: 'ACCOUNT_UPDATE', a: { P: [{ s: symbol }] } });
 }
 
@@ -355,7 +356,7 @@ const client = {
         Object.assign(order, { executedQty: String(qty), avgPrice: String(price) });
         finish(order, 'FILLED');
         changed();
-        emitFill(symbol, side, qty, price);
+        emitFill(symbol, side, qty, price, { type: p.type });
         return view(order);
       }
     }
@@ -566,7 +567,7 @@ function crossLimit(o, lo, hi, time) {
   Object.assign(o, { executedQty: String(Number(o.executedQty) + qty), avgPrice: o.price });
   finish(o, 'FILLED');
   changed();
-  emitFill(o.symbol, o.side, qty, px);
+  emitFill(o.symbol, o.side, qty, px, { type: 'LIMIT', maker: true });
   return true;
 }
 

@@ -115,6 +115,59 @@ function notice(level, text, symbol = null) {
   for (const wc of allWatchers()) send(wc, 'trading:notice', { level, text, symbol, at: Date.now() });
 }
 
+/* ------------------------------------------------------- fill alerts */
+
+/** Fills this close together are one alert: a split order fills as several at once. */
+const FILL_GATHER_MS = 1200;
+let fillListener = null;
+const fillBatches = new Map();
+/** Orders already announced as part-filled, so a slow fill is one alert, not many. */
+const partAnnounced = new Set();
+
+/** Main hands this on to the desktop alert: a resting order filled, or a TP/SL went off. */
+function onFill(cb) {
+  fillListener = cb;
+}
+
+function gatherFill(key, symbol, merge) {
+  let batch = fillBatches.get(key);
+  if (!batch) {
+    batch = { symbol, count: 0, qty: 0, cost: 0 };
+    fillBatches.set(key, batch);
+    setTimeout(() => {
+      fillBatches.delete(key);
+      if (fillListener) fillListener(batch);
+    }, FILL_GATHER_MS);
+  }
+  merge(batch);
+}
+
+/**
+ * Only orders that were waiting on the book: a limit filled as maker. One
+ * that filled the moment it was sent (a market order, a marketable limit)
+ * was watched going in, and the card already says so.
+ */
+function alertOrderFill(o) {
+  if (o.o !== 'LIMIT' || !(o.m === true || o.m === 'true')) return;
+  const id = `${o.s}:${o.i}`;
+  const partial = o.X === 'PARTIALLY_FILLED';
+  if (partial) {
+    if (partAnnounced.has(id)) return;
+    partAnnounced.add(id);
+  } else {
+    partAnnounced.delete(id);
+  }
+  const qty = Number(o.z) || 0;
+  const avg = Number(o.ap) || Number(o.L) || 0;
+  gatherFill(`${o.s}:${o.S}:${partial ? 'part' : 'full'}`, o.s, (b) => {
+    Object.assign(b, { kind: 'limit', side: o.S, partial, reduceOnly: o.R === true || o.R === 'true' });
+    b.count += 1;
+    b.qty += qty;
+    b.cost += qty * avg;
+    if (partial) b.orderQty = (b.orderQty || 0) + (Number(o.q) || 0);
+  });
+}
+
 function publish(symbol) {
   const snap = state.snapshots.get(symbol);
   if (!snap) return;
@@ -268,6 +321,7 @@ function onStreamEvent(data) {
     if (o.X === 'FILLED' || o.X === 'PARTIALLY_FILLED') {
       const side = o.S === 'BUY' ? t('買入') : t('賣出');
       if (o.X === 'FILLED') notice('fill', t('{symbol} {side} {qty} 已成交，均價 {avg}', { symbol: o.s, side, qty: o.z, avg: o.ap }), o.s);
+      alertOrderFill(o);
     }
   } else if (data.e === 'ACCOUNT_UPDATE' && data.a) {
     for (const p of data.a.P || []) symbols.add(p.s);
@@ -276,8 +330,11 @@ function onStreamEvent(data) {
     const o = data.o || data.ao || {};
     if (o.s) symbols.add(o.s);
     if (o.X === 'TRIGGERED' || o.X === 'TRIGGERING') {
-      const what = /TAKE_PROFIT/.test(o.o || '') ? t('止盈') : t('止損');
+      const tp = /TAKE_PROFIT/.test(o.o || '');
+      const what = tp ? t('止盈') : t('止損');
       notice('fill', t('{symbol} {what}已觸發', { symbol: o.s, what }), o.s);
+      // TRIGGERING then TRIGGERED arrive together: gathered, they are one alert.
+      gatherFill(`${o.s}:${tp ? 'tp' : 'sl'}`, o.s, (b) => Object.assign(b, { kind: tp ? 'tp' : 'sl' }));
     } else if (o.X === 'REJECTED') {
       notice(
         'error',
@@ -1432,6 +1489,7 @@ module.exports = {
   setSymbolLeverage,
   setOneWay,
   setDefaultNotional,
+  onFill,
   paperReset,
   paperSetFees,
   test,

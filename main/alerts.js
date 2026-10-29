@@ -86,9 +86,9 @@ function fire(alert) {
  * both are off, the toast is sent anyway, or a hidden app would have no way
  * to say it.
  */
-function deliverManual(alert, hit, title, body) {
+function deliverManual(alert, hit, title, body, { broadcast = true } = {}) {
   const settings = store.getAlerts();
-  windows.broadcast('priceAlerts:fired', { ...alert, ...hit, time: Date.now() });
+  if (broadcast) windows.broadcast('priceAlerts:fired', { ...alert, ...hit, time: Date.now() });
 
   const toastOn = settings.toast || !settings.flash;
   if (toastOn && Notification.isSupported()) {
@@ -148,6 +148,35 @@ function fireVolume(alert, volume) {
   );
 }
 
+/**
+ * A resting order filled, or a TP/SL went off: `batch` is what service.js
+ * gathered (a split order filling at once is one alert). Delivered like a
+ * price alert -- the toast and flash preferences, never muted.
+ */
+function fireFill(batch) {
+  const name = displayName({ symbol: batch.symbol, market: 'perp' });
+  let title;
+  let body;
+  if (batch.kind === 'tp' || batch.kind === 'sl') {
+    title = batch.kind === 'tp' ? t('{name} · 止盈已觸發', { name }) : t('{name} · 止損已觸發', { name });
+    body = t('倉位正在平倉，請到卡片確認');
+  } else {
+    const side = batch.reduceOnly
+      ? batch.side === 'BUY' ? t('限價買入（只減倉）') : t('限價賣出（只減倉）')
+      : batch.side === 'BUY' ? t('限價買入') : t('限價賣出');
+    const avg = batch.qty > 0 ? batch.cost / batch.qty : 0;
+    const qty = Number(batch.qty.toFixed(8));
+    const price = avg ? Number(avg.toPrecision(8)) : '—';
+    title = batch.partial ? t('{name} · 掛單部分成交', { name }) : t('{name} · 掛單已成交', { name });
+    body = batch.partial
+      ? t('{side} 已成交 {qty} / {total}，均價 {price}', { side, qty, total: Number(batch.orderQty.toFixed(8)), price })
+      : t('{side} {qty} 已成交，均價 {price}', { side, qty, price });
+    if (batch.count > 1) body += t('（{n} 筆）', { n: batch.count });
+  }
+  console.log(`[alerts] fill ${batch.symbol} ${batch.kind} ${batch.partial ? 'partial ' : ''}x${batch.count || 1}`);
+  deliverManual({ symbol: batch.symbol, market: 'perp', kind: 'fill' }, {}, title, body, { broadcast: false });
+}
+
 function setState(state) {
   states.set(`${state.market}:${state.symbol}`, state);
   windows.broadcast('alerts:state', state);
@@ -163,6 +192,7 @@ module.exports = {
   fire,
   firePrice,
   fireVolume,
+  fireFill,
   setState,
   prune,
   getStates: () => [...states.values()],
