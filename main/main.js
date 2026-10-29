@@ -10,7 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, ipcMain, BrowserWindow, shell, dialog } = require('electron');
+const { app, ipcMain, BrowserWindow, shell, dialog, screen } = require('electron');
 const { randomUUID } = require('crypto');
 
 // The app was called StockCard, and its settings, bar cache and encrypted
@@ -458,6 +458,28 @@ ipcMain.handle('window:set-bounds', (event, bounds = {}) => {
   if (!win || win.isDestroyed()) return null;
   win.setBounds(store.normalizeBounds({ ...win.getBounds(), ...bounds }));
   return win.getBounds();
+});
+
+// The page moving its own window (see attachMoveFallback in renderer/card.js).
+// At 125% a position that falls on half a pixel makes setPosition / setBounds
+// round the size up, and the window grows a pixel a step. So position and size
+// are both kept to whole pixels (multiples of 4 DIP at 125%), the size taken
+// once when the drag starts.
+const moveSizes = new WeakMap();
+function pixelGrid(scale) {
+  for (let n = 1; n <= 8; n++) if (Math.abs(n * scale - Math.round(n * scale)) < 1e-6) return n;
+  return 1;
+}
+ipcMain.on('window:move-to', (event, { x, y, start } = {}) => {
+  const win = senderWindow(event);
+  if (!win || win.isDestroyed() || !Number.isFinite(x) || !Number.isFinite(y)) return;
+  const grid = pixelGrid(screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) }).scaleFactor);
+  const snap = (v) => Math.round(v / grid) * grid;
+  if (start || !moveSizes.has(win)) {
+    const { width, height } = win.getBounds();
+    moveSizes.set(win, { width: snap(width), height: snap(height) });
+  }
+  win.setBounds({ x: snap(x), y: snap(y), ...moveSizes.get(win) });
 });
 
 ipcMain.handle('window:set-always-on-top', (event, flag) => {

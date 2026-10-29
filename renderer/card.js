@@ -53,6 +53,68 @@ function attachResizeGrip(container) {
   container.append(grip);
 }
 
+/**
+ * Moving the window when Windows stops treating the title bar as one.
+ *
+ * A press on a `-webkit-app-region: drag` area is normally taken by Windows
+ * as a caption drag and never reaches the page. After the window goes to a
+ * compact form and back, Windows can lose that region (seen on a 125% display
+ * with window opacity set): the press lands in the page, which starts a
+ * drag-and-drop with the "not allowed" cursor and the window stays put. So a
+ * press the page does receive there is proof the native drag missed, and the
+ * window is moved from pointer deltas instead.
+ */
+function attachMoveFallback(container) {
+  // The region an element is in: its own, or the nearest ancestor's that sets one.
+  const inDragRegion = (node) => {
+    for (let n = node; n && n !== container.parentNode; n = n.parentElement) {
+      const region = getComputedStyle(n).webkitAppRegion;
+      if (region === 'drag') return true;
+      if (region === 'no-drag') return false;
+    }
+    return false;
+  };
+  let origin = null;
+  let frame = 0;
+  let next = null;
+
+  container.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (event.button !== 0 || !inDragRegion(event.target)) return;
+      event.preventDefault();
+      origin = { screenX: event.screenX, screenY: event.screenY, x: window.screenX, y: window.screenY, start: true };
+      container.setPointerCapture(event.pointerId);
+    },
+    true
+  );
+
+  container.addEventListener('pointermove', (event) => {
+    if (!origin) return;
+    next = { x: origin.x + event.screenX - origin.screenX, y: origin.y + event.screenY - origin.screenY };
+    // One move per frame: the IPC round trip is slower than the pointer.
+    if (!frame) {
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!next || !origin) return;
+        api.moveTo({ ...next, start: origin.start });
+        origin.start = false;
+      });
+    }
+  });
+
+  const end = (event) => {
+    if (!origin) return;
+    origin = null;
+    if (container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId);
+  };
+  container.addEventListener('pointerup', end);
+  container.addEventListener('pointercancel', end);
+  container.addEventListener('dragstart', (event) => {
+    if (inDragRegion(event.target)) event.preventDefault();
+  });
+}
+
 async function main() {
   const params = new URLSearchParams(location.search);
   const cardId = params.get('cardId');
@@ -89,6 +151,7 @@ async function main() {
 
   root.append(view.root);
   attachResizeGrip(view.root);
+  attachMoveFallback(view.root);
 
   view.setClickThrough(boot.clickThrough);
   await view.mount();

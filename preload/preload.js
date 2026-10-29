@@ -73,6 +73,7 @@ const api = {
   getBounds: () => ipcRenderer.invoke('window:get-bounds'),
   setSize: (width, height) => ipcRenderer.invoke('window:set-size', { width, height }),
   setBounds: (bounds) => ipcRenderer.invoke('window:set-bounds', bounds),
+  moveTo: (bounds) => ipcRenderer.send('window:move-to', bounds),
   setAlwaysOnTop: (flag) => ipcRenderer.invoke('window:set-always-on-top', flag),
   setWindowOpacity: (value) => ipcRenderer.invoke('window:set-opacity', value),
   closeWindow: (opts) => ipcRenderer.invoke('window:close', opts || {}),
