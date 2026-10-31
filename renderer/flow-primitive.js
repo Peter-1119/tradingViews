@@ -63,20 +63,27 @@ class FlowRenderer {
       ctx.font = FONT;
       ctx.textBaseline = 'middle';
 
+      // A bubble is the candles' own colour, and sits on a candle of the same
+      // colour more often than not: drawn like them it vanished into the
+      // body. So a dark ring around it, and the colour lifted towards white.
       for (const b of bubbles) {
+        const light = lighten(b.color, 0.45);
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-        ctx.fillStyle = withAlpha(b.color, 0.32);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(12, 16, 23, 0.9)';
+        ctx.stroke();
+        ctx.fillStyle = withAlpha(light, 0.55);
         ctx.fill();
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = withAlpha(b.color, 0.95);
+        ctx.lineWidth = 1.75;
+        ctx.strokeStyle = light;
         ctx.stroke();
         if (b.label) {
-          const x = b.x + b.r + 3;
+          const x = b.x + b.r + 4;
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(15, 20, 28, 0.85)';
           ctx.strokeText(b.label, x, b.y);
-          ctx.fillStyle = withAlpha(b.color, 1);
+          ctx.fillStyle = light;
           ctx.fillText(b.label, x, b.y);
         }
       }
@@ -117,6 +124,14 @@ class FlowRenderer {
       ctx.restore();
     });
   }
+}
+
+/** `hex` mixed with white by `amount` (0..1), as #rrggbb. */
+function lighten(hex, amount) {
+  const v = String(hex).replace('#', '');
+  if (v.length !== 6) return hex;
+  const mix = (i) => Math.round(parseInt(v.slice(i, i + 2), 16) + (255 - parseInt(v.slice(i, i + 2), 16)) * amount);
+  return `#${[0, 2, 4].map((i) => mix(i).toString(16).padStart(2, '0')).join('')}`;
 }
 
 function roundRect(ctx, x, y, w, h, r) {
