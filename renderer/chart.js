@@ -30,6 +30,8 @@ import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
 import { VolumePane, SqueezeBandsPrimitive, OVERLAY_SHARE } from './volume-pane.js';
 import { RsiPane, MacdPane } from './oscillator-pane.js';
+import { FlowPrimitive } from './flow-primitive.js';
+import { readPositions, readBar, mark } from './flow-read.js';
 import { locale as uiLocale, isEnglish } from './i18n.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
@@ -327,6 +329,13 @@ export class CardChart {
       if (!param.sourceEvent) return;
       this.setCrosshairMagnet(param.sourceEvent.ctrlKey);
     });
+    // The flow legend describes the bar under the crosshair.
+    this.chart.subscribeCrosshairMove((param) => {
+      const time = param && param.point && param.time != null ? Number(param.time) : null;
+      if (time === this.flow.hoverTime) return;
+      this.flow.hoverTime = time;
+      if (this.flow.top !== null || this.flow.reads) this.flow.update();
+    });
 
     this.onPointerLeave = () => this.setCrosshairMagnet(false);
     container.addEventListener('mouseleave', this.onPointerLeave);
@@ -381,6 +390,11 @@ export class CardChart {
     this.periodLevels = new PeriodLevelsPrimitive(this);
     /** The on-screen high and low, tagged with their prices. */
     this.extremes = new ExtremesPrimitive(this);
+    // Big orders and the position read (flow-primitive.js, flow-read.js).
+    this.flow = new FlowPrimitive(this);
+    this.flowOpts = { read: false, sens: 3 };
+    /** The median |ΔOI| the read is scaled by; kept for the live bar. */
+    this.flowScale = 0;
     this.tradeLayer = new TradePrimitive(this);
     // Price alerts reuse the trade layer's line-and-axis-tag drawing.
     this.alertLayer = new TradePrimitive(this);
@@ -498,6 +512,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.measureLayer);
     this.priceSeries.attachPrimitive(this.periodLevels);
     this.priceSeries.attachPrimitive(this.extremes);
+    this.priceSeries.attachPrimitive(this.flow);
     this.priceSeries.attachPrimitive(this.tradeLayer);
     this.priceSeries.attachPrimitive(this.alertLayer);
     this.priceSeries.attachPrimitive(this.livePrice);
@@ -700,6 +715,7 @@ export class CardChart {
     // From the state carried over the closed bars: a few multiplications.
     if (this.rsi) this.rsi.update(bar, isNew);
     if (this.macd) this.macd.update(bar, isNew);
+    this.rereadLastFlow();
   }
 
   /**
@@ -744,6 +760,77 @@ export class CardChart {
     }
     if (this.rsi) this.rsi.render();
     if (this.macd) this.macd.render();
+    this.rereadFlow();
+  }
+
+  /* ---------------------------------------------------------- order flow */
+
+  /**
+   * Big orders: `top` the rank to show up to (0.001 = top 0.1%) or null;
+   * position read: `read` on or off, `sens` the multiple of the median |ΔOI|
+   * a bar needs to be marked.
+   */
+  setFlowOptions({ top, read, sens } = {}) {
+    if (top !== undefined && top !== this.flow.top) {
+      this.flow.top = top;
+      this.flow.cutoff = NaN; // until the cutoffs held say what this rank is
+    }
+    if (read !== undefined) this.flowOpts.read = read === true;
+    if (sens !== undefined) this.flowOpts.sens = Number(sens) || 3;
+    this.rereadFlow();
+  }
+
+  /** Every kept order from the hub, sorted by time, and the size each rank is now. */
+  setSweeps(sweeps, cutoffs) {
+    this.flow.sweeps = Array.isArray(sweeps) ? sweeps : [];
+    this.setSweepCutoffs(cutoffs);
+    this.flow.update();
+  }
+
+  addSweep(sweep, cutoffs) {
+    const list = this.flow.sweeps;
+    if (!sweep) return;
+    const last = list[list.length - 1];
+    if (!last || sweep.t > last.t) list.push(sweep);
+    else if (!list.some((s) => s.t === sweep.t)) {
+      list.push(sweep);
+      list.sort((a, b) => a.t - b.t);
+    }
+    this.setSweepCutoffs(cutoffs);
+    this.flow.update();
+  }
+
+  setSweepCutoffs(cutoffs) {
+    if (cutoffs && this.flow.top !== null && cutoffs[this.flow.top] > 0) this.flow.cutoff = cutoffs[this.flow.top];
+    if (cutoffs) this.sweepCutoffs = cutoffs;
+  }
+
+  /** Read every bar again: new bars, new OI, or new settings. */
+  rereadFlow() {
+    if (this.sweepCutoffs) this.setSweepCutoffs(this.sweepCutoffs);
+    if (!this.flowOpts.read || !this.oiData.length) {
+      this.flow.reads = this.flowOpts.read ? new Map() : null;
+      this.flow.update();
+      return;
+    }
+    const oiByTime = new Map(this.oiData.map((r) => [r.time, r]));
+    const { reads, scale } = readPositions(this.bars, oiByTime, this.flowOpts.sens);
+    this.flow.reads = reads;
+    this.flowScale = scale;
+    this.flow.update();
+  }
+
+  /** Only the forming bar moved: read it alone, against the scale already found. */
+  rereadLastFlow() {
+    const reads = this.flow.reads;
+    if (!reads) return;
+    const bar = this.bars[this.bars.length - 1];
+    const oi = this.oiData[this.oiData.length - 1];
+    if (!bar || !oi || oi.time !== bar.time) return;
+    const r = readBar(bar, oi);
+    if (!r) return;
+    reads.set(bar.time, mark(r, this.flowScale, this.flowOpts.sens));
+    this.flow.update();
   }
 
   /* ------------------------------------------------------------ options */
@@ -1179,6 +1266,7 @@ export class CardChart {
   /** Replace the whole OI series: records {time, open, high, low, close}. */
   setOIData(records) {
     this.oiData = Array.isArray(records) ? records : [];
+    this.rereadFlow();
     if (!this.oiSeries) return;
     if (this.paused) {
       this.dirtyWhilePaused = true;
@@ -1216,6 +1304,7 @@ export class CardChart {
     if (!last || record.time > last.time) this.oiData.push(record);
     else if (record.time === last.time) this.oiData[this.oiData.length - 1] = record;
     else return;
+    this.rereadLastFlow();
     if (!this.oiSeries) return;
     if (this.paused) {
       this.dirtyWhilePaused = true;

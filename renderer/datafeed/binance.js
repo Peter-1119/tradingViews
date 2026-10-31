@@ -17,6 +17,7 @@
 
 import { DataProvider, STATUS, intervalToMs } from './provider.js';
 import { FootprintCollector } from './footprint-collector.js';
+import { SweepCollector } from './sweep-collector.js';
 
 /**
  * Everything that differs between the two markets. The paths under each REST
@@ -239,6 +240,11 @@ export class BinanceProvider extends DataProvider {
      * write(symbol, records)}. The hub wires it to the main process.
      */
     this.footprintStore = null;
+
+    /** symbol -> {collector, subs: Set<subId>}; see setFlow. */
+    this.sweeps = new Map();
+    /** Where kept sweeps go: {read(symbol, from, to), write(symbol, records)}; the hub wires it. */
+    this.sweepStore = null;
 
     this.handleOnline = () => {
       if (this.status !== STATUS.LIVE && this.streamRefs.size > 0) {
@@ -611,6 +617,56 @@ export class BinanceProvider extends DataProvider {
     }
   }
 
+  /* ---------------------------------------------------------- big orders */
+
+  /**
+   * Big taker orders for a subscription, on or off (sweep-collector.js). On,
+   * resolves with {sweeps, cutoffs} from `fromSec`; after that the
+   * subscription's `onSweep` hears each new one with the current cutoffs.
+   * One collector per symbol, fed by the aggTrade stream already open.
+   */
+  async setFlow(subId, enabled, fromSec) {
+    const sub = this.subs.get(subId);
+    if (!enabled || !sub) {
+      this.releaseFlow(subId);
+      return { sweeps: [], cutoffs: {} };
+    }
+    const symbol = sub.symbol;
+    let entry = this.sweeps.get(symbol);
+    if (!entry) {
+      const store = this.sweepStore;
+      const collector = new SweepCollector({
+        symbol,
+        fetchJson: (path) => this.fetchJson(path),
+        store: store && {
+          read: (from, to) => store.read(symbol, from, to),
+          write: (records) => store.write(symbol, records),
+        },
+        onSweep: (sweep, cutoffs) => {
+          const current = this.sweeps.get(symbol);
+          if (!current) return;
+          for (const id of current.subs) {
+            const s = this.subs.get(id);
+            if (s && s.handlers.onSweep) s.handlers.onSweep({ sweep, cutoffs });
+          }
+        },
+        logger: this.logger,
+      });
+      entry = { collector, subs: new Set() };
+      this.sweeps.set(symbol, entry);
+    }
+    entry.subs.add(subId);
+    return entry.collector.snapshot(fromSec);
+  }
+
+  releaseFlow(subId) {
+    for (const [symbol, entry] of [...this.sweeps]) {
+      if (!entry.subs.delete(subId) || entry.subs.size) continue;
+      entry.collector.stop();
+      this.sweeps.delete(symbol);
+    }
+  }
+
   /* --------------------------------------------------------- symbol list */
 
   async loadSymbols() {
@@ -681,7 +737,10 @@ export class BinanceProvider extends DataProvider {
 
     if (previous) this.cancelPendingTick(previous);
     // The card asks again for the new symbol once its bars are in.
-    if (previous && previous.symbol !== upper) this.releaseFootprint(subId);
+    if (previous && previous.symbol !== upper) {
+      this.releaseFootprint(subId);
+      this.releaseFlow(subId);
+    }
 
     this.subs.set(subId, {
       symbol: upper,
@@ -746,6 +805,7 @@ export class BinanceProvider extends DataProvider {
     this.subs.delete(subId);
     this.cancelPendingTick(sub);
     this.releaseFootprint(subId);
+    this.releaseFlow(subId);
     if (this.config.openInterest) this.releaseOI(sub.symbol);
 
     const removed = [];
@@ -998,6 +1058,8 @@ export class BinanceProvider extends DataProvider {
     if (data.e === 'aggTrade') {
       const footprint = this.footprints.get(data.s);
       if (footprint) footprint.collector.trade(data);
+      const sweeps = this.sweeps.get(data.s);
+      if (sweeps) sweeps.collector.trade(data);
       const price = Number(data.p);
       if (!Number.isFinite(price)) return;
       const qty = Number(data.q);
@@ -1135,6 +1197,8 @@ export class BinanceProvider extends DataProvider {
     for (const sub of this.subs.values()) this.cancelPendingTick(sub);
     for (const entry of this.footprints.values()) entry.collector.stop();
     this.footprints.clear();
+    for (const entry of this.sweeps.values()) entry.collector.stop();
+    this.sweeps.clear();
     this.subs.clear();
     clearTimeout(this.watchdogTimer);
     for (const entry of this.oiPolls.values()) clearTimeout(entry.timer);

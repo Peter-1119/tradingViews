@@ -787,13 +787,15 @@ await test('bucketing: 1m OHLC passes through, 5m history steps across 1m bars',
   const T = 1_790_000_100 - (1_790_000_100 % 300);
   const minute = { time: T, open: 10, high: 14, low: 9, close: 12 };
   const [bar] = bucketOI(oiPoints([minute]), [T], 60);
-  assert.deepEqual(bar, { time: T, open: 10, high: 14, low: 9, close: 12 });
+  assert.deepEqual(bar, { time: T, open: 10, high: 14, low: 9, close: 12, n: 4 });
 
   // Only 5m samples, at T and T+300: the minutes between hold the earlier one.
   const pts = oiPoints([], historyRecords([{ time: T * 1000, value: 50 }, { time: (T + 300) * 1000, value: 60 }]));
   const bars = bucketOI(pts, [T, T + 60, T + 120, T + 240, T + 300], 60);
   assert.deepEqual(bars.map((b) => b.close), [50, 50, 50, 50, 60]);
   assert.equal(bars[4].open, 50, 'a bar opens where the previous one closed');
+  // One sample inside, or none: not enough for the position read.
+  assert.deepEqual(bars.map((b) => b.n), [1, 0, 0, 0, 1]);
 });
 
 await test('history: samples off the 5m grid are dropped', () => {

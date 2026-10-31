@@ -35,6 +35,7 @@ export class RemoteProvider extends DataProvider {
     this.bridge.onFunding(route('onFunding', 'funding'));
     this.bridge.onOI(route('onOI', 'oi'));
     this.bridge.onFootprint(route('onFootprint', 'footprint'));
+    this.bridge.onSweep(route('onSweep', 'sweep'));
 
     this.bridge.onStatus(({ market, status }) => {
       if (market !== this.market || this.status === status) return;
@@ -84,6 +85,15 @@ export class RemoteProvider extends DataProvider {
    */
   setFootprint(subId, enabled, fromSec) {
     return this.call('setFootprint', [subId, enabled, fromSec]);
+  }
+
+  /**
+   * Big taker orders for a subscription, on or off. On, resolves with
+   * {sweeps, cutoffs} from `fromSec`; the subscription's onSweep then hears
+   * each new one.
+   */
+  setFlow(subId, enabled, fromSec) {
+    return this.call('setFlow', [subId, enabled, fromSec]);
   }
 
   searchSymbols(query) {

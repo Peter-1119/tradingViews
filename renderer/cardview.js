@@ -108,6 +108,8 @@ const OI_RECHECK_MIN_SHARE = 0.9;
  */
 const FOOTPRINT_BARS = 30;
 const FOOTPRINT_MAX_SEC = 6 * 3600;
+/** Big orders are read back this far at most: two weeks of 5m is ~4,000 bars. */
+const FLOW_MAX_SEC = 14 * 24 * 3600;
 /** Below this bar spacing the rows have no room; turning it on zooms in. */
 const FOOTPRINT_MIN_SPACING = 8;
 
@@ -159,6 +161,7 @@ export class CardView {
     /** Footprint minutes from the hub, merged into bars on draw. */
     this.fpBook = new FootprintBook();
     this.fpSeq = 0;
+    this.flowSeq = 0;
     /** {key, promise} -- the other market's name for this symbol, being looked up. */
     this.counterpartJob = null;
     this.status = this.feed.getStatus();
@@ -433,6 +436,7 @@ export class CardView {
     this.chart.setDrawingsHidden(this.card.hideDrawings);
     this.applyVolumeOptions();
     this.applyIndicators();
+    this.applyFlowOptions();
 
     // Each market has its own connection and so its own health; the dot
     // reports the one this card is on.
@@ -565,6 +569,12 @@ export class CardView {
       else if (value.startsWith('col:')) this.onPatch({ showVolume: true, volColor: value.slice(4) });
       else if (value.startsWith('lay:')) this.onPatch({ showVolume: true, volLayout: value.slice(4) });
       else this.onPatch({ showVolume: value === 'on' });
+      return;
+    }
+    if (id === 'flow') {
+      if (value.startsWith('top:')) this.onPatch({ flowTop: value.slice(4), flow: this.sweepsOn() ? this.card.flow : this.card.flow === 'read' ? 'both' : 'sweeps' });
+      else if (value.startsWith('sens:')) this.onPatch({ flowSens: value.slice(5), flow: this.card.flow === 'sweeps' ? 'both' : this.card.flow === 'off' ? 'read' : this.card.flow });
+      else this.onPatch({ flow: value });
       return;
     }
     if (id === 'rsi') {
@@ -1157,6 +1167,61 @@ export class CardView {
     return this.card.market === 'perp' && this.card.showOI === true;
   }
 
+  /** Open interest is loaded for its pane, and for the position read. */
+  oiWanted() {
+    return this.oiApplies() || this.readOn();
+  }
+
+  /* ----------------------------------------------------------- order flow */
+
+  sweepsOn() {
+    return this.card.flow === 'sweeps' || this.card.flow === 'both';
+  }
+
+  /** The read needs open interest, so perpetuals only. */
+  readOn() {
+    return this.card.market === 'perp' && (this.card.flow === 'read' || this.card.flow === 'both');
+  }
+
+  applyFlowOptions() {
+    if (!this.chart) return;
+    this.chart.setFlowOptions({
+      top: this.sweepsOn() ? Number(this.card.flowTop || '0.1') / 100 : null,
+      read: this.readOn(),
+      sens: Number(this.card.flowSens) || 3,
+    });
+  }
+
+  /**
+   * Big orders from the hub: what it kept from the first bar on (two weeks at
+   * most), then each new one through onSweep. Off, the hub's collector is
+   * released -- it runs only while some card shows them.
+   */
+  async loadFlow() {
+    const seq = ++this.flowSeq;
+    if (!this.chart) return;
+    if (!this.sweepsOn()) {
+      this.chart.setSweeps([]);
+      this.feed.setFlow(this.card.id, false).catch(() => {});
+      return;
+    }
+    const bars = this.chart.bars;
+    if (!bars.length) return;
+    const from = Math.max(bars[0].time, Math.floor(Date.now() / 1000) - FLOW_MAX_SEC);
+    try {
+      const { sweeps, cutoffs } = await this.feed.setFlow(this.card.id, true, from);
+      if (seq !== this.flowSeq || this.destroyed || !this.chart) return;
+      this.chart.setSweeps(sweeps, cutoffs);
+    } catch (err) {
+      console.error('[card] big orders failed', err);
+    }
+  }
+
+  applySweep(payload) {
+    if (this.destroyed || !this.chart || !this.sweepsOn() || !payload) return;
+    this.chart.addSweep(payload.sweep, payload.cutoffs);
+  }
+
   /** The rail's sub-pane switches follow the card; OI exists only on perp. */
   renderRail() {
     this.toolbar.setMenuValue('opens', this.card.showOpens ? this.card.levelAnchor : 'off');
@@ -1171,6 +1236,9 @@ export class CardView {
     this.toolbar.setMenuValue('rsi', this.card.showRsi ? 'on' : 'off');
     this.toolbar.setMenuValue('rsi', `len:${this.card.rsiPeriod || '14'}`, 'len');
     this.toolbar.setToggled('macd', this.card.showMacd);
+    this.toolbar.setMenuValue('flow', this.card.flow || 'off');
+    this.toolbar.setMenuValue('flow', `top:${this.card.flowTop || '0.1'}`, 'top');
+    this.toolbar.setMenuValue('flow', `sens:${this.card.flowSens || '3'}`, 'sens');
     this.toolbar.setMenuValue('htf', this.card.showHtf ? this.htfInterval() : 'off');
     this.toolbar.setToggled('drawings', this.card.hideDrawings);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
@@ -1239,7 +1307,7 @@ export class CardView {
    */
   async loadOI() {
     clearTimeout(this.oiRefreshTimer);
-    if (!this.chart || !this.oiApplies()) return;
+    if (!this.chart || !this.oiWanted()) return;
     const bars = this.chart.bars;
     if (!bars.length) return;
     // Again every few minutes while shown: a hole left while the computer
@@ -1388,7 +1456,7 @@ export class CardView {
     this.oiLive.push(point);
     while (this.oiLive.length && this.oiLive[0].t < point.t - OI_LIVE_KEEP_SEC) this.oiLive.shift();
 
-    if (!this.chart || !this.oiApplies()) return;
+    if (!this.chart || !this.oiWanted()) return;
     const tail = this.oiPoints[this.oiPoints.length - 1];
     if (!tail || point.t > tail.t) this.oiPoints.push(point);
     const bars = this.chart.bars;
@@ -2782,6 +2850,7 @@ export class CardView {
       }, 0);
       this.subscribe();
       if (this.card.footprint) this.loadFootprint();
+      this.loadFlow();
 
       feed
         .getTicker(symbol)
@@ -2837,6 +2906,7 @@ export class CardView {
         if (!this.destroyed) this.applyLiveOI(oi);
       },
       onFootprint: (records) => this.applyFootprint(records),
+      onSweep: (payload) => this.applySweep(payload),
     });
   }
 
@@ -3199,6 +3269,15 @@ export class CardView {
         next.hilo !== prev.hilo ||
         String(next.levelPeriods) !== String(prev.levelPeriods);
       if (levelsChanged && !identityChanged) this.loadPeriodLevels();
+      if (next.flow !== prev.flow || next.flowTop !== prev.flowTop || next.flowSens !== prev.flowSens || marketChanged) {
+        const wasReading = prev.market === 'perp' && (prev.flow === 'read' || prev.flow === 'both');
+        this.applyFlowOptions();
+        // A symbol or market change loads both with the bars, below.
+        if (!symbolChanged && !marketChanged) {
+          if (next.flow !== prev.flow) this.loadFlow();
+          if (this.readOn() && !wasReading && !this.oiApplies()) this.loadOI();
+        }
+      }
       if (next.showRsi !== prev.showRsi || next.rsiPeriod !== prev.rsiPeriod || next.showMacd !== prev.showMacd) {
         this.applyIndicators();
       }

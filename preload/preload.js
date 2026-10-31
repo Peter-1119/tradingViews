@@ -100,6 +100,7 @@ const api = {
     onFunding: (cb) => on('datafeed:funding', cb),
     onOI: (cb) => on('datafeed:oi', cb),
     onFootprint: (cb) => on('datafeed:footprint', cb),
+    onSweep: (cb) => on('datafeed:sweep', cb),
     onStatus: (cb) => on('datafeed:status', cb),
     onReset: (cb) => on('datafeed:reset', cb),
   },
@@ -182,6 +183,8 @@ const hubApi = {
   emit: (ownerId, channel, payload) => ipcRenderer.send('hub:emit', { ownerId, channel, payload }),
   writeBars: (market, symbol, interval, bars) =>
     ipcRenderer.invoke('bars:write', { market, symbol, interval, bars }),
+  readBars: (market, symbol, interval, from, to) =>
+    ipcRenderer.invoke('bars:read', { market, symbol, interval, from, to }),
   readFootprint: (market, symbol, from, to) => ipcRenderer.invoke('footprint:read', { market, symbol, from, to }),
   writeFootprint: (market, symbol, records) => ipcRenderer.invoke('footprint:write', { market, symbol, records }),
   onWatch: (cb) => on('hub:watch', cb),

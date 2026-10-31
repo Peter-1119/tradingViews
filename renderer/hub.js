@@ -40,6 +40,11 @@ for (const [market, provider] of providers) {
     read: (symbol, from, to) => hub.readFootprint(market, symbol, from, to),
     write: (symbol, records) => hub.writeFootprint(market, symbol, records),
   };
+  // Big orders go in the bar cache, as series `sweeps` (sweep-collector.js).
+  provider.sweepStore = {
+    read: (symbol, from, to) => hub.readBars(market, symbol, 'sweeps', from, to),
+    write: (symbol, records) => hub.writeBars(market, symbol, 'sweeps', records),
+  };
 }
 
 /** subId -> {ownerId, market}. */
@@ -93,6 +98,7 @@ hub.onSubscribe(({ subId, market, symbol, interval, ownerId }) => {
     onFunding: (funding) => hub.emit(ownerId, 'datafeed:funding', { subId, market, funding }),
     onOI: (oi) => hub.emit(ownerId, 'datafeed:oi', { subId, market, oi }),
     onFootprint: (footprint) => hub.emit(ownerId, 'datafeed:footprint', { subId, market, footprint }),
+    onSweep: (sweep) => hub.emit(ownerId, 'datafeed:sweep', { subId, market, sweep }),
   });
 
   // A card that mounts mid-session needs the current link state right away.

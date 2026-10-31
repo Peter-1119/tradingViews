@@ -44,7 +44,8 @@ export function oiPoints(minuteRecords = [], historyRecords = [], live = []) {
 /**
  * One OHLC per bar: open is the value going into the bar, close the last one
  * inside it. A bar with nothing inside and nothing recent before it is left
- * out rather than guessed.
+ * out rather than guessed. `n` is how many samples fell inside: the position
+ * read (flow-read.js) only trusts a bar's ΔOI when it was sampled from within.
  *
  * @param {{t: number, v: number}[]} points  sorted by t
  * @param {number[]} barTimes                bar open times (seconds), ascending
@@ -62,8 +63,10 @@ export function bucketOI(points, barTimes, stepSec) {
     let high = -Infinity;
     let low = Infinity;
     let close = null;
+    let n = 0;
     while (i < points.length && points[i].t < end) {
       const { v } = points[i];
+      n += 1;
       if (open === null) open = v;
       if (v > high) high = v;
       if (v < low) low = v;
@@ -80,6 +83,7 @@ export function bucketOI(points, barTimes, stepSec) {
       high: Math.max(high, open, close),
       low: Math.min(low, open, close),
       close,
+      n,
     });
   }
   return out;

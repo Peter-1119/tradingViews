@@ -560,6 +560,7 @@ ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) =>
     'getLongShortRatio',
     'getOpenInterestHist',
     'setFootprint',
+    'setFlow',
     'getStatus',
     'counterpart',
   ];

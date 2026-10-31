@@ -243,6 +243,12 @@ function sanitizeCard(raw, index = 0) {
     showRsi: card.showRsi === true,
     rsiPeriod: pick(card.rsiPeriod, ['7', '14', '21'], '14'),
     showMacd: card.showMacd === true,
+    // Order flow: big taker orders and/or the position read (perp only).
+    // flowTop: show orders in this top share of the symbol's own, in %.
+    // flowSens: mark bars whose |ΔOI| is this many times the median.
+    flow: pick(card.flow, ['off', 'sweeps', 'read', 'both'], 'off'),
+    flowTop: pick(card.flowTop, ['0.5', '0.2', '0.1', '0.05', '0.02', '0.01'], '0.1'),
+    flowSens: pick(card.flowSens, ['2', '3', '5'], '3'),
     // Footprint inside the candles (per-price taker sells and buys), and the
     // diagonal imbalance multiple it marks.
     footprint: card.footprint === true,

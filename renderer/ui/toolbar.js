@@ -55,6 +55,8 @@ const ICONS = {
   // A candle split down the middle, rows of selling left and buying right.
   footprint: '<path d="M7 1.5v11"/><path d="M6 3.5H3.5"/><path d="M8 3.5h2"/><path d="M6 6H2"/>'
     + '<path d="M8 6h4.5"/><path d="M6 8.5H4"/><path d="M8 8.5h3"/><path d="M6 11H5"/><path d="M8 11h1.5"/>',
+  // Bubbles of two sizes: big orders.
+  flow: '<circle cx="4.6" cy="9.2" r="2.6"/><circle cx="9.6" cy="5" r="3.4"/>',
   // A line between its two bounds, 70 and 30.
   rsi: '<path d="M1.5 4h11" stroke-width="1" stroke-dasharray="1.5 1.5"/><path d="M1.5 10h11" stroke-width="1" stroke-dasharray="1.5 1.5"/>'
     + '<path d="M1.5 9l2.5-5.5 3 6.5 2.5-5 3 2.5"/>',
@@ -202,6 +204,29 @@ export const TOOLS = [
       { value: 'len:7', group: 'len', label: '7' },
       { value: 'len:14', group: 'len', label: '14' },
       { value: 'len:21', group: 'len', label: '21' },
+    ],
+  },
+  {
+    id: 'flow',
+    label: t('大單與倉位判讀'),
+    hint: t('大單：同一毫秒的主動成交合併成一張單，依該幣種自己的排名標出最大的那些（泡泡，綠買紅賣）。倉位判讀（永續）：用主動淨量與 OI 變化判斷新多、新空、空補、多平'),
+    toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: 'sweeps', label: t('大單') },
+      { value: 'read', label: t('倉位判讀') },
+      { value: 'both', label: t('兩者') },
+      { heading: t('大單門檻（該幣種的前幾 %）') },
+      { value: 'top:0.5', group: 'top', label: t('前 0.5%') },
+      { value: 'top:0.2', group: 'top', label: t('前 0.2%') },
+      { value: 'top:0.1', group: 'top', label: t('前 0.1%') },
+      { value: 'top:0.05', group: 'top', label: t('前 0.05%') },
+      { value: 'top:0.02', group: 'top', label: t('前 0.02%') },
+      { value: 'top:0.01', group: 'top', label: t('前 0.01%') },
+      { heading: t('判讀門檻（ΔOI 是中位數的幾倍）') },
+      { value: 'sens:2', group: 'sens', label: t('2 倍') },
+      { value: 'sens:3', group: 'sens', label: t('3 倍') },
+      { value: 'sens:5', group: 'sens', label: t('5 倍') },
     ],
   },
   { id: 'macd', label: 'MACD', hint: t('MACD 副圖 (12, 26, 9)：快慢線與柱狀圖，即時更新'), toggle: true },
