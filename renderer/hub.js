@@ -59,6 +59,44 @@ async function counterpart(symbol, from, to) {
   return counterpartSymbol(symbol, source, target);
 }
 
+/* --------------------------------------------------------------- walls */
+
+/**
+ * A card's order-book walls on or off. On, it watches its own market's book
+ * and, with `both`, the same instrument's on the other market; resolves with
+ * what each knows now ({sources: [{market, symbol, ready, step, walls,
+ * ended}]}), and the card hears each second's news as `datafeed:walls`.
+ */
+async function setWalls(subId, enabled, both, fromMs) {
+  for (const provider of providers.values()) provider.unwatchBook(subId);
+  const entry = owners.get(subId);
+  if (!enabled || !entry) return { sources: [] };
+  const sub = feed(entry.market).subs.get(subId);
+  if (!sub) return { sources: [] };
+  const markets = [entry.market];
+  if (both) markets.push(entry.market === 'perp' ? 'spot' : 'perp');
+  const sources = [];
+  for (const market of markets) {
+    const symbol = market === entry.market ? sub.symbol : await counterpart(sub.symbol, entry.market, market).catch(() => null);
+    if (!symbol) continue;
+    const ownerId = entry.ownerId;
+    const cardMarket = entry.market;
+    sources.push(
+      feed(market).books.watch(
+        subId,
+        symbol,
+        (walls) => hub.emit(ownerId, 'datafeed:walls', { subId, market: cardMarket, walls }),
+        Number(fromMs) || 0
+      )
+    );
+  }
+  return { sources };
+}
+
+function releaseWalls(subId) {
+  for (const provider of providers.values()) provider.unwatchBook(subId);
+}
+
 /* ---------------------------------------------------- request/response */
 
 hub.onRequest(async ({ reqId, market, method, args = [] }) => {
@@ -66,6 +104,8 @@ hub.onRequest(async ({ reqId, market, method, args = [] }) => {
     let data;
     if (method === 'counterpart') {
       data = await counterpart(...args);
+    } else if (method === 'setWalls') {
+      data = await setWalls(...args);
     } else {
       const provider = feed(market);
       if (typeof provider[method] !== 'function') {
@@ -90,7 +130,7 @@ hub.onSubscribe(({ subId, market, symbol, interval, ownerId }) => {
   // its socket keeps streaming a symbol no one is showing.
   const previous = owners.get(subId);
   if (previous && previous.market !== market) feed(previous.market).unsubscribe(subId);
-  owners.set(subId, { ownerId, market });
+  owners.set(subId, { ownerId, market, symbol: String(symbol).toUpperCase() });
 
   provider.subscribe(subId, symbol, interval, {
     onBar: (bar) => hub.emit(ownerId, 'datafeed:bar', { subId, market, bar }),
@@ -100,6 +140,8 @@ hub.onSubscribe(({ subId, market, symbol, interval, ownerId }) => {
     onFootprint: (footprint) => hub.emit(ownerId, 'datafeed:footprint', { subId, market, footprint }),
     onSweep: (sweep) => hub.emit(ownerId, 'datafeed:sweep', { subId, market, sweep }),
   });
+  // A symbol change: the card asks for the new book's walls once its bars are in.
+  if (previous && previous.symbol !== symbol) releaseWalls(subId);
 
   // A card that mounts mid-session needs the current link state right away.
   hub.emit(ownerId, 'datafeed:status', { market, status: provider.getStatus() });
@@ -112,6 +154,7 @@ hub.onUnsubscribe(({ subId, market }) => {
   // subscription it just made on the new one.
   if (market && market !== entry.market) return;
   feed(entry.market).unsubscribe(subId);
+  releaseWalls(subId);
   owners.delete(subId);
 });
 
@@ -122,6 +165,7 @@ hub.onReleaseOwner(({ ownerId, cardId }) => {
     const matchesCard = cardId != null && subId.startsWith(cardId);
     if (matchesOwner || matchesCard) {
       feed(entry.market).unsubscribe(subId);
+      releaseWalls(subId);
       owners.delete(subId);
     }
   }

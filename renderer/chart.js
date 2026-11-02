@@ -31,6 +31,7 @@ import { LivePricePrimitive } from './live-price-primitive.js';
 import { VolumePane, SqueezeBandsPrimitive, OVERLAY_SHARE } from './volume-pane.js';
 import { RsiPane, MacdPane, CvdPane } from './oscillator-pane.js';
 import { FlowPrimitive } from './flow-primitive.js';
+import { WallsPrimitive } from './walls-primitive.js';
 import { readPositions, readBar, mark } from './flow-read.js';
 import { locale as uiLocale, isEnglish } from './i18n.js';
 
@@ -396,6 +397,8 @@ export class CardChart {
     this.flowOpts = { read: false, sens: 3 };
     /** The median |ΔOI| the read is scaled by; kept for the live bar. */
     this.flowScale = 0;
+    /** Order-book walls (walls-primitive.js). */
+    this.walls = new WallsPrimitive(this);
     this.tradeLayer = new TradePrimitive(this);
     // Price alerts reuse the trade layer's line-and-axis-tag drawing.
     this.alertLayer = new TradePrimitive(this);
@@ -513,6 +516,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.measureLayer);
     this.priceSeries.attachPrimitive(this.periodLevels);
     this.priceSeries.attachPrimitive(this.extremes);
+    this.priceSeries.attachPrimitive(this.walls);
     this.priceSeries.attachPrimitive(this.flow);
     this.priceSeries.attachPrimitive(this.tradeLayer);
     this.priceSeries.attachPrimitive(this.alertLayer);
@@ -771,6 +775,22 @@ export class CardChart {
     if (this.macd) this.macd.render();
     if (this.cvd) this.cvd.render();
     this.rereadFlow();
+  }
+
+  /* ---------------------------------------------------------------- walls */
+
+  /** {own, sens, sources} from the hub, or null for off. */
+  setWalls(state) {
+    this.walls.set(state);
+  }
+
+  setWallsSens(sens) {
+    this.walls.setSens(sens);
+  }
+
+  /** One source's news, every second. */
+  applyWalls(msg) {
+    this.walls.apply(msg);
   }
 
   /* ---------------------------------------------------------- order flow */

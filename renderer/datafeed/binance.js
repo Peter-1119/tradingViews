@@ -18,6 +18,7 @@
 import { DataProvider, STATUS, intervalToMs } from './provider.js';
 import { FootprintCollector } from './footprint-collector.js';
 import { SweepCollector } from './sweep-collector.js';
+import { BookFeed } from './order-book.js';
 
 /**
  * Everything that differs between the two markets. The paths under each REST
@@ -37,6 +38,9 @@ export const MARKETS = Object.freeze({
     symbolsCacheKey: 'stockcard.symbols.v1',
     funding: false,
     openInterest: false,
+    // The order book's change stream, on a socket of its own (order-book.js).
+    depthWs: 'wss://stream.binance.com:9443/stream',
+    depthStream: '@depth',
   }),
   perp: Object.freeze({
     name: 'Binance USD-M',
@@ -48,6 +52,9 @@ export const MARKETS = Object.freeze({
     openInterest: true,
     // The trading-statistics endpoints (OI history) live outside /fapi/v1.
     dataRest: 'https://fapi.binance.com/futures/data',
+    // Depth is not served on /market/stream; the /public route has it.
+    depthWs: 'wss://fstream.binance.com/public/stream',
+    depthStream: '@depth@500ms',
   }),
 });
 
@@ -245,6 +252,9 @@ export class BinanceProvider extends DataProvider {
     this.sweeps = new Map();
     /** Where kept sweeps go: {read(symbol, from, to), write(symbol, records)}; the hub wires it. */
     this.sweepStore = null;
+
+    /** Order books and their walls, on a socket of their own; made when first asked for. */
+    this.bookFeed = null;
 
     this.handleOnline = () => {
       if (this.status !== STATUS.LIVE && this.streamRefs.size > 0) {
@@ -665,6 +675,27 @@ export class BinanceProvider extends DataProvider {
       entry.collector.stop();
       this.sweeps.delete(symbol);
     }
+  }
+
+  /* --------------------------------------------------------------- walls */
+
+  /** This market's order books (order-book.js). */
+  get books() {
+    if (!this.bookFeed) {
+      this.bookFeed = new BookFeed({
+        market: this.market,
+        url: this.config.depthWs,
+        suffix: this.config.depthStream,
+        fetchJson: (path) => this.fetchJson(path),
+        logger: this.logger,
+      });
+    }
+    return this.bookFeed;
+  }
+
+  /** Stop watching whatever book `key` watched here, if any. */
+  unwatchBook(key) {
+    if (this.bookFeed) this.bookFeed.unwatch(key);
   }
 
   /* --------------------------------------------------------- symbol list */
@@ -1199,6 +1230,7 @@ export class BinanceProvider extends DataProvider {
     this.footprints.clear();
     for (const entry of this.sweeps.values()) entry.collector.stop();
     this.sweeps.clear();
+    if (this.bookFeed) this.bookFeed.destroy();
     this.subs.clear();
     clearTimeout(this.watchdogTimer);
     for (const entry of this.oiPolls.values()) clearTimeout(entry.timer);

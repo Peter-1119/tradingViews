@@ -162,6 +162,7 @@ export class CardView {
     this.fpBook = new FootprintBook();
     this.fpSeq = 0;
     this.flowSeq = 0;
+    this.wallsSeq = 0;
     /** {key, promise} -- the other market's name for this symbol, being looked up. */
     this.counterpartJob = null;
     this.status = this.feed.getStatus();
@@ -575,6 +576,12 @@ export class CardView {
       if (value.startsWith('top:')) this.onPatch({ flowTop: value.slice(4), flow: this.sweepsOn() ? this.card.flow : this.card.flow === 'read' ? 'both' : 'sweeps' });
       else if (value.startsWith('sens:')) this.onPatch({ flowSens: value.slice(5), flow: this.card.flow === 'sweeps' ? 'both' : this.card.flow === 'off' ? 'read' : this.card.flow });
       else this.onPatch({ flow: value });
+      return;
+    }
+    if (id === 'walls') {
+      // A threshold turns the walls on too, on this market's book if they were off.
+      if (value.startsWith('sens:')) this.onPatch({ wallsSens: value.slice(5), walls: this.wallsOn() ? this.card.walls : 'own' });
+      else this.onPatch({ walls: value });
       return;
     }
     if (id === 'rsi') {
@@ -1228,6 +1235,41 @@ export class CardView {
     this.chart.addSweep(payload.sweep, payload.cutoffs);
   }
 
+  /* ---------------------------------------------------------------- walls */
+
+  wallsOn() {
+    return this.card.walls === 'own' || this.card.walls === 'both';
+  }
+
+  /**
+   * Walls from the hub, which keeps the order book while some card shows it:
+   * the ones standing, and those that ended since it started (six hours at
+   * most); then each second's news through onWalls.
+   */
+  async loadWalls() {
+    const seq = ++this.wallsSeq;
+    if (!this.chart) return;
+    if (!this.wallsOn()) {
+      this.chart.setWalls(null);
+      this.feed.setWalls(this.card.id, false).catch(() => {});
+      return;
+    }
+    const bars = this.chart.bars;
+    const from = bars.length ? bars[0].time * 1000 : 0;
+    try {
+      const { sources } = await this.feed.setWalls(this.card.id, true, this.card.walls === 'both', from);
+      if (seq !== this.wallsSeq || this.destroyed || !this.chart) return;
+      this.chart.setWalls({ own: this.card.market, sens: this.card.wallsSens, sources });
+    } catch (err) {
+      console.error('[card] walls failed', err);
+    }
+  }
+
+  applyWalls(msg) {
+    if (this.destroyed || !this.chart || !this.wallsOn() || !msg) return;
+    this.chart.applyWalls(msg);
+  }
+
   /** The rail's sub-pane switches follow the card; OI exists only on perp. */
   renderRail() {
     this.toolbar.setMenuValue('opens', this.card.showOpens ? this.card.levelAnchor : 'off');
@@ -1247,6 +1289,8 @@ export class CardView {
     this.toolbar.setMenuValue('flow', this.card.flow || 'off');
     this.toolbar.setMenuValue('flow', `top:${this.card.flowTop || '0.1'}`, 'top');
     this.toolbar.setMenuValue('flow', `sens:${this.card.flowSens || '3'}`, 'sens');
+    this.toolbar.setMenuValue('walls', this.card.walls || 'off');
+    this.toolbar.setMenuValue('walls', `sens:${this.card.wallsSens || '10'}`, 'sens');
     this.toolbar.setMenuValue('htf', this.card.showHtf ? this.htfInterval() : 'off');
     this.toolbar.setToggled('drawings', this.card.hideDrawings);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
@@ -2859,6 +2903,7 @@ export class CardView {
       this.subscribe();
       if (this.card.footprint) this.loadFootprint();
       this.loadFlow();
+      this.loadWalls();
 
       feed
         .getTicker(symbol)
@@ -2915,6 +2960,7 @@ export class CardView {
       },
       onFootprint: (records) => this.applyFootprint(records),
       onSweep: (payload) => this.applySweep(payload),
+      onWalls: (msg) => this.applyWalls(msg),
     });
   }
 
@@ -3286,6 +3332,9 @@ export class CardView {
           if (this.readOn() && !wasReading && !this.oiApplies()) this.loadOI();
         }
       }
+      // A symbol or market change loads them with the bars.
+      if (next.walls !== prev.walls && !symbolChanged && !marketChanged) this.loadWalls();
+      if (next.wallsSens !== prev.wallsSens) this.chart.setWallsSens(next.wallsSens);
       if (
         next.showRsi !== prev.showRsi ||
         next.rsiPeriod !== prev.rsiPeriod ||

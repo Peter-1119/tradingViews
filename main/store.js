@@ -253,6 +253,10 @@ function sanitizeCard(raw, index = 0) {
     flow: pick(card.flow, ['off', 'sweeps', 'read', 'both'], 'off'),
     flowTop: pick(card.flowTop, ['0.5', '0.2', '0.1', '0.05', '0.02', '0.01'], '0.1'),
     flowSens: pick(card.flowSens, ['2', '3', '5'], '3'),
+    // Order-book walls: off, this market's book, or both markets' books;
+    // wallsSens: how many times the levels around it a wall must hold.
+    walls: pick(card.walls, ['off', 'own', 'both'], 'off'),
+    wallsSens: pick(card.wallsSens, ['5', '10', '20'], '10'),
     // Footprint inside the candles (per-price taker sells and buys), and the
     // diagonal imbalance multiple it marks.
     footprint: card.footprint === true,

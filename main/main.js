@@ -561,6 +561,7 @@ ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) =>
     'getOpenInterestHist',
     'setFootprint',
     'setFlow',
+    'setWalls',
     'getStatus',
     'counterpart',
   ];

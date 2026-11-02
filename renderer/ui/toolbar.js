@@ -55,6 +55,9 @@ const ICONS = {
   // A candle split down the middle, rows of selling left and buying right.
   footprint: '<path d="M7 1.5v11"/><path d="M6 3.5H3.5"/><path d="M8 3.5h2"/><path d="M6 6H2"/>'
     + '<path d="M8 6h4.5"/><path d="M6 8.5H4"/><path d="M8 8.5h3"/><path d="M6 11H5"/><path d="M8 11h1.5"/>',
+  // Two resting walls, a thick one and a thinner one, against the price.
+  walls: '<path d="M1.5 4h7" stroke-width="2.6"/><path d="M5.5 10h7" stroke-width="2.6"/>'
+    + '<path d="M1.5 7h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>',
   // Bubbles of two sizes: big orders.
   flow: '<circle cx="4.6" cy="9.2" r="2.6"/><circle cx="9.6" cy="5" r="3.4"/>',
   // A line between its two bounds, 70 and 30.
@@ -230,6 +233,21 @@ export const TOOLS = [
       { value: 'sens:2', group: 'sens', label: t('2 倍') },
       { value: 'sens:3', group: 'sens', label: t('3 倍') },
       { value: 'sens:5', group: 'sens', label: t('5 倍') },
+    ],
+  },
+  {
+    id: 'walls',
+    label: t('掛單牆'),
+    hint: t('掛單牆：掛單簿裡比附近價位大很多的掛單，畫成價位線（綠買紅賣）。消失時標記：✕ 價格沒到就撤單，● 被成交吃掉'),
+    toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: 'own', label: t('本市場的掛單簿') },
+      { value: 'both', label: t('現貨＋永續') },
+      { heading: t('門檻（比附近價位大幾倍）') },
+      { value: 'sens:5', group: 'sens', label: t('5 倍') },
+      { value: 'sens:10', group: 'sens', label: t('10 倍') },
+      { value: 'sens:20', group: 'sens', label: t('20 倍') },
     ],
   },
   { id: 'macd', label: 'MACD', hint: t('MACD 副圖 (12, 26, 9)：快慢線與柱狀圖，即時更新'), toggle: true },

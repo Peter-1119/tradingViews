@@ -813,5 +813,17 @@
   "判讀門檻（ΔOI 是中位數的幾倍）": "Read threshold (ΔOI × the median)",
   "5 倍": "5x",
   "買": "buy",
-  "賣": "sell"
+  "賣": "sell",
+  "掛單牆": "Order walls",
+  "掛單牆：掛單簿裡比附近價位大很多的掛單，畫成價位線（綠買紅賣）。消失時標記：✕ 價格沒到就撤單，● 被成交吃掉": "Order walls: resting orders far larger than the levels around them, drawn as price lines (green bids, red asks). When one goes: ✕ pulled before price got there, ● traded into",
+  "本市場的掛單簿": "This market's book",
+  "現貨＋永續": "Spot + perp",
+  "門檻（比附近價位大幾倍）": "Threshold (times the levels around it)",
+  "10 倍": "10x",
+  "20 倍": "20x",
+  "掛單牆 ≥ 附近 {n} 倍": "Walls ≥ {n}x nearby",
+  "虛線＝{market}": "dashed = {market}",
+  "✕ 撤單": "✕ pulled",
+  "● 被吃": "● filled",
+  "掛單簿同步中…": "Syncing order book…"
 }

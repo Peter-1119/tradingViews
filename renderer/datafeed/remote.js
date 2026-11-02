@@ -36,6 +36,7 @@ export class RemoteProvider extends DataProvider {
     this.bridge.onOI(route('onOI', 'oi'));
     this.bridge.onFootprint(route('onFootprint', 'footprint'));
     this.bridge.onSweep(route('onSweep', 'sweep'));
+    this.bridge.onWalls(route('onWalls', 'walls'));
 
     this.bridge.onStatus(({ market, status }) => {
       if (market !== this.market || this.status === status) return;
@@ -94,6 +95,15 @@ export class RemoteProvider extends DataProvider {
    */
   setFlow(subId, enabled, fromSec) {
     return this.call('setFlow', [subId, enabled, fromSec]);
+  }
+
+  /**
+   * Order-book walls for a subscription, on or off; `both` adds the other
+   * market's book. On, resolves with {sources: [...]}; the subscription's
+   * onWalls then hears each second's news, one source at a time.
+   */
+  setWalls(subId, enabled, both = false, fromMs = 0) {
+    return this.call('setWalls', [subId, enabled, both, fromMs]);
   }
 
   searchSymbols(query) {
