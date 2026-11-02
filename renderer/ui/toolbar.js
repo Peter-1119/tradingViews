@@ -63,6 +63,9 @@ const ICONS = {
   // A histogram about its zero line, and the line over it.
   macd: '<path d="M1.5 8h11" stroke-width="0.8"/><path d="M3.5 8V6M6 8V4.5M8.5 8v2M11 8v3.5" stroke-width="1.8"/>'
     + '<path d="M1.5 5.5c2.5-3 5-3 7 0s3 3 4 2" stroke-width="1"/>',
+  // A staircase climbing and falling back: the running sum of buy minus sell.
+  cvd: '<path d="M1.5 8h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>'
+    + '<path d="M1.5 10.5h2v-2h2v-3h2v-2h2v3h2v-1.5h1.5" stroke-width="1.2"/>',
   oi: '<text x="7" y="10.2" text-anchor="middle" font-size="7.5" font-weight="700" letter-spacing="-0.2"'
     + ' font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">OI</text>',
 };
@@ -230,6 +233,19 @@ export const TOOLS = [
     ],
   },
   { id: 'macd', label: 'MACD', hint: t('MACD 副圖 (12, 26, 9)：快慢線與柱狀圖，即時更新'), toggle: true },
+  {
+    id: 'cvd',
+    label: 'CVD',
+    hint: t('CVD 副圖：主動買入減主動賣出的累加（USDT），看買賣力道是否跟著價格走，即時更新'),
+    toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: 'on', label: t('顯示 CVD') },
+      { heading: t('從哪裡開始累加') },
+      { value: 'anchor:none', group: 'anchor', label: t('從載入的第一根 K 棒') },
+      { value: 'anchor:day', group: 'anchor', label: t('每天 0 點歸零（UTC，台灣 08:00）') },
+    ],
+  },
 ];
 
 function icon(name) {

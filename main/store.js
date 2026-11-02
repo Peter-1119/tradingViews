@@ -243,6 +243,10 @@ function sanitizeCard(raw, index = 0) {
     showRsi: card.showRsi === true,
     rsiPeriod: pick(card.rsiPeriod, ['7', '14', '21'], '14'),
     showMacd: card.showMacd === true,
+    // Cumulative volume delta pane; cvdAnchor: summed from the first bar
+    // loaded ('none') or from 0 at each UTC day ('day').
+    showCvd: card.showCvd === true,
+    cvdAnchor: pick(card.cvdAnchor, ['none', 'day'], 'none'),
     // Order flow: big taker orders and/or the position read (perp only).
     // flowTop: show orders in this top share of the symbol's own, in %.
     // flowSens: mark bars whose |ΔOI| is this many times the median.

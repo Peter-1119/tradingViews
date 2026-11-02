@@ -586,6 +586,11 @@ export class CardView {
       this.onPatch({ showMacd: !this.card.showMacd });
       return;
     }
+    if (id === 'cvd') {
+      if (value.startsWith('anchor:')) this.onPatch({ showCvd: true, cvdAnchor: value.slice(7) });
+      else this.onPatch({ showCvd: value === 'on' });
+      return;
+    }
     if (id === 'oi') {
       this.onPatch({ showOI: !this.card.showOI });
       return;
@@ -1160,6 +1165,7 @@ export class CardView {
     this.chart.setIndicators({
       rsi: this.card.showRsi ? Number(this.card.rsiPeriod) || 14 : null,
       macd: this.card.showMacd === true,
+      cvd: this.card.showCvd ? this.card.cvdAnchor || 'none' : null,
     });
   }
 
@@ -1236,6 +1242,8 @@ export class CardView {
     this.toolbar.setMenuValue('rsi', this.card.showRsi ? 'on' : 'off');
     this.toolbar.setMenuValue('rsi', `len:${this.card.rsiPeriod || '14'}`, 'len');
     this.toolbar.setToggled('macd', this.card.showMacd);
+    this.toolbar.setMenuValue('cvd', this.card.showCvd ? 'on' : 'off');
+    this.toolbar.setMenuValue('cvd', `anchor:${this.card.cvdAnchor || 'none'}`, 'anchor');
     this.toolbar.setMenuValue('flow', this.card.flow || 'off');
     this.toolbar.setMenuValue('flow', `top:${this.card.flowTop || '0.1'}`, 'top');
     this.toolbar.setMenuValue('flow', `sens:${this.card.flowSens || '3'}`, 'sens');
@@ -3278,7 +3286,13 @@ export class CardView {
           if (this.readOn() && !wasReading && !this.oiApplies()) this.loadOI();
         }
       }
-      if (next.showRsi !== prev.showRsi || next.rsiPeriod !== prev.rsiPeriod || next.showMacd !== prev.showMacd) {
+      if (
+        next.showRsi !== prev.showRsi ||
+        next.rsiPeriod !== prev.rsiPeriod ||
+        next.showMacd !== prev.showMacd ||
+        next.showCvd !== prev.showCvd ||
+        next.cvdAnchor !== prev.cvdAnchor
+      ) {
         this.applyIndicators();
       }
       if (next.showOI !== prev.showOI || marketChanged) {

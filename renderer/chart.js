@@ -29,7 +29,7 @@ import { ExtremesPrimitive } from './extremes-primitive.js';
 import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
 import { VolumePane, SqueezeBandsPrimitive, OVERLAY_SHARE } from './volume-pane.js';
-import { RsiPane, MacdPane } from './oscillator-pane.js';
+import { RsiPane, MacdPane, CvdPane } from './oscillator-pane.js';
 import { FlowPrimitive } from './flow-primitive.js';
 import { readPositions, readBar, mark } from './flow-read.js';
 import { locale as uiLocale, isEnglish } from './i18n.js';
@@ -347,10 +347,11 @@ export class CardChart {
     this.volumeOpts = { threshold: 0.05, memory: 1000, intervalSec: 60, color: 'split', overlay: false };
     this.oiSeries = null;
     this.showOI = false;
-    /** Oscillator panes under the rest: RSI period (null = off), MACD on/off. */
-    this.indicatorOpts = { rsi: null, macd: false };
+    /** Panes under the rest: RSI period (null = off), MACD on/off, CVD anchor (null = off). */
+    this.indicatorOpts = { rsi: null, macd: false, cvd: null };
     this.rsi = null;
     this.macd = null;
+    this.cvd = null;
     /** OHLC records aligned to `bars`, from open-interest.js; the line plots close. */
     this.oiData = [];
 
@@ -573,6 +574,10 @@ export class CardChart {
       this.macd = new MacdPane(this, pane++);
       this.macd.render();
     }
+    if (!this.compact && this.indicatorOpts.cvd) {
+      this.cvd = new CvdPane(this, pane++, this.indicatorOpts.cvd);
+      this.cvd.render();
+    }
     this.layoutPanes();
   }
 
@@ -582,16 +587,19 @@ export class CardChart {
     if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
     if (this.rsi) this.rsi.destroy();
     if (this.macd) this.macd.destroy();
+    if (this.cvd) this.cvd.destroy();
     this.volume = null;
     this.oiSeries = null;
     this.rsi = null;
     this.macd = null;
+    this.cvd = null;
   }
 
-  /** RSI period or null, MACD true/false. */
+  /** RSI period or null, MACD true/false, CVD 'none' / 'day' or null. */
   setIndicators(opts) {
     const next = { ...this.indicatorOpts, ...opts };
-    if (next.rsi === this.indicatorOpts.rsi && next.macd === this.indicatorOpts.macd) return;
+    const prev = this.indicatorOpts;
+    if (next.rsi === prev.rsi && next.macd === prev.macd && next.cvd === prev.cvd) return;
     this.indicatorOpts = next;
     this.syncSubPanes();
   }
@@ -715,6 +723,7 @@ export class CardChart {
     // From the state carried over the closed bars: a few multiplications.
     if (this.rsi) this.rsi.update(bar, isNew);
     if (this.macd) this.macd.update(bar, isNew);
+    if (this.cvd) this.cvd.update(bar, isNew);
     this.rereadLastFlow();
   }
 
@@ -760,6 +769,7 @@ export class CardChart {
     }
     if (this.rsi) this.rsi.render();
     if (this.macd) this.macd.render();
+    if (this.cvd) this.cvd.render();
     this.rereadFlow();
   }
 
@@ -1599,6 +1609,7 @@ export class CardChart {
     this.oiSeries = null;
     this.rsi = null;
     this.macd = null;
+    this.cvd = null;
     this.bars = [];
     this.oiData = [];
   }

@@ -1,6 +1,6 @@
 /**
- * RSI and MACD sub-panes. The arithmetic is in indicators.js; this is only
- * series and colours.
+ * RSI, MACD and CVD sub-panes. The arithmetic is in indicators.js and cvd.js;
+ * this is only series and colours.
  *
  * Each pane computes everything once when the bars are replaced (`render`)
  * and after that only the newest point per tick (`update`), from the filter
@@ -10,6 +10,9 @@
 import { HistogramSeries, LineSeries, LineStyle } from './vendor/lightweight-charts.mjs';
 import { Rsi, Macd, Track } from './indicators.js';
 import { withAlpha } from './volume-pane.js';
+import { CvdTrack, resetsAt } from './cvd.js';
+import { formatCompact } from './util.js';
+import { t } from './i18n.js';
 
 const RSI_COLOR = '#b392f0';
 const MACD_COLOR = '#4ea1f3';
@@ -109,5 +112,65 @@ export class MacdPane {
     chart.removeSeries(this.signal);
     chart.removeSeries(this.macd);
     chart.removeSeries(this.hist);
+  }
+}
+
+const CVD_COLOR = '#2dd4bf';
+
+/**
+ * Cumulative volume delta (cvd.js). With the daily reset the line drops back
+ * to 0 at each UTC midnight; drawn through, that drop would look like a wave
+ * of selling. A point's colour is that of the segment leaving it, so each
+ * day's last bar is drawn transparent and the next day's line starts on its own.
+ */
+export class CvdPane {
+  constructor(card, paneIndex, anchor) {
+    this.card = card;
+    this.anchor = anchor;
+    this.track = new CvdTrack(anchor);
+    this.series = card.chart.addSeries(
+      LineSeries,
+      {
+        color: CVD_COLOR,
+        lineWidth: 1.5,
+        title: anchor === 'day' ? t('CVD（日）') : 'CVD',
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerRadius: 2,
+        priceFormat: { type: 'custom', formatter: (v) => formatCompact(v), minMove: 0.01 },
+      },
+      paneIndex
+    );
+    this.series.priceScale().applyOptions({ scaleMargins: { top: 0.12, bottom: 0.08 }, borderVisible: false });
+    if (anchor === 'day') {
+      this.series.createPriceLine({ price: 0, color: GUIDE, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
+    }
+  }
+
+  render() {
+    const bars = this.card.bars;
+    const out = this.track.compute(bars);
+    this.series.setData(
+      bars.map((b, i) => {
+        const p = point(b.time, out[i]);
+        if (p.value !== undefined && resetsAt(b, bars[i + 1], this.anchor)) p.color = 'transparent';
+        return p;
+      })
+    );
+  }
+
+  update(bar) {
+    const bars = this.card.bars;
+    // A new day: the bar before it turns transparent, which update() cannot
+    // reach. Once a day, so the whole line is drawn again.
+    if (resetsAt(bars[bars.length - 2], bar, this.anchor) && this.track.formTime !== bar.time) {
+      this.render();
+      return;
+    }
+    this.series.update(point(bar.time, this.track.next(bars)));
+  }
+
+  destroy() {
+    this.card.chart.removeSeries(this.series);
   }
 }
