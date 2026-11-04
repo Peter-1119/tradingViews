@@ -68,6 +68,7 @@ The ones worth learning first:
 | Add a support/resistance line | **Double-click** empty space on the chart. Double-click with `Ctrl` held to snap to the nearest OHLC |
 | Move / delete a line | Drag the line itself to move it (hold `Ctrl` to snap); **double-click the line** to delete it |
 | Spot / perp | Click the "Spot" / "Perp" tag to the right of the symbol name in the title bar to switch between the spot market and the perpetual contract of the same coin; the "Market" setting in the settings panel does the same. Differently named pairs are mapped automatically (spot `PEPEUSDT` ↔ perp `1000PEPEUSDT`); if the other market has no such pair, the tag turns gray and clicking it explains why |
+| Stock & commodity perpetuals | Binance's TradFi perpetuals (US stocks such as `NVDAUSDT` and `SNDKUSDT`, ETFs such as `QQQUSDT` and `SOXLUSDT`, HK and Korean stocks, gold `XAUUSDT`, oil, FX) are in the perp symbol search with a tag saying what they track. Charts, CVD, OI, big orders and walls work as on crypto; they have no spot pair, so the Spot tag is gray. The order ticket says when the US market is closed (outside 9:30-16:00 New York time, weekends; holidays are not known), when Binance's price on a thin book can gap at the open, and the confirm button names it as TradFi. Binance asks for its TradFi-Perps agreement to be accepted, in the Binance app, before the first order |
 | Funding rate | On perp cards, the top-right of the chart (left of the price axis) shows the current funding rate and a countdown to the next settlement, updated every second |
 | Open interest (OI) | Click the **OI** icon in the left toolbar (or tick "Show open interest (OI) pane · Perp" in the settings panel) and perp cards get an orange OI pane underneath (in coins, e.g. `94.90K` BTC), updated with the exchange roughly every 3 seconds. Spot cards keep the setting and show the pane again when switched back to perp |
 | Watchlist | The ☆ left of the symbol name in the title bar adds the current symbol to the watchlist (up to 10, shared by all cards). The list remembers the market: spot and perp of the same coin are two rows, with the perp row marked. Click the **symbol name** to open the list with live prices and 24h change; click a row to switch to it (market included); hover a row and click ✕ to remove it |
@@ -371,7 +372,7 @@ Everything uses Binance public endpoints. Spot is at `api.binance.com/api/v3` an
 
 - Historical klines `GET /klines` (500 bars)
 - Live combined stream, `@kline_<interval>` + `@miniTicker` + `@aggTrade`; perps add `@markPrice` (funding rate)
-- Symbol list `GET /exchangeInfo`, cached for 24 hours; for perps only `PERPETUAL`, no delivery contracts
+- Symbol list `GET /exchangeInfo`, cached for 24 hours; for perps `PERPETUAL` and `TRADIFI_PERPETUAL` (stocks, ETFs, metals, oil, FX), no delivery contracts
 - 24h change: one `/ticker/24hr` call at startup, then updated from miniTicker
 - Funding rate (perps): one `/premiumIndex` call at startup, then updated from markPrice; settlement interval from `/fundingInfo` (lists only symbols not on 8 hours, cached for 1 hour)
 - Long/short ratio (perps): `/futures/data/globalLongShortAccountRatio` (accounts) and `/topLongShortPositionRatio` (top traders' positions), 5m, once every 5 minutes while the order ticket is open

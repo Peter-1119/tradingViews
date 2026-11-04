@@ -255,7 +255,7 @@ async function connect() {
       ]);
       if (client !== state.client) return false;
       for (const s of info.symbols || []) {
-        if (s.contractType && s.contractType !== 'PERPETUAL') continue;
+        if (s.contractType && s.contractType !== 'PERPETUAL' && s.contractType !== 'TRADIFI_PERPETUAL') continue;
         const parsed = rules.parseSymbolRules(s);
         if (parsed) state.rules.set(s.symbol, parsed);
       }

@@ -29,6 +29,7 @@ import { el, formatFundingRate, formatCountdown } from '../util.js';
 import { envChip } from './env-chip.js';
 import { fundingSummary, MOOD_TEXT, share } from './market-mood.js';
 import { t } from '../i18n.js';
+import { tradfiNote } from './tradfi.js';
 
 const ARM_MS = 3000;
 /** The complaint for an empty amount: not shown as an error, only as the button's tooltip. */
@@ -291,6 +292,7 @@ export class OrderTicket {
     this.liqLong = el('span');
     this.liqShort = el('span');
     this.errorEl = el('div.tk-error', { hidden: true, role: 'alert' });
+    this.tradfiEl = el('div.tk-tradfi', { hidden: true });
 
     this.longBtn = el('button.tk-side.tk-side--long', { type: 'button', onclick: () => this.press('BUY') });
     this.shortBtn = el('button.tk-side.tk-side--short', { type: 'button', onclick: () => this.press('SELL') });
@@ -346,6 +348,7 @@ export class OrderTicket {
           el('span.tk-liq__long', {}, t('多') + ' ', this.liqLong),
           el('span.tk-liq__short', {}, t('空') + ' ', this.liqShort)
         )),
+        this.tradfiEl,
         this.errorEl
       ),
       // Outside the scrolling body: on a short card the fields scroll, the
@@ -380,9 +383,13 @@ export class OrderTicket {
     return !this.root.hidden;
   }
 
-  open({ symbol, baseAsset, price, leverage, maxLeverage, available, env }) {
+  open({ symbol, baseAsset, tradfi, price, leverage, maxLeverage, available, env }) {
     const switched = symbol !== this.symbol;
     this.symbol = symbol;
+    this.tradfi = tradfi || null;
+    const note = tradfiNote(this.tradfi);
+    this.tradfiEl.hidden = !note;
+    this.tradfiEl.textContent = note;
     this.baseAsset = baseAsset || symbol.replace(/USDT$|USDC$/, '');
     if (switched || leverage) this.setLeverageInfo({ leverage, max: maxLeverage });
     this.available = available || 0;
@@ -901,7 +908,9 @@ export class OrderTicket {
       const verb = this.reduceOnly ? reduceVerb(side) : side === 'BUY' ? t('做多') : t('做空');
       if (this.armed !== side) return verb;
       const at = this.type === 'MARKET' ? t('市價') : `@ ${p ? p.price : this.price}`;
-      const text = t('確認{verb} {qty} {asset} {at}', { verb, qty: p ? p.qty : '', asset: this.baseAsset, at });
+      // A stock or commodity says so on the button that sends it.
+      const asset = this.tradfi ? t('{asset}（傳統資產）', { asset: this.baseAsset }) : this.baseAsset;
+      const text = t('確認{verb} {qty} {asset} {at}', { verb, qty: p ? p.qty : '', asset, at });
       return p && p.parts ? text + t('（{n} 筆）', { n: p.parts.length }) : text;
     };
     this.longBtn.textContent = this.sending && this.armed === 'BUY' ? t('送出中…') : label('BUY');

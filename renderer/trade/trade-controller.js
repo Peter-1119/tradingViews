@@ -456,6 +456,7 @@ export class TradeController {
     this.ticket.open({
       symbol: this.symbol,
       baseAsset: rules ? rules.baseAsset : '',
+      tradfi: rules ? rules.tradfi : null,
       price: price > 0 ? Number(this.view.chart.formatPrice(price)) : this.lastPrice(),
       // From the last snapshot; refreshed from Binance just below.
       leverage: this.snapshot ? this.snapshot.leverage : null,

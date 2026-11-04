@@ -825,5 +825,18 @@
   "虛線＝{market}": "dashed = {market}",
   "✕ 撤單": "✕ pulled",
   "● 被吃": "● filled",
-  "掛單簿同步中…": "Syncing order book…"
+  "掛單簿同步中…": "Syncing order book…",
+  "港股": "HK stock",
+  "韓股": "KR stock",
+  "A 股": "China A-share",
+  "商品": "Commodity",
+  "外匯": "FX",
+  "上市前": "Pre-listing",
+  "傳統資產": "TradFi",
+  "{asset}（傳統資產）": "{asset} (TradFi)",
+  "傳統資產永續：第一次交易需先在幣安同意 TradFi 合約條款。": "TradFi perpetual: the first trade needs Binance's TradFi-Perps agreement accepted. ",
+  "美股交易時段中。": "US market in session.",
+  "美股休市中：目前是幣安自己的報價，掛單少，開盤時可能跳空。": "US market closed: the price is Binance's own on a thin book, and may gap at the open.",
+  "原市場休市時掛單少，開盤時可能跳空。": "While its home market is closed the book is thin, and the price may gap at the open.",
+  "美國股票": "US stock"
 }

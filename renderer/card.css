@@ -1264,6 +1264,16 @@ button {
   color: var(--ink-dim);
 }
 
+.sc-search__tag {
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(245, 185, 66, 0.16);
+  color: #f5b942;
+  font-size: 10px;
+  line-height: 16px;
+}
+
 /* ---------------------------------------------------------- resize grip */
 
 .sc-grip {

@@ -47,7 +47,7 @@ export const MARKETS = Object.freeze({
     rest: 'https://fapi.binance.com/fapi/v1',
     ws: 'wss://fstream.binance.com/market/stream',
     exchangeInfo: '/exchangeInfo',
-    symbolsCacheKey: 'stockcard.symbols.perp.v1',
+    symbolsCacheKey: 'stockcard.symbols.perp.v2',
     funding: true,
     openInterest: true,
     // The trading-statistics endpoints (OI history) live outside /fapi/v1.
@@ -83,6 +83,9 @@ const PROACTIVE_RECYCLE_MS = 23 * 60 * 60 * 1000; // stay ahead of the 24h cut
  */
 const SILENT_SOCKET_MS = 60 * 1000;
 const SYMBOLS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Futures contract types that are perpetuals: crypto, and stocks/commodities/FX. */
+const PERPETUAL_TYPES = new Set(['PERPETUAL', 'TRADIFI_PERPETUAL']);
 
 /**
  * Coalescing window for trade-driven bar updates.
@@ -718,13 +721,19 @@ export class BinanceProvider extends DataProvider {
     const info = await this.fetchJson(this.config.exchangeInfo, { timeoutMs: 30000 });
     const list = (info.symbols || [])
       // Futures exchangeInfo also lists dated quarterlies; only perpetuals here.
-      .filter((s) => s.status === 'TRADING' && (!s.contractType || s.contractType === 'PERPETUAL'))
-      .map((s) => ({
-        symbol: s.symbol,
-        base: s.baseAsset,
-        quote: s.quoteAsset,
-        description: `${s.baseAsset} / ${s.quoteAsset}`,
-      }));
+      // Stocks, ETFs, metals, oil and FX are perpetuals of their own type
+      // (TRADIFI_PERPETUAL), served by the same endpoints and streams.
+      .filter((s) => s.status === 'TRADING' && (!s.contractType || PERPETUAL_TYPES.has(s.contractType)))
+      .map((s) => {
+        const item = {
+          symbol: s.symbol,
+          base: s.baseAsset,
+          quote: s.quoteAsset,
+          description: `${s.baseAsset} / ${s.quoteAsset}`,
+        };
+        if (s.contractType === 'TRADIFI_PERPETUAL') item.tradfi = s.underlyingType || 'TRADFI';
+        return item;
+      });
 
     this.symbols = { at: Date.now(), list };
     try {

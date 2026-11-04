@@ -604,7 +604,7 @@ await test('getFunding maps premiumIndex', async () => {
   assert.equal(f.markPrice, 3200.5);
 });
 
-await test('perp symbol list keeps perpetuals only, cached apart from spot', async () => {
+await test('perp symbol list keeps perpetuals (crypto and TradFi) only, cached apart from spot', async () => {
   localStorage.removeItem('stockcard.symbols.v1');
   const spot = new BinanceProvider({ logger: silent });
   const perp = new BinanceProvider({ logger: silent, market: 'perp' });
@@ -614,13 +614,16 @@ await test('perp symbol list keeps perpetuals only, cached apart from spot', asy
           symbols: [
             { symbol: 'BTCUSDT', baseAsset: 'BTC', quoteAsset: 'USDT', status: 'TRADING', contractType: 'PERPETUAL' },
             { symbol: 'BTCUSDT_251226', baseAsset: 'BTC', quoteAsset: 'USDT', status: 'TRADING', contractType: 'CURRENT_QUARTER' },
+            { symbol: 'SNDKUSDT', baseAsset: 'SNDK', quoteAsset: 'USDT', status: 'TRADING', contractType: 'TRADIFI_PERPETUAL', underlyingType: 'EQUITY' },
           ],
         }
       : { symbols: [{ symbol: 'ETHUSDT', baseAsset: 'ETH', quoteAsset: 'USDT', status: 'TRADING' }] };
 
   const perpList = await perp.loadSymbols();
   const spotList = await spot.loadSymbols();
-  assert.deepEqual(perpList.map((s) => s.symbol), ['BTCUSDT'], 'quarterlies are not perpetuals');
+  assert.deepEqual(perpList.map((s) => s.symbol), ['BTCUSDT', 'SNDKUSDT'], 'quarterlies are not perpetuals; stock perpetuals are');
+  assert.equal(perpList[0].tradfi, undefined);
+  assert.equal(perpList[1].tradfi, 'EQUITY', 'a stock perpetual says what it tracks');
   assert.deepEqual(spotList.map((s) => s.symbol), ['ETHUSDT'], 'the markets must not share a cache entry');
 });
 

@@ -6,6 +6,20 @@
 import { el, debounce, prettySymbol } from '../util.js';
 import { t } from '../i18n.js';
 
+/** Binance's underlyingType of a TradFi perpetual -> the tag in the list. */
+export function tradfiLabel(kind) {
+  switch (kind) {
+    case 'EQUITY': return t('美國股票');
+    case 'HK_EQUITY': return t('港股');
+    case 'KR_EQUITY': return t('韓股');
+    case 'CN_EQUITY': return t('A 股');
+    case 'COMMODITY': return t('商品');
+    case 'FX': return t('外匯');
+    case 'PREMARKET': return t('上市前');
+    default: return t('傳統資產');
+  }
+}
+
 export class SymbolSearch {
   /**
    * @param {{provider: object, current: string, onPick: (symbol: string) => void}} options
@@ -83,6 +97,7 @@ export class SymbolSearch {
             },
           },
           el('span.sc-search__symbol', { text: prettySymbol(item.symbol) }),
+          item.tradfi ? el('span.sc-search__tag', { text: tradfiLabel(item.tradfi) }) : null,
           el('span.sc-search__raw', { text: item.symbol })
         )
       )

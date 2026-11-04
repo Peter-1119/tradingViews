@@ -84,6 +84,8 @@ function parseSymbolRules(info) {
     minNotional: Number(notional.notional) || 0,
     baseAsset: info.baseAsset,
     quoteAsset: info.quoteAsset,
+    // A stock, ETF, metal or FX perpetual: its underlyingType (EQUITY, ...).
+    tradfi: info.contractType === 'TRADIFI_PERPETUAL' ? info.underlyingType || 'TRADFI' : null,
   };
 }
 
