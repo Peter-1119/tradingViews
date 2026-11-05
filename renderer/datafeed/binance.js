@@ -115,21 +115,38 @@ const SCALED_BASE = /^(1000000|1000|1M)(?=[A-Z])/;
  * unscaled form and every multiplier is tried against the target list. The
  * quote asset must match: BTCUSDC is not a stand-in for BTCUSDT.
  *
+ * Stocks are the exception to names matching. A TradFi perpetual (SNDKUSDT)
+ * has its spot counterpart in the tokenized stock, whose base carries a
+ * trailing B (SNDKBUSDT); about a hundred pair up this way. A crypto pair is
+ * never matched to a TradFi perpetual by name, nor the other way round, so
+ * a coin that happens to share a ticker with a stock stays apart.
+ *
  * @param {string} symbol
  * @param {SymbolInfo[]} source  the list `symbol` comes from
  * @param {SymbolInfo[]} target  the list to find it in
  */
 export function counterpartSymbol(symbol, source, target) {
   const upper = String(symbol || '').toUpperCase();
-  const names = new Set(target.map((s) => s.symbol));
-  if (names.has(upper)) return upper;
-
   const info = source.find((s) => s.symbol === upper);
+  const byName = new Map(target.map((s) => [s.symbol, s]));
+
+  if (info && info.tradfi) {
+    const stock = byName.get(`${info.base}B${info.quote}`);
+    return stock && !stock.tradfi ? stock.symbol : null;
+  }
+  const exact = byName.get(upper);
+  if (exact && !exact.tradfi) return upper;
   if (!info) return null;
+
+  // A tokenized stock: SNDKB on spot is the SNDK perpetual.
+  if (info.base.endsWith('B')) {
+    const perp = byName.get(`${info.base.slice(0, -1)}${info.quote}`);
+    if (perp && perp.tradfi) return perp.symbol;
+  }
   const base = info.base.replace(SCALED_BASE, '');
   for (const prefix of ['', ...SCALED_PREFIXES]) {
-    const candidate = `${prefix}${base}${info.quote}`;
-    if (names.has(candidate)) return candidate;
+    const candidate = byName.get(`${prefix}${base}${info.quote}`);
+    if (candidate && !candidate.tradfi) return candidate.symbol;
   }
   return null;
 }

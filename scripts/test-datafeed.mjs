@@ -655,6 +655,33 @@ await test('counterpart: same name, scaled contracts, and none', () => {
   assert.equal(counterpartSymbol('BTCUSDC', spot, perp), null, 'a different quote is a different instrument');
 });
 
+await test('counterpart: a stock perpetual pairs with its tokenized stock (trailing B)', () => {
+  const info = (symbol, base, quote, tradfi) => ({ symbol, base, quote, ...(tradfi ? { tradfi } : {}) });
+  const spot = [
+    info('SNDKBUSDT', 'SNDKB', 'USDT'),
+    info('BRKBBUSDT', 'BRKBB', 'USDT'),
+    info('ARBUSDT', 'ARB', 'USDT'),
+    info('WENUSDT', 'WEN', 'USDT'),
+  ];
+  const perp = [
+    info('SNDKUSDT', 'SNDK', 'USDT', 'EQUITY'),
+    info('BRKBUSDT', 'BRKB', 'USDT', 'EQUITY'),
+    info('XAUUSDT', 'XAU', 'USDT', 'COMMODITY'),
+    info('ARUSDT', 'AR', 'USDT'),
+    info('ARBUSDT', 'ARB', 'USDT'),
+    info('WENUSDT', 'WEN', 'USDT', 'EQUITY'),
+  ];
+
+  assert.equal(counterpartSymbol('SNDKUSDT', perp, spot), 'SNDKBUSDT');
+  assert.equal(counterpartSymbol('SNDKBUSDT', spot, perp), 'SNDKUSDT');
+  assert.equal(counterpartSymbol('BRKBUSDT', perp, spot), 'BRKBBUSDT', 'a ticker that already ends in B');
+  assert.equal(counterpartSymbol('BRKBBUSDT', spot, perp), 'BRKBUSDT');
+  assert.equal(counterpartSymbol('XAUUSDT', perp, spot), null, 'gold has no tokenized spot here');
+  assert.equal(counterpartSymbol('ARBUSDT', spot, perp), 'ARBUSDT', 'a coin ending in B keeps its own perpetual');
+  assert.equal(counterpartSymbol('WENUSDT', spot, perp), null, 'a coin is not a stock that shares its ticker');
+  assert.equal(counterpartSymbol('WENUSDT', perp, spot), null, 'nor the stock the coin');
+});
+
 /* ---------------------------------------------------- open interest */
 
 console.log('');
