@@ -1,3 +1,7 @@
+[English](original-spec.md) | **繁體中文**
+
+> **歷史文件。** 這是專案一開始（2026 年 8 月）依據的原始規格。裡面列為「不做」的幾項後來都做了，例如交易和技術指標（RSI、MACD、CVD），所以請當作歷史紀錄，不是目前 App 的說明。目前的文件在 [docs/README.zh-TW.md](../README.zh-TW.md)。
+
 # 開發任務:StockCard — 桌面透明股票圖表小卡片(Desktop Chart Widget)
 
 > 這份 prompt 請直接交給 Claude Code / Cursor 等 AI 編程工具,作為完整開發規格。

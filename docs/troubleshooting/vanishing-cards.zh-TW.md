@@ -1,3 +1,5 @@
+[English](vanishing-cards.md) | **繁體中文**
+
 # 卡片「消失」排查手冊
 
 TapeCard（舊名 StockCard）的卡片是**透明、無邊框、置頂、不在工作列**的 Electron 視窗。這四個特性組合起來，讓它比一般視窗更容易「看起來消失」：
