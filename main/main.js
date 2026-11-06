@@ -559,6 +559,7 @@ ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) =>
     'getFunding',
     'getLongShortRatio',
     'getOpenInterestHist',
+    'getLongShortHist',
     'setFootprint',
     'setFlow',
     'setWalls',

@@ -239,6 +239,10 @@ function sanitizeCard(raw, index = 0) {
     // Open interest sub-pane. Perpetuals only; a spot card keeps the setting
     // and shows it again when switched back to perp.
     showOI: card.showOI === true,
+    // Long/short ratio pane (perpetuals only, like OI): the crowd's account
+    // ratio, the top traders' position ratio, or both.
+    showLS: card.showLS === true,
+    lsWhich: pick(card.lsWhich, ['both', 'accounts', 'top'], 'both'),
     // Oscillator panes: RSI (Wilder) with a choice of period, MACD (12, 26, 9).
     showRsi: card.showRsi === true,
     rsiPeriod: pick(card.rsiPeriod, ['7', '14', '21'], '14'),

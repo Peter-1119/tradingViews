@@ -69,6 +69,10 @@ const ICONS = {
   // A staircase climbing and falling back: the running sum of buy minus sell.
   cvd: '<path d="M1.5 8h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>'
     + '<path d="M1.5 10.5h2v-2h2v-3h2v-2h2v3h2v-1.5h1.5" stroke-width="1.2"/>',
+  // Two lines either side of the dotted 1.0 where longs and shorts balance.
+  ls: '<path d="M1.5 7h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>'
+    + '<path d="M1.5 4.5c2.5 0 3 -2 5.5 -1.5s3 2 5.5 1.5" stroke-width="1.2"/>'
+    + '<path d="M1.5 11c2.5 0 3.5 -1.5 5.5 -2s3.5 0.5 5.5 -0.5" stroke-width="1.2"/>',
   oi: '<text x="7" y="10.2" text-anchor="middle" font-size="7.5" font-weight="700" letter-spacing="-0.2"'
     + ' font-family="Segoe UI, sans-serif" fill="currentColor" stroke="none">OI</text>',
 };
@@ -198,6 +202,21 @@ export const TOOLS = [
   },
   // Hidden on spot cards: there is no open interest to show.
   { id: 'oi', label: t('未平倉量'), hint: t('未平倉量 (OI) 副圖，約每 3 秒更新'), toggle: true },
+  // Hidden on spot cards too: the exchange keeps these for perpetuals only.
+  {
+    id: 'ls',
+    label: t('多空比'),
+    hint: t('多空比副圖（幣安公開數據，每 5 分鐘更新，最多 30 天）：散戶帳戶多空比與大戶持倉多空比，虛線 1.0 為多空相當'),
+    toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: 'on', label: t('顯示多空比') },
+      { heading: t('顯示哪些線') },
+      { value: 'which:both', group: 'which', label: t('散戶與大戶') },
+      { value: 'which:accounts', group: 'which', label: t('散戶帳戶多空比') },
+      { value: 'which:top', group: 'which', label: t('大戶持倉多空比') },
+    ],
+  },
   {
     id: 'rsi',
     label: 'RSI',

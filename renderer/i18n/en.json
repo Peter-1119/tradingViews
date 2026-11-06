@@ -838,5 +838,13 @@
   "美股交易時段中。": "US market in session.",
   "美股休市中：目前是幣安自己的報價，掛單少，開盤時可能跳空。": "US market closed: the price is Binance's own on a thin book, and may gap at the open.",
   "原市場休市時掛單少，開盤時可能跳空。": "While its home market is closed the book is thin, and the price may gap at the open.",
-  "美國股票": "US stock"
+  "美國股票": "US stock",
+  "多空比副圖（幣安公開數據，每 5 分鐘更新，最多 30 天）：散戶帳戶多空比與大戶持倉多空比，虛線 1.0 為多空相當": "Long/short pane (Binance's public statistics, every 5 minutes, up to 30 days back): the account ratio of all traders and the position ratio of the top traders; the dotted 1.0 is where longs and shorts balance",
+  "顯示多空比": "Show long/short",
+  "顯示哪些線": "Lines",
+  "散戶與大戶": "Crowd and top traders",
+  "散戶帳戶多空比": "Crowd: accounts long per short",
+  "大戶持倉多空比": "Top traders: position long per short",
+  "散戶多空比": "Crowd L/S",
+  "大戶多空比": "Top L/S"
 }

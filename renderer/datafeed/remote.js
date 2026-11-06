@@ -80,6 +80,11 @@ export class RemoteProvider extends DataProvider {
     return this.call('getOpenInterestHist', [symbol, period, startMs, endMs]);
   }
 
+  /** Perpetuals only: [{time (ms), accounts, top}], long/short ratios, 5m to 1d, 30 days deep. */
+  getLongShortHist(symbol, period, startMs, endMs) {
+    return this.call('getLongShortHist', [symbol, period, startMs, endMs]);
+  }
+
   /**
    * Footprint for a subscription, on or off. On, resolves with the minutes
    * held from `fromSec`; the subscription's onFootprint then hears changes.

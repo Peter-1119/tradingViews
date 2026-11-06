@@ -14,6 +14,8 @@ import {
   CandlestickSeries,
   LineSeries,
   AreaSeries,
+  LineStyle,
+  PriceScaleMode,
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
@@ -33,7 +35,7 @@ import { RsiPane, MacdPane, CvdPane } from './oscillator-pane.js';
 import { FlowPrimitive } from './flow-primitive.js';
 import { WallsPrimitive } from './walls-primitive.js';
 import { readPositions, readBar, mark } from './flow-read.js';
-import { locale as uiLocale, isEnglish } from './i18n.js';
+import { locale as uiLocale, isEnglish, t } from './i18n.js';
 
 export const CHART_TYPES = ['candlestick', 'line', 'area'];
 
@@ -60,6 +62,9 @@ const VOLUME_PANE_RATIO = 0.24;
 const MIN_VOLUME_PANE_PX = 30;
 /** Open interest: the perp tint, so it reads as a perp-only layer. */
 const OI_COLOR = '#f0b45a';
+/** Long/short pane: the crowd (accounts) and the top traders (position size). */
+const LS_ACCOUNTS_COLOR = '#f472b6';
+const LS_TOP_COLOR = '#a3e635';
 
 const PALETTE = {
   greenUp: { up: '#26c281', down: '#ed5465' },
@@ -355,6 +360,12 @@ export class CardChart {
     this.cvd = null;
     /** OHLC records aligned to `bars`, from open-interest.js; the line plots close. */
     this.oiData = [];
+    /** Long/short pane: which lines ('both' | 'accounts' | 'top'), null = off. */
+    this.lsWhich = null;
+    /** {accounts, top} line series while the pane is up. */
+    this.lsSeries = null;
+    /** One {time, accounts, top} per bar that has a reading, from long-short.js. */
+    this.lsData = [];
 
     /*
      * Wheel over the price axis scales price. The library has one wheel handler
@@ -570,6 +581,10 @@ export class CardChart {
       });
       this.oiSeries.setData(this.oiSeriesData());
     }
+    if (!this.compact && this.lsWhich) {
+      this.lsSeries = this.addLongShortSeries(pane++);
+      this.renderLongShort();
+    }
     if (!this.compact && this.indicatorOpts.rsi) {
       this.rsi = new RsiPane(this, pane++, this.indicatorOpts.rsi);
       this.rsi.render();
@@ -589,11 +604,15 @@ export class CardChart {
   clearSubPanes() {
     if (this.volume) this.volume.destroy();
     if (this.oiSeries) this.chart.removeSeries(this.oiSeries);
+    if (this.lsSeries) {
+      for (const series of Object.values(this.lsSeries)) if (series) this.chart.removeSeries(series);
+    }
     if (this.rsi) this.rsi.destroy();
     if (this.macd) this.macd.destroy();
     if (this.cvd) this.cvd.destroy();
     this.volume = null;
     this.oiSeries = null;
+    this.lsSeries = null;
     this.rsi = null;
     this.macd = null;
     this.cvd = null;
@@ -771,6 +790,7 @@ export class CardChart {
     if (this.oiSeries) {
       this.oiSeries.setData(this.oiSeriesData());
     }
+    if (this.lsSeries) this.renderLongShort();
     if (this.rsi) this.rsi.render();
     if (this.macd) this.macd.render();
     if (this.cvd) this.cvd.render();
@@ -1343,6 +1363,88 @@ export class CardChart {
     this.oiSeries.update({ time: record.time, value: record.close });
   }
 
+  /* ------------------------------------------------------ long / short */
+
+  /** Which lines of the long/short pane: 'both', 'accounts', 'top', or null for none. */
+  setLongShort(which) {
+    const next = ['both', 'accounts', 'top'].includes(which) ? which : null;
+    if (next === this.lsWhich) return;
+    this.lsWhich = next;
+    this.syncSubPanes();
+  }
+
+  /** Replace the readings: one {time, accounts, top} per bar that has one. */
+  setLongShortData(records) {
+    this.lsData = Array.isArray(records) ? records : [];
+    if (!this.lsSeries) return;
+    if (this.paused) {
+      this.dirtyWhilePaused = true;
+      return;
+    }
+    this.renderLongShort();
+  }
+
+  /**
+   * Both ratios on one scale, so they read against each other and against
+   * the 1.0 line where longs and shorts balance. The scale is a log one:
+   * 0.5 and 2 are the same lean either way, and on a linear axis a crowd at
+   * 3 would flatten the top traders' 1.2 into the floor.
+   */
+  addLongShortSeries(paneIndex) {
+    const common = {
+      lineWidth: 1.5,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerRadius: 2,
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    };
+    const series = { accounts: null, top: null };
+    if (this.lsWhich !== 'top') {
+      series.accounts = this.chart.addSeries(
+        LineSeries,
+        { ...common, color: LS_ACCOUNTS_COLOR, title: t('散戶多空比') },
+        paneIndex
+      );
+    }
+    if (this.lsWhich !== 'accounts') {
+      series.top = this.chart.addSeries(
+        LineSeries,
+        { ...common, color: LS_TOP_COLOR, title: t('大戶多空比') },
+        paneIndex
+      );
+    }
+    const first = series.accounts || series.top;
+    first.priceScale().applyOptions({ mode: PriceScaleMode.Logarithmic, scaleMargins: { top: 0.15, bottom: 0.1 }, borderVisible: false });
+    first.createPriceLine({ price: 1, color: 'rgba(148, 163, 184, 0.55)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
+    return series;
+  }
+
+  renderLongShort() {
+    if (!this.lsSeries) return;
+    if (this.lsSeries.accounts) this.lsSeries.accounts.setData(this.lsSeriesData('accounts'));
+    if (this.lsSeries.top) this.lsSeries.top.setData(this.lsSeriesData('top'));
+  }
+
+  /**
+   * One ratio as line points, with a whitespace point on every bar in between
+   * that has no reading -- as for OI, so a stretch nobody sampled is a gap.
+   */
+  lsSeriesData(key) {
+    const records = this.lsData;
+    if (!records.length) return [];
+    const byTime = new Map(records.map((r) => [r.time, r[key]]));
+    const first = records[0].time;
+    const last = records[records.length - 1].time;
+    const out = [];
+    for (const bar of this.bars) {
+      if (bar.time < first) continue;
+      if (bar.time > last) break;
+      const value = byTime.get(bar.time);
+      out.push(Number.isFinite(value) && value > 0 ? { time: bar.time, value } : { time: bar.time });
+    }
+    return out;
+  }
+
   /**
    * Footprint on (a FootprintBook) or off (null). `ratio` is the diagonal
    * imbalance multiple.
@@ -1627,10 +1729,12 @@ export class CardChart {
     this.priceSeries = null;
     this.volume = null;
     this.oiSeries = null;
+    this.lsSeries = null;
     this.rsi = null;
     this.macd = null;
     this.cvd = null;
     this.bars = [];
     this.oiData = [];
+    this.lsData = [];
   }
 }

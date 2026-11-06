@@ -19,6 +19,7 @@ import { DataProvider, STATUS, intervalToMs } from './provider.js';
 import { FootprintCollector } from './footprint-collector.js';
 import { SweepCollector } from './sweep-collector.js';
 import { BookFeed } from './order-book.js';
+import { LS_PERIOD_MS } from '../long-short.js';
 
 /**
  * Everything that differs between the two markets. The paths under each REST
@@ -483,40 +484,74 @@ export class BinanceProvider extends DataProvider {
    */
   async getOpenInterestHist(symbol, period, startMs, endMs) {
     if (!this.config.openInterest) return [];
-    const step = OI_PERIOD_MS[period];
-    if (!step) throw new Error(`unsupported OI period: ${period}`);
+    if (!OI_PERIOD_MS[period]) throw new Error(`unsupported OI period: ${period}`);
+    const rows = await this.statsHistory('openInterestHist', symbol, period, startMs, endMs);
+    return rows.map((row) => ({
+      time: Number(row.timestamp),
+      value: Number(row.sumOpenInterest),
+      valueUsd: Number(row.sumOpenInterestValue),
+    }));
+  }
+
+  /**
+   * Long/short ratios between two epoch-ms bounds, oldest first:
+   * [{time (ms), accounts, top}], each the long/short ratio at that time.
+   *
+   *   accounts  all accounts with a position: how many are net long per net short
+   *   top       the top 20% of accounts by margin: long position size per short
+   *
+   * `top` is null on a row the second statistic has no match for.
+   */
+  async getLongShortHist(symbol, period, startMs, endMs) {
+    if (!this.config.dataRest) return [];
+    if (!LS_PERIOD_MS[period]) throw new Error(`unsupported long/short period: ${period}`);
+    const [accounts, top] = await Promise.all([
+      this.statsHistory('globalLongShortAccountRatio', symbol, period, startMs, endMs),
+      this.statsHistory('topLongShortPositionRatio', symbol, period, startMs, endMs).catch(() => []),
+    ]);
+    const topAt = new Map(top.map((row) => [Number(row.timestamp), Number(row.longShortRatio)]));
+    return accounts.map((row) => {
+      const time = Number(row.timestamp);
+      const t = topAt.get(time);
+      return { time, accounts: Number(row.longShortRatio), top: Number.isFinite(t) ? t : null };
+    });
+  }
+
+  /**
+   * Rows of one trading statistic (/futures/data/<path>) between two epoch-ms
+   * bounds, oldest first.
+   *
+   * Only the last 30 days are kept, and a start before that fails the whole
+   * request, so it is clamped (with a minute of margin: "30 days ago" drifts
+   * while the request is in flight).
+   *
+   * Backwards, because that is how these endpoints page: whatever the range,
+   * they answer with the *newest* `limit` rows in it (measured -- asking for
+   * 10 days of OI returned only the last 41h). So take the newest page, then
+   * ask again ending just before its oldest row. 30 days of 5m is 18 pages;
+   * the guard stops a bad range spinning.
+   */
+  async statsHistory(path, symbol, period, startMs, endMs) {
     const upper = symbol.toUpperCase();
-    // A minute of margin: "30 days ago" drifts while the request is in flight.
     const start = Math.max(Math.floor(Number(startMs)), Date.now() - OI_HISTORY_MS + 60_000);
     let end = Math.min(Math.floor(Number(endMs)), Date.now());
     const pages = [];
     if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return [];
 
-    // Backwards, because that is how the endpoint pages: whatever the range,
-    // it answers with the *newest* `limit` samples in it (measured -- asking
-    // for 10 days returned only the last 41h). So take the newest page, then
-    // ask again ending just before its oldest row. 30 days of 5m is 18 pages;
-    // the guard stops a bad range spinning.
     for (let pass = 0; pass < 24 && end > start; pass++) {
       const rows = await this.fetchJson(
-        `/openInterestHist?symbol=${encodeURIComponent(upper)}&period=${period}` +
+        `/${path}?symbol=${encodeURIComponent(upper)}&period=${period}` +
           `&startTime=${start}&endTime=${end}&limit=${OI_HISTORY_PAGE}`,
         { base: this.config.dataRest }
       );
       if (!Array.isArray(rows) || !rows.length) break;
       pages.unshift(
-        rows
-          .map((row) => ({
-            time: Number(row.timestamp),
-            value: Number(row.sumOpenInterest),
-            valueUsd: Number(row.sumOpenInterestValue),
-          }))
-          .filter((r) => r.time >= start && r.time <= end)
+        rows.filter((row) => Number(row.timestamp) >= start && Number(row.timestamp) <= end)
       );
       if (rows.length < OI_HISTORY_PAGE) break;
       end = Number(rows[0].timestamp) - 1;
     }
-    return pages.flat().sort((a, b) => a.time - b.time);
+    return pages.flat().sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
   }
 
   /** Start (or join) the poller for a symbol. */

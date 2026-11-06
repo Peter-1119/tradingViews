@@ -18,6 +18,7 @@ import { DRAWING_COLORS } from './drawing-colors.js';
 import { FootprintBook } from './footprint.js';
 import { buildPeriodProfiles, sessionBounds, PERIOD_4H, ProfileSource, rangeInterval } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
+import { lsPeriodFor, bucketLongShort, mergeSamples, LS_LIVE_PERIOD, LS_LIVE_SEC } from './long-short.js';
 import { oiPoints, bucketOI, historyRecords, onHistoryGrid, OI_MAX_GAP_SEC, OI_HISTORY_STEP_SEC } from './open-interest.js';
 import { WINDOWS as POSITION_WINDOWS } from './position.js';
 import { periodStart, periodLevels, updateCurrentExtremes, barsIntervalFor } from './sessions.js';
@@ -93,6 +94,11 @@ const OI_MAX_FETCH_RANGES = 8;
 /** How often a shown OI pane fills holes from the exchange's history. */
 const OI_REFRESH_MS = 5 * 60 * 1000;
 const OI_RECHECK_SEC = 24 * 3600;
+/**
+ * The exchange refreshes its long/short statistics every 5 minutes, and the
+ * newest row shows up a little after the boundary; ask then.
+ */
+const LS_REFRESH_LAG_MS = 40 * 1000;
 const OI_RECHECK_EVERY_MS = 30 * 60 * 1000;
 /**
  * A recheck replaces the cached span only when the exchange answered with at
@@ -158,6 +164,14 @@ export class CardView {
     /** Symbols whose whole cached history was checked against the exchange this session. */
     this.oiRechecked = new Set();
     this.oiSeq = 0;
+    /**
+     * Long/short samples {time (ms), accounts, top} behind that pane, at the
+     * period `lsPeriod` names, plus the newest 5m ones for the forming bar.
+     */
+    this.lsSamples = [];
+    this.lsLive = [];
+    this.lsPeriod = null;
+    this.lsSeq = 0;
     /** Footprint minutes from the hub, merged into bars on draw. */
     this.fpBook = new FootprintBook();
     this.fpSeq = 0;
@@ -434,6 +448,7 @@ export class CardView {
     });
     this.applyCompact();
     this.chart.setOIVisible(this.oiApplies());
+    this.applyLongShort();
     this.chart.setDrawingsHidden(this.card.hideDrawings);
     this.applyVolumeOptions();
     this.applyIndicators();
@@ -600,6 +615,11 @@ export class CardView {
     }
     if (id === 'oi') {
       this.onPatch({ showOI: !this.card.showOI });
+      return;
+    }
+    if (id === 'ls') {
+      if (value.startsWith('which:')) this.onPatch({ showLS: true, lsWhich: value.slice(6) });
+      else this.onPatch({ showLS: value === 'on' });
       return;
     }
     if (id === 'drawings') {
@@ -1013,8 +1033,9 @@ export class CardView {
         return;
       }
       this.renderFibs();
-      // The OI pane has to cover the bars that just arrived too.
+      // The OI and long/short panes have to cover the bars that just arrived too.
       this.loadOI();
+      this.loadLongShort();
     } catch (err) {
       console.error('[card] history extend failed', err);
       return;
@@ -1180,6 +1201,16 @@ export class CardView {
     return this.card.market === 'perp' && this.card.showOI === true;
   }
 
+  /** The exchange keeps long/short statistics for perpetuals only. */
+  lsApplies() {
+    return this.card.market === 'perp' && this.card.showLS === true;
+  }
+
+  applyLongShort() {
+    if (!this.chart) return;
+    this.chart.setLongShort(this.lsApplies() ? this.card.lsWhich || 'both' : null);
+  }
+
   /** Open interest is loaded for its pane, and for the position read. */
   oiWanted() {
     return this.oiApplies() || this.readOn();
@@ -1281,6 +1312,8 @@ export class CardView {
     this.toolbar.setMenuValue('volume', `col:${this.card.volColor || 'split'}`, 'col');
     this.toolbar.setMenuValue('volume', `lay:${this.card.volLayout || 'overlay'}`, 'lay');
     this.toolbar.setToggled('oi', this.card.showOI);
+    this.toolbar.setMenuValue('ls', this.card.showLS ? 'on' : 'off');
+    this.toolbar.setMenuValue('ls', `which:${this.card.lsWhich || 'both'}`, 'which');
     this.toolbar.setMenuValue('rsi', this.card.showRsi ? 'on' : 'off');
     this.toolbar.setMenuValue('rsi', `len:${this.card.rsiPeriod || '14'}`, 'len');
     this.toolbar.setToggled('macd', this.card.showMacd);
@@ -1294,6 +1327,7 @@ export class CardView {
     this.toolbar.setMenuValue('htf', this.card.showHtf ? this.htfInterval() : 'off');
     this.toolbar.setToggled('drawings', this.card.hideDrawings);
     this.toolbar.setHidden('oi', this.card.market !== 'perp');
+    this.toolbar.setHidden('ls', this.card.market !== 'perp');
     this.toolbar.setMenuValue('footprint', this.card.footprint ? 'on' : 'off');
     this.toolbar.setMenuValue('footprint', `ratio:${this.card.fpRatio || '3'}`, 'ratio');
   }
@@ -1340,6 +1374,78 @@ export class CardView {
     if (this.destroyed || !this.card.footprint || !this.chart || !this.chart.bars.length) return;
     this.fpBook.trim(this.footprintFrom() - 60);
     if (this.fpBook.put(records)) this.chart.footprintChanged();
+  }
+
+  /** Forget the long/short readings of the previous symbol, market or interval. */
+  resetLongShort() {
+    this.lsSeq += 1;
+    clearTimeout(this.lsRefreshTimer);
+    this.lsSamples = [];
+    this.lsLive = [];
+    this.lsPeriod = null;
+    if (this.chart) this.chart.setLongShortData([]);
+  }
+
+  /**
+   * The long/short pane's readings: the exchange's history at the coarsest
+   * period no longer than a bar (long-short.js), from the first bar loaded,
+   * and the newest 5m rows for the bar still forming. Held samples are kept;
+   * only what is newer -- or older than the first one, after the history
+   * scrolled back -- is asked for. 30 days is all the exchange keeps.
+   */
+  async loadLongShort() {
+    clearTimeout(this.lsRefreshTimer);
+    if (!this.chart || !this.lsApplies()) return;
+    const bars = this.chart.bars;
+    if (!bars.length) return;
+    const msToBoundary = LS_LIVE_SEC * 1000 - (Date.now() % (LS_LIVE_SEC * 1000));
+    this.lsRefreshTimer = setTimeout(() => this.loadLongShort(), msToBoundary + LS_REFRESH_LAG_MS);
+
+    const seq = ++this.lsSeq;
+    const key = this.dataKey();
+    const step = intervalToMs(this.card.interval) / 1000;
+    const period = lsPeriodFor(step);
+    if (this.lsPeriod !== period.name) {
+      this.lsSamples = [];
+      this.lsLive = [];
+      this.lsPeriod = period.name;
+    }
+    const nowMs = Date.now();
+    const fromMs = (bars[0].time - period.sec) * 1000;
+    const held = this.lsSamples;
+    const asks = [];
+    if (!held.length) {
+      asks.push([fromMs, nowMs]);
+    } else {
+      if (fromMs < held[0].time - period.sec * 1000) asks.push([fromMs, held[0].time - 1]);
+      asks.push([held[held.length - 1].time + 1, nowMs]);
+    }
+
+    try {
+      const { symbol } = this.card;
+      const pages = await Promise.all(asks.map(([a, b]) => this.feed.getLongShortHist(symbol, period.name, a, b)));
+      // The forming bar's reading. A 5m card already has it in the history.
+      const live =
+        period.name === LS_LIVE_PERIOD
+          ? []
+          : await this.feed.getLongShortHist(symbol, LS_LIVE_PERIOD, nowMs - 3 * LS_LIVE_SEC * 1000, nowMs);
+      if (this.destroyed || seq !== this.lsSeq || key !== this.dataKey() || this.lsPeriod !== period.name) return;
+      this.lsSamples = mergeSamples(held, pages.flat());
+      this.lsLive = live;
+      this.renderLongShortData();
+    } catch (err) {
+      console.error('[card] long/short failed', err);
+    }
+  }
+
+  renderLongShortData() {
+    if (!this.chart || !this.lsPeriod) return;
+    const step = intervalToMs(this.card.interval) / 1000;
+    const period = lsPeriodFor(step);
+    // Live rows only past the history's end: before that the history is the reading.
+    const lastHeld = this.lsSamples.length ? this.lsSamples[this.lsSamples.length - 1].time : -Infinity;
+    const samples = mergeSamples(this.lsSamples, this.lsLive.filter((r) => r.time > lastHeld));
+    this.chart.setLongShortData(bucketLongShort(samples, this.chart.bars.map((b) => b.time), step, period.sec));
   }
 
   /** Forget the OI of the previous symbol or market. */
@@ -2804,6 +2910,7 @@ export class CardView {
       window.removeEventListener('mouseup', this.onFibUp);
     }
     clearTimeout(this.oiRefreshTimer);
+    clearTimeout(this.lsRefreshTimer);
     clearTimeout(this.fibProjectTimer);
     clearInterval(this.profileTimer);
     clearTimeout(this.periodScrollTimer);
@@ -2886,6 +2993,7 @@ export class CardView {
       this.chart.setData(bars);
       this.historyExhausted = false;
       this.loadOI();
+      this.loadLongShort();
       this.lastBar = bars[bars.length - 1];
       this.setOverlay(null);
       this.renderQuote();
@@ -3349,6 +3457,13 @@ export class CardView {
         // A symbol or market change reloads it with the bars, below.
         if (!symbolChanged && this.oiApplies()) this.loadOI();
       }
+      if (next.showLS !== prev.showLS || next.lsWhich !== prev.lsWhich || marketChanged) {
+        this.applyLongShort();
+        // Turned on: fetch. A symbol, market or interval change loads it with the bars.
+        if (!symbolChanged && next.showLS && !prev.showLS) this.loadLongShort();
+        // The lines changed: the pane was rebuilt empty, so draw what is held.
+        else if (!symbolChanged) this.renderLongShortData();
+      }
       // A symbol, market or interval change reloads it with the bars, below.
       if ((next.footprint !== prev.footprint || next.fpRatio !== prev.fpRatio) && !symbolChanged) {
         if (next.footprint !== prev.footprint) this.loadFootprint();
@@ -3374,6 +3489,7 @@ export class CardView {
     }
 
     if (symbolChanged) {
+      this.resetLongShort();
       this.ticker = null;
       this.lastBar = null;
       this.renderQuote();
