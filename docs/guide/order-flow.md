@@ -43,14 +43,25 @@ Binance publishes OI only as snapshots and a 5-minute history 30 days deep, so t
 
 ## Long / short ratio
 
-The **two-curve** icon opens a menu: off / show, and which lines.
+The **two-curve** icon opens a menu: off / show, which lines, and the unit.
 
 | Line | Colour | Meaning |
 | --- | --- | --- |
-| Crowd's account ratio | Pink | Among accounts with a position, net-long accounts per net-short one, each account counted once: mostly retail |
-| Top traders' position ratio | Green | The top 20% of accounts by margin: long position size per short |
+| Crowd | Pink | Among accounts with a position, how many are net long, each account counted once: mostly retail |
+| Top traders | Green | The top 20% of accounts by margin, by position size |
 
-Both share one scale in a pane of their own, with a dotted line at 1.0 where longs and shorts balance. The data is Binance's public trading statistics: every 5 minutes, the last 30 days, perpetuals only (the icon is hidden on spot cards). Each bar shows the reading taken at its **close**, and the forming bar the newest one. Bars shorter than 5 minutes carry the latest reading; spans older than 30 days or never sampled are left blank rather than drawn flat.
+**Unit: share long % (the default).** Each line is the share long: a long/short ratio of 3 is 75%. The ratio stretches as it rises (2 → 3 looks like half again, but is 67% → 75% of accounts), so the share reads changes as they are. The crowd's line also gets:
+
+- **7d base** (dashed) and a **band** (dotted): the median of the crowd's share over the week before, and two robust deviations either side. The crowd has a level of its own (it rarely left 48–76% on BTC and 65–80% on ETH over a month), so what says something is the distance from its usual, not the number itself.
+- **Bars along the bottom: what the price does not explain.** Over a day the crowd mostly mirrors the price: it adds longs into falls and closes them into rallies. The bars are the part of the crowd's 24h change that the 24h price change does not account for, in standard deviations: **amber at +2σ and over** (far longer than the fall explains: genuinely crowded), **blue at −2σ and under** (far less long than usual for the move), grey in between. They need ten days of history behind an hour, so the first stretch of the 30 days has none.
+
+Both are fitted on the hours before each hour only, so the history shows what the pane would have said at the time. They are hourly, whatever the card's interval, and refresh once an hour.
+
+> **How to read it.** A crowd far above its base after a sharp fall is usually just buying the dip, and on 30 days of BTC that was followed by bounces as often as not. An amber bar says the crowd is longer than even that explains, which is the crowding a flush feeds on; a blue bar near a high is the crowd turning away, which preceded the drops in that month. It is context for the order flow, not a signal on its own. Details and measurements: [Analytics](../design/analytics.md#the-crowd-in-context).
+
+**Unit: long/short ratio.** The exchange's two ratios as they are, on one scale with a dotted line at 1.0 where longs and shorts balance.
+
+The data is Binance's public trading statistics: every 5 minutes, the last 30 days, perpetuals only (the icon is hidden on spot cards). Each bar shows the reading taken at its **close**, and the forming bar the newest one. Bars shorter than 5 minutes carry the latest reading; spans older than 30 days or never sampled are left blank rather than drawn flat.
 
 The same two numbers, with the funding rate, are in the order ticket: see [Trading](trading.md#long--short-bias).
 

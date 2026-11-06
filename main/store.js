@@ -243,6 +243,9 @@ function sanitizeCard(raw, index = 0) {
     // ratio, the top traders' position ratio, or both.
     showLS: card.showLS === true,
     lsWhich: pick(card.lsWhich, ['both', 'accounts', 'top'], 'both'),
+    // 'pct': the share long, with the crowd's 7-day baseline and what the price
+    // does not explain; 'ratio': the exchange's long/short ratios as they are.
+    lsUnit: pick(card.lsUnit, ['pct', 'ratio'], 'pct'),
     // Oscillator panes: RSI (Wilder) with a choice of period, MACD (12, 26, 9).
     showRsi: card.showRsi === true,
     rsiPeriod: pick(card.rsiPeriod, ['7', '14', '21'], '14'),

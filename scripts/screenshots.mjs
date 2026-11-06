@@ -413,7 +413,7 @@ async function run() {
   }
 
   if (wanted('cvd-oi')) {
-    await setCard(main, mainId, { symbol: 'BTCUSDT', market: 'perp', interval: '15m', showVolume: true, showCvd: true, cvdAnchor: 'none', showOI: true, showLS: true, lsWhich: 'both' }, { width: 760, height: 600 });
+    await setCard(main, mainId, { symbol: 'BTCUSDT', market: 'perp', interval: '15m', showVolume: true, showCvd: true, cvdAnchor: 'none', showOI: true, showLS: true, lsWhich: 'both', lsUnit: 'pct' }, { width: 760, height: 680 });
     await settle(main, 8000);
     await shoot(main, 'order-flow', 'cvd-oi');
     await setCard(main, mainId, { showCvd: false, showOI: false, showLS: false }, { width: 760, height: 520 });

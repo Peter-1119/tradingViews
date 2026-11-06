@@ -846,5 +846,12 @@
   "散戶帳戶多空比": "Crowd: accounts long per short",
   "大戶持倉多空比": "Top traders: position long per short",
   "散戶多空比": "Crowd L/S",
-  "大戶多空比": "Top L/S"
+  "大戶多空比": "Top L/S",
+  "7 天基準": "7d base",
+  "散戶做多": "Crowd long",
+  "大戶做多": "Top long",
+  "多空比副圖（幣安公開數據，每 5 分鐘更新，最多 30 天）：做多占比與散戶的 7 天基準帶，底部柱子是價格解釋不了的散戶偏多／偏空": "Long/short pane (Binance public data, every 5 minutes, up to 30 days): the share long, the crowd's 7-day baseline band, and bars at the bottom for how much more long or short the crowd is than the price explains",
+  "單位": "Unit",
+  "做多占比 %，含 7 天基準與價格調整": "Share long %, with 7-day baseline and price-adjusted residual",
+  "多空比（原始比值）": "Long/short ratio (raw)"
 }

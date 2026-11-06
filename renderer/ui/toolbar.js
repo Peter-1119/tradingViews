@@ -206,7 +206,7 @@ export const TOOLS = [
   {
     id: 'ls',
     label: t('多空比'),
-    hint: t('多空比副圖（幣安公開數據，每 5 分鐘更新，最多 30 天）：散戶帳戶多空比與大戶持倉多空比，虛線 1.0 為多空相當'),
+    hint: t('多空比副圖（幣安公開數據，每 5 分鐘更新，最多 30 天）：做多占比與散戶的 7 天基準帶，底部柱子是價格解釋不了的散戶偏多／偏空'),
     toggle: true,
     menu: [
       { value: 'off', label: t('關閉') },
@@ -215,6 +215,9 @@ export const TOOLS = [
       { value: 'which:both', group: 'which', label: t('散戶與大戶') },
       { value: 'which:accounts', group: 'which', label: t('散戶帳戶多空比') },
       { value: 'which:top', group: 'which', label: t('大戶持倉多空比') },
+      { heading: t('單位') },
+      { value: 'unit:pct', group: 'unit', label: t('做多占比 %，含 7 天基準與價格調整') },
+      { value: 'unit:ratio', group: 'unit', label: t('多空比（原始比值）') },
     ],
   },
   {

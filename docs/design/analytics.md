@@ -37,6 +37,33 @@ Volume has a long tail (a spike can be 10 to 50 times an ordinary bar), so "unde
 - Like lfilter's `zi` / `zf`, the filter state is carried. The full pass runs only when the bars are replaced (load, history, trim); after that each closed bar advances the state once, and each live tick only *peeks* at what the forming bar would give, a few multiplications, without committing it.
 - Each filter is seeded with the simple mean of its first n inputs, as TradingView's `ta.ema` / `ta.rsi` are, and the tests compare the live values with a full recompute tick by tick.
 
+## The crowd in context
+
+The crowd's long/short ratio (`globalLongShortAccountRatio`) is hard to read on its own. Measured on 30 days of hourly BTC and ETH perpetual data (7 October – 6 November 2026):
+
+| | BTC | ETH |
+| --- | --- | --- |
+| Share long, min – median – max | 48% – 64% – 76% | 65% – 75% – 80% |
+| Correlation of 24h change in the ratio with 24h price change | −0.87 | −0.75 |
+| Correlation of 1h changes | −0.04 | −0.01 |
+
+Three things follow, and the share-long unit of the pane is built on them (`crowdContext` in `renderer/long-short.js`):
+
+1. **Read the share, not the ratio.** long / short stretches as it rises: ETH's 2.95 → 3.92 is 74.7% → 79.7%, against a ceiling. The pane draws `100 · r / (1 + r)`.
+2. **Read it against its own level.** Accounts are counted, not sized, and small accounts lean long, so the crowd has a floor of its own. The baseline is the median of the share over the 168 hours before (at least 84 of them), and the band two robust deviations (1.4826 × MAD) either side.
+3. **Take the price out.** Most of the day-to-day movement is the crowd buying falls and selling rallies. For each hour, the 24h change in the share long is regressed on the 24h price change over the 240 hours before (at least 120 pairs), and the bar is that hour's residual in standard deviations of the fit's residuals.
+
+Everything at an hour is fitted on earlier hours only, and a test checks that changing later hours leaves earlier figures untouched. Samples and prices are hourly over the 30 days the exchange keeps, fetched once an hour whatever the card's interval, and mapped to bars the way the ratios are (the newest point by a bar's close, carried no longer than an hour).
+
+**What the month said about the signal.** Taking the deviation from the 7-day baseline in the log ratio, on BTC:
+
+| Crowd vs its 7-day baseline | Hours | Next 24h, average | Share down after 24h |
+| --- | --- | --- | --- |
+| ≥ +2σ (far more long than usual) | 19 | +0.24% | 21% |
+| ≤ −2σ (far less long than usual) | 50 | −3.9% | 94% |
+
+The crowd was most long at local lows (77.5K on 31 October, 75.8K on 6 November): after a fall, buying the dip. It was least long near highs (84.2K on 22 October at a ratio of 1.02, 80.5K on 5 November at 1.39), and both preceded drops. So "the crowd is very long, so it will be flushed" did not hold that month; "the crowd has turned away near a high" did. The sample is small (overlapping hours, two or three episodes), which is why the pane shows context and colours only the extremes rather than issuing signals. ETH, already near its ceiling, showed no consistent pattern either way.
+
 ## CVD
 
 Cumulative volume delta is the running sum of taker buys minus taker sells (`renderer/cvd.js`). Every Binance kline carries the taker-buy volume, so the delta is `2 × takerBuy − volume` per bar, free on both markets. Each bar's delta is converted to USDT at its average price (quote volume ÷ volume), matching the volume bars and within about 1% of Binance's exact taker-buy quote volume. The daily-reset mode restarts the sum at each UTC midnight and breaks the line there.

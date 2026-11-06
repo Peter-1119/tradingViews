@@ -18,7 +18,7 @@ import { DRAWING_COLORS } from './drawing-colors.js';
 import { FootprintBook } from './footprint.js';
 import { buildPeriodProfiles, sessionBounds, PERIOD_4H, ProfileSource, rangeInterval } from './volume-profile.js';
 import { intervalToMs } from './datafeed/provider.js';
-import { lsPeriodFor, bucketLongShort, mergeSamples, LS_LIVE_PERIOD, LS_LIVE_SEC } from './long-short.js';
+import { lsPeriodFor, bucketLongShort, mergeSamples, crowdContext, bucketContext, LS_LIVE_PERIOD, LS_LIVE_SEC } from './long-short.js';
 import { oiPoints, bucketOI, historyRecords, onHistoryGrid, OI_MAX_GAP_SEC, OI_HISTORY_STEP_SEC } from './open-interest.js';
 import { WINDOWS as POSITION_WINDOWS } from './position.js';
 import { periodStart, periodLevels, updateCurrentExtremes, barsIntervalFor } from './sessions.js';
@@ -172,6 +172,12 @@ export class CardView {
     this.lsLive = [];
     this.lsPeriod = null;
     this.lsSeq = 0;
+    /**
+     * The crowd in context (share-long mode): hourly points from crowdContext
+     * over the 30 days the exchange keeps, and the hour they were fetched for.
+     */
+    this.lsContext = [];
+    this.lsContextHour = null;
     /** Footprint minutes from the hub, merged into bars on draw. */
     this.fpBook = new FootprintBook();
     this.fpSeq = 0;
@@ -619,6 +625,7 @@ export class CardView {
     }
     if (id === 'ls') {
       if (value.startsWith('which:')) this.onPatch({ showLS: true, lsWhich: value.slice(6) });
+      else if (value.startsWith('unit:')) this.onPatch({ showLS: true, lsUnit: value.slice(5) });
       else this.onPatch({ showLS: value === 'on' });
       return;
     }
@@ -1208,7 +1215,7 @@ export class CardView {
 
   applyLongShort() {
     if (!this.chart) return;
-    this.chart.setLongShort(this.lsApplies() ? this.card.lsWhich || 'both' : null);
+    this.chart.setLongShort(this.lsApplies() ? this.card.lsWhich || 'both' : null, this.card.lsUnit || 'pct');
   }
 
   /** Open interest is loaded for its pane, and for the position read. */
@@ -1314,6 +1321,7 @@ export class CardView {
     this.toolbar.setToggled('oi', this.card.showOI);
     this.toolbar.setMenuValue('ls', this.card.showLS ? 'on' : 'off');
     this.toolbar.setMenuValue('ls', `which:${this.card.lsWhich || 'both'}`, 'which');
+    this.toolbar.setMenuValue('ls', `unit:${this.card.lsUnit || 'pct'}`, 'unit');
     this.toolbar.setMenuValue('rsi', this.card.showRsi ? 'on' : 'off');
     this.toolbar.setMenuValue('rsi', `len:${this.card.rsiPeriod || '14'}`, 'len');
     this.toolbar.setToggled('macd', this.card.showMacd);
@@ -1383,6 +1391,8 @@ export class CardView {
     this.lsSamples = [];
     this.lsLive = [];
     this.lsPeriod = null;
+    this.lsContext = [];
+    this.lsContextHour = null;
     if (this.chart) this.chart.setLongShortData([]);
   }
 
@@ -1436,6 +1446,31 @@ export class CardView {
     } catch (err) {
       console.error('[card] long/short failed', err);
     }
+    if ((this.card.lsUnit || 'pct') === 'pct') this.loadCrowdContext(seq, key);
+  }
+
+  /**
+   * The share-long mode's baseline and residual: 30 days of hourly rows and
+   * hourly bars, whatever the card's interval, fetched once an hour (the
+   * hourly row lands a little after the hour, hence the refresh lag).
+   */
+  async loadCrowdContext(seq, key) {
+    const hour = Math.floor((Date.now() - LS_REFRESH_LAG_MS) / 3600000);
+    if (this.lsContextHour === hour && this.lsContext.length) return;
+    try {
+      const { symbol } = this.card;
+      const nowMs = Date.now();
+      const [rows, bars] = await Promise.all([
+        this.feed.getLongShortHist(symbol, '1h', nowMs - 30 * 86400000, nowMs),
+        this.feed.getHistory(symbol, '1h', 750),
+      ]);
+      if (this.destroyed || seq !== this.lsSeq || key !== this.dataKey()) return;
+      this.lsContext = crowdContext(rows, bars.filter((b) => b.closed !== false));
+      this.lsContextHour = hour;
+      this.renderLongShortData();
+    } catch (err) {
+      console.error('[card] long/short context failed', err);
+    }
   }
 
   renderLongShortData() {
@@ -1445,7 +1480,17 @@ export class CardView {
     // Live rows only past the history's end: before that the history is the reading.
     const lastHeld = this.lsSamples.length ? this.lsSamples[this.lsSamples.length - 1].time : -Infinity;
     const samples = mergeSamples(this.lsSamples, this.lsLive.filter((r) => r.time > lastHeld));
-    this.chart.setLongShortData(bucketLongShort(samples, this.chart.bars.map((b) => b.time), step, period.sec));
+    const times = this.chart.bars.map((b) => b.time);
+    const records = bucketLongShort(samples, times, step, period.sec);
+    // Share-long mode: each bar also carries the hour's baseline, band and residual.
+    if ((this.card.lsUnit || 'pct') === 'pct' && this.lsContext.length) {
+      const ctx = bucketContext(this.lsContext, times, step);
+      for (const r of records) {
+        const c = ctx.get(r.time);
+        if (c) Object.assign(r, { base: c.base, lo: c.lo, hi: c.hi, z: c.z });
+      }
+    }
+    this.chart.setLongShortData(records);
   }
 
   /** Forget the OI of the previous symbol or market. */
@@ -3457,10 +3502,11 @@ export class CardView {
         // A symbol or market change reloads it with the bars, below.
         if (!symbolChanged && this.oiApplies()) this.loadOI();
       }
-      if (next.showLS !== prev.showLS || next.lsWhich !== prev.lsWhich || marketChanged) {
+      if (next.showLS !== prev.showLS || next.lsWhich !== prev.lsWhich || next.lsUnit !== prev.lsUnit || marketChanged) {
         this.applyLongShort();
-        // Turned on: fetch. A symbol, market or interval change loads it with the bars.
-        if (!symbolChanged && next.showLS && !prev.showLS) this.loadLongShort();
+        // Turned on, or to the share long (which needs the hourly context): fetch.
+        // A symbol, market or interval change loads it with the bars.
+        if (!symbolChanged && next.showLS && (!prev.showLS || next.lsUnit !== prev.lsUnit)) this.loadLongShort();
         // The lines changed: the pane was rebuilt empty, so draw what is held.
         else if (!symbolChanged) this.renderLongShortData();
       }

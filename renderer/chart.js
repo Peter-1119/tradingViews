@@ -14,6 +14,7 @@ import {
   CandlestickSeries,
   LineSeries,
   AreaSeries,
+  HistogramSeries,
   LineStyle,
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
@@ -64,6 +65,15 @@ const OI_COLOR = '#f0b45a';
 /** Long/short pane: the crowd (accounts) and the top traders (position size). */
 const LS_ACCOUNTS_COLOR = '#f472b6';
 const LS_TOP_COLOR = '#a3e635';
+/** The crowd's 7-day baseline and band (share-long mode), in its own colour, fainter. */
+const LS_BASE_COLOR = 'rgba(244, 114, 182, 0.55)';
+const LS_BAND_COLOR = 'rgba(244, 114, 182, 0.28)';
+/** Residual bars: crowded long beyond the price (amber), unusually short (blue), else grey. */
+const LS_RESIDUAL_HIGH = 'rgba(245, 158, 11, 0.9)';
+const LS_RESIDUAL_LOW = 'rgba(96, 165, 250, 0.9)';
+const LS_RESIDUAL_MID = 'rgba(148, 163, 184, 0.35)';
+/** |z| at which a residual bar is coloured. */
+const LS_RESIDUAL_MARK = 2;
 
 const PALETTE = {
   greenUp: { up: '#26c281', down: '#ed5465' },
@@ -361,6 +371,8 @@ export class CardChart {
     this.oiData = [];
     /** Long/short pane: which lines ('both' | 'accounts' | 'top'), null = off. */
     this.lsWhich = null;
+    /** 'pct' (share long, with baseline and residual) or 'ratio'. */
+    this.lsUnit = 'pct';
     /** {accounts, top} line series while the pane is up. */
     this.lsSeries = null;
     /** One {time, accounts, top} per bar that has a reading, from long-short.js. */
@@ -1364,11 +1376,16 @@ export class CardChart {
 
   /* ------------------------------------------------------ long / short */
 
-  /** Which lines of the long/short pane: 'both', 'accounts', 'top', or null for none. */
-  setLongShort(which) {
+  /**
+   * Which lines of the long/short pane ('both', 'accounts', 'top', or null for
+   * none), and in what: 'pct' for the share long, 'ratio' for the raw ratio.
+   */
+  setLongShort(which, unit = 'pct') {
     const next = ['both', 'accounts', 'top'].includes(which) ? which : null;
-    if (next === this.lsWhich) return;
+    const nextUnit = unit === 'ratio' ? 'ratio' : 'pct';
+    if (next === this.lsWhich && nextUnit === this.lsUnit) return;
     this.lsWhich = next;
+    this.lsUnit = nextUnit;
     this.syncSubPanes();
   }
 
@@ -1393,45 +1410,105 @@ export class CardChart {
    * between its two extremes. Nothing on the chart may switch a scale to log.
    */
   addLongShortSeries(paneIndex) {
+    const pct = this.lsUnit === 'pct';
     const common = {
       lineWidth: 1.5,
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerRadius: 2,
-      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      priceFormat: pct
+        ? { type: 'custom', formatter: (v) => `${v.toFixed(1)}%`, minMove: 0.1 }
+        : { type: 'price', precision: 2, minMove: 0.01 },
     };
-    const series = { accounts: null, top: null };
-    if (this.lsWhich !== 'top') {
+    const faint = { ...common, lineWidth: 1, lastValueVisible: false, crosshairMarkerVisible: false };
+    const series = { accounts: null, top: null, base: null, lo: null, hi: null, residual: null };
+    const crowd = this.lsWhich !== 'top';
+    // The baseline and band go in first, so the crowd's own line draws over them.
+    if (pct && crowd) {
+      series.lo = this.chart.addSeries(LineSeries, { ...faint, color: LS_BAND_COLOR, lineStyle: LineStyle.Dotted }, paneIndex);
+      series.hi = this.chart.addSeries(LineSeries, { ...faint, color: LS_BAND_COLOR, lineStyle: LineStyle.Dotted }, paneIndex);
+      series.base = this.chart.addSeries(
+        LineSeries,
+        { ...faint, color: LS_BASE_COLOR, lineStyle: LineStyle.Dashed, lastValueVisible: true, title: t('7 天基準') },
+        paneIndex
+      );
+    }
+    if (crowd) {
       series.accounts = this.chart.addSeries(
         LineSeries,
-        { ...common, color: LS_ACCOUNTS_COLOR, title: t('散戶多空比') },
+        { ...common, color: LS_ACCOUNTS_COLOR, title: pct ? t('散戶做多') : t('散戶多空比') },
         paneIndex
       );
     }
     if (this.lsWhich !== 'accounts') {
       series.top = this.chart.addSeries(
         LineSeries,
-        { ...common, color: LS_TOP_COLOR, title: t('大戶多空比') },
+        { ...common, color: LS_TOP_COLOR, title: pct ? t('大戶做多') : t('大戶多空比') },
         paneIndex
       );
     }
-    const first = series.accounts || series.top;
-    first.priceScale().applyOptions({ scaleMargins: { top: 0.15, bottom: 0.1 }, borderVisible: false });
-    first.createPriceLine({ price: 1, color: 'rgba(148, 163, 184, 0.55)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
+    // What the price does not explain, as bars along the bottom of the pane
+    // on a scale of their own (standard deviations, not percent).
+    if (pct && crowd) {
+      series.residual = this.chart.addSeries(
+        HistogramSeries,
+        {
+          priceScaleId: 'ls-residual',
+          priceLineVisible: false,
+          lastValueVisible: false,
+          base: 0,
+          priceFormat: { type: 'custom', formatter: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}σ`, minMove: 0.1 },
+          // Centred on zero and at least ±3σ, so a bar's height and side mean
+          // the same from one view to the next: autoscaled, 1.5σ and 2.3σ
+          // filled the strip alike.
+          autoscaleInfoProvider: (original) => {
+            const res = original();
+            const r = res && res.priceRange;
+            const m = Math.max(3, r ? Math.abs(r.minValue) : 0, r ? Math.abs(r.maxValue) : 0);
+            return { priceRange: { minValue: -m, maxValue: m } };
+          },
+        },
+        paneIndex
+      );
+      series.residual.priceScale().applyOptions({ scaleMargins: { top: 0.64, bottom: 0.02 }, visible: false });
+      series.residual.createPriceLine({ price: 0, color: 'rgba(148, 163, 184, 0.35)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
+    }
+    const first = series.base || series.accounts || series.top;
+    // With the residual strip, the lines keep the upper part of the pane.
+    first.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: pct && crowd ? 0.4 : 0.1 }, borderVisible: false });
+    first.createPriceLine({
+      price: pct ? 50 : 1,
+      color: 'rgba(148, 163, 184, 0.55)',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      axisLabelVisible: false,
+    });
     return series;
   }
 
   renderLongShort() {
-    if (!this.lsSeries) return;
-    if (this.lsSeries.accounts) this.lsSeries.accounts.setData(this.lsSeriesData('accounts'));
-    if (this.lsSeries.top) this.lsSeries.top.setData(this.lsSeriesData('top'));
+    const s = this.lsSeries;
+    if (!s) return;
+    const pct = this.lsUnit === 'pct';
+    const share = (v) => (v > 0 ? (100 * v) / (1 + v) : NaN);
+    if (s.accounts) s.accounts.setData(this.lsSeriesData('accounts', pct ? share : null));
+    if (s.top) s.top.setData(this.lsSeriesData('top', pct ? share : null));
+    if (s.base) s.base.setData(this.lsSeriesData('base'));
+    if (s.lo) s.lo.setData(this.lsSeriesData('lo'));
+    if (s.hi) s.hi.setData(this.lsSeriesData('hi'));
+    if (s.residual) {
+      const colour = (z) => (z >= LS_RESIDUAL_MARK ? LS_RESIDUAL_HIGH : z <= -LS_RESIDUAL_MARK ? LS_RESIDUAL_LOW : LS_RESIDUAL_MID);
+      s.residual.setData(this.lsSeriesData('z', null, true).map((p) => ('value' in p ? { ...p, color: colour(p.value) } : p)));
+    }
   }
 
   /**
-   * One ratio as line points, with a whitespace point on every bar in between
-   * that has no reading -- as for OI, so a stretch nobody sampled is a gap.
+   * One field of the readings as points, with a whitespace point on every bar
+   * in between that has none -- as for OI, so a stretch nobody sampled is a
+   * gap. `map` turns a ratio into what is drawn; `signed` keeps values at or
+   * below zero (the residual), which a ratio or a share never has.
    */
-  lsSeriesData(key) {
+  lsSeriesData(key, map = null, signed = false) {
     const records = this.lsData;
     if (!records.length) return [];
     const byTime = new Map(records.map((r) => [r.time, r[key]]));
@@ -1441,8 +1518,10 @@ export class CardChart {
     for (const bar of this.bars) {
       if (bar.time < first) continue;
       if (bar.time > last) break;
-      const value = byTime.get(bar.time);
-      out.push(Number.isFinite(value) && value > 0 ? { time: bar.time, value } : { time: bar.time });
+      const raw = byTime.get(bar.time);
+      const value = map && Number.isFinite(raw) ? map(raw) : raw;
+      const ok = Number.isFinite(value) && (signed || value > 0);
+      out.push(ok ? { time: bar.time, value } : { time: bar.time });
     }
     return out;
   }

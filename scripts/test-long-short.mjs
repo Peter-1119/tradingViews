@@ -3,7 +3,7 @@
  * of the two statistics. Run: node scripts/test-long-short.mjs
  */
 import assert from 'node:assert/strict';
-import { lsPeriodFor, bucketLongShort, mergeSamples } from '../renderer/long-short.js';
+import { lsPeriodFor, bucketLongShort, mergeSamples, longShare, crowdContext, bucketContext, CONTEXT } from '../renderer/long-short.js';
 
 let passed = 0;
 let failed = 0;
@@ -126,6 +126,97 @@ await test('provider: spot has no statistics and asks for none', async () => {
     throw new Error('must not be called');
   };
   assert.deepEqual(await provider.getLongShortHist('BTCUSDT', '1h', 0, Date.now()), []);
+});
+
+console.log('crowd in context');
+
+/** Hourly samples and bars over `hours`, from a share-long and a price function of the hour. */
+function hourly(hours, shareAt, priceAt) {
+  const samples = [];
+  const bars = [];
+  for (let h = 0; h < hours; h++) {
+    const share = shareAt(h);
+    samples.push({ time: (h + 1) * H * 1000, accounts: share / (100 - share) });
+    bars.push({ time: h * H, close: priceAt(h) });
+  }
+  return { samples, bars };
+}
+
+await test('share long: 3 is 75%, 1 is 50%, nonsense is NaN', () => {
+  assert.equal(longShare(3), 75);
+  assert.equal(longShare(1), 50);
+  assert.ok(Math.abs(longShare(4) - 80) < 1e-9);
+  assert.ok(Number.isNaN(longShare(0)));
+  assert.ok(Number.isNaN(longShare('x')));
+});
+
+await test('baseline: the median of the week before, with a band; none on too little history', () => {
+  const { samples, bars } = hourly(300, (h) => 60 + (h % 2 ? 2 : -2), () => 100);
+  const ctx = crowdContext(samples, bars);
+  assert.equal(ctx[10].base, null, 'ten hours in is too early');
+  const late = ctx[ctx.length - 1];
+  assert.ok(Math.abs(late.base - 60) < 1e-9, `base ${late.base}`);
+  assert.ok(late.lo < 60 && late.hi > 60 && Math.abs(late.hi - 60 - (60 - late.lo)) < 1e-9);
+});
+
+await test('residual: near zero when the crowd only mirrors the price', () => {
+  // The share long moves against the price, exactly linearly, plus a little noise.
+  const price = (h) => 100 * (1 + 0.05 * Math.sin(h / 17));
+  const share = (h) => 65 - 2.5 * (price(h) - 100) + 0.3 * Math.sin(h * 1.7);
+  const { samples, bars } = hourly(600, share, price);
+  const ctx = crowdContext(samples, bars).filter((c) => c.z !== null);
+  assert.ok(ctx.length > 100, `${ctx.length} fitted hours`);
+  const worst = Math.max(...ctx.map((c) => Math.abs(c.z)));
+  assert.ok(worst < 3, `worst |z| ${worst.toFixed(2)}`);
+});
+
+await test('residual: a crowd far longer than the price explains stands out', () => {
+  const price = (h) => 100 * (1 + 0.05 * Math.sin(h / 17));
+  const base = (h) => 65 - 2.5 * (price(h) - 100) + 0.3 * Math.sin(h * 1.7);
+  const share = (h) => base(h) + (h >= 560 ? 6 : 0);
+  const { samples, bars } = hourly(600, share, price);
+  const ctx = crowdContext(samples, bars);
+  const at = ctx.find((c) => c.time === 570 * H);
+  assert.ok(at.z > 4, `z ${at.z}`);
+  const before = ctx.find((c) => c.time === 540 * H);
+  assert.ok(Math.abs(before.z) < 3, `z before ${before.z}`);
+});
+
+await test('no look-ahead: changing later hours leaves earlier figures alone', () => {
+  const price = (h) => 100 + Math.sin(h / 9) * 3;
+  const share = (h) => 64 + Math.cos(h / 13) * 4;
+  const a = hourly(500, share, price);
+  const b = hourly(500, (h) => (h > 450 ? 90 : share(h)), (h) => (h > 450 ? 500 : price(h)));
+  const ca = crowdContext(a.samples, a.bars);
+  const cb = crowdContext(b.samples, b.bars);
+  for (let i = 0; i < ca.length && ca[i].time <= 451 * H; i++) assert.deepEqual(cb[i], ca[i]);
+});
+
+await test('rows with no price, or an hour missing for the 24h change, are skipped, not invented', () => {
+  const { samples, bars } = hourly(450, (h) => 60 + (h % 5), (h) => 100 + h * 0.01);
+  const gappy = bars.filter((b) => b.time !== 380 * H);
+  const ctx = crowdContext(samples, gappy);
+  assert.equal(ctx.find((c) => c.time === 381 * H), undefined, 'no price, no row');
+  const after = ctx.find((c) => c.time === 381 * H + 24 * H);
+  assert.equal(after.z, null, 'its 24h change has no start');
+});
+
+await test('context to bars: an hour carried across 1m bars, not past the hour', () => {
+  const ctx = [{ time: 10 * H, z: 1 }, { time: 11 * H, z: 2 }];
+  const times = [10 * H, 10 * H + 1800, 11 * H - 60, 11 * H, 12 * H + 60];
+  const out = bucketContext(ctx, times, 60);
+  assert.equal(out.get(10 * H).z, 1);
+  assert.equal(out.get(11 * H - 60).z, 2, 'the 11:00 reading closes the 10:59 bar');
+  assert.equal(out.get(11 * H).z, 2);
+  assert.equal(out.has(12 * H + 60), false, 'older than an hour');
+});
+
+await test('context to bars: an hourly bar reads the point at its close', () => {
+  const ctx = [{ time: 10 * H, z: 1 }, { time: 11 * H, z: 2 }];
+  const out = bucketContext(ctx, [9 * H, 10 * H], H);
+  assert.equal(out.get(9 * H).z, 1);
+  assert.equal(out.get(10 * H).z, 2);
+  assert.equal(CONTEXT.baseHours, 168);
 });
 
 console.log('');
