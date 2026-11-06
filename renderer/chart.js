@@ -15,7 +15,6 @@ import {
   LineSeries,
   AreaSeries,
   LineStyle,
-  PriceScaleMode,
 } from './vendor/lightweight-charts.mjs';
 import { HtfPrimitive } from './htf-primitive.js';
 import { VolumeProfilePrimitive } from './vp-primitive.js';
@@ -1386,9 +1385,12 @@ export class CardChart {
 
   /**
    * Both ratios on one scale, so they read against each other and against
-   * the 1.0 line where longs and shorts balance. The scale is a log one:
-   * 0.5 and 2 are the same lean either way, and on a linear axis a crowd at
-   * 3 would flatten the top traders' 1.2 into the floor.
+   * the 1.0 line where longs and shorts balance.
+   *
+   * A linear scale, though a log one would read 0.5 and 2 as the same lean:
+   * the mode set on this pane's scale reached the other sub-panes as well, and
+   * the CVD pane -- negative half the time -- came out as a line jumping
+   * between its two extremes. Nothing on the chart may switch a scale to log.
    */
   addLongShortSeries(paneIndex) {
     const common = {
@@ -1414,7 +1416,7 @@ export class CardChart {
       );
     }
     const first = series.accounts || series.top;
-    first.priceScale().applyOptions({ mode: PriceScaleMode.Logarithmic, scaleMargins: { top: 0.15, bottom: 0.1 }, borderVisible: false });
+    first.priceScale().applyOptions({ scaleMargins: { top: 0.15, bottom: 0.1 }, borderVisible: false });
     first.createPriceLine({ price: 1, color: 'rgba(148, 163, 184, 0.55)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
     return series;
   }
