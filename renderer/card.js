@@ -156,6 +156,11 @@ async function main() {
   view.setClickThrough(boot.clickThrough);
   await view.mount();
 
+  // A handle on the card for DevTools and scripts/screenshots.mjs, which open
+  // menus and the order ticket the way a click would. The page is sandboxed
+  // and holds nothing secret; this only saves digging the view out of closures.
+  window.tapecard = { view };
+
   /* ------------------------------------------------------------- events */
 
   api.onCardChanged((card) => {

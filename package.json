@@ -12,6 +12,7 @@
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-datafeed.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-bar-store.mjs && node scripts/test-trading.mjs && node scripts/test-paper.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-volume.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-footprint.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-indicators.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-cvd.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-long-short.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-flow.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-walls.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-price-alerts.mjs",
     "check": "node scripts/check-syntax.js && node scripts/check-i18n.mjs --quiet",
     "postinstall": "node scripts/sync-vendor.js",
+    "shots": "node scripts/screenshots.mjs",
     "icon": "node scripts/gen-icon.js",
     "dist": "npm run icon && electron-builder --win nsis portable",
     "pack": "npm run icon && electron-builder --dir"
