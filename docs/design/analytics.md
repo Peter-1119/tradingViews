@@ -2,7 +2,7 @@
 
 # Analytics
 
-How the numbers on the chart are computed, and why that way: volume profiles, range alerts, thin volume, RSI and MACD, CVD, big orders and the position read, and order walls. How to use each is in the [guide](../README.md#user-guide); the footprint has [its own page](footprint.md).
+How the numbers on the chart are computed, and why that way: volume profiles, range alerts, thin volume, RSI and MACD, CVD, big orders and the position read, order walls, and liquidations. How to use each is in the [guide](../README.md#user-guide); the footprint has [its own page](footprint.md).
 
 ## Volume profiles
 
@@ -96,3 +96,26 @@ The hub keeps a local copy of the order book for every symbol a card shows walls
 - **Lifetime.** It stays a wall until it holds less than half its peak. Walls that lived under ten seconds are not recorded, because by the price market makers re-quote every few seconds.
 - **Filled or pulled.** When a wall goes, the lowest best bid and highest best ask since the last check say whether price came within a bucket of it: if so it was filled (a dot), if not pulled (✕).
 - The hub keeps six hours of ended walls in memory, from when the first card asked for that book.
+
+## Liquidations
+
+**Recorded** (`renderer/liquidations.js`, `renderer/datafeed/liquidation-feed.js`). The hub keeps one socket per exchange while anything is wanted, and records every perpetual a card is open on:
+
+| Exchange | Stream | What it sends |
+| --- | --- | --- |
+| Binance | `!forceOrder@arr` on `fstream.binance.com/market/stream` | Every symbol, but **at most the latest liquidation per symbol per second** (the bare `/ws` route connects and sends nothing). `S` is the order's side: SELL closes a long |
+| Bybit | `allLiquidation.{symbol}` on `stream.bybit.com/v5/public/linear` | Every liquidation, a topic per symbol, ten to a request. `S` is the *position's* side: Buy means a long was liquidated |
+| OKX | `liquidation-orders`, `instType: SWAP`, on `ws.okx.com:443/ws/v5/public` | Every swap on one channel, sizes in contracts (`ctVal` from the instrument list). On subscribing it also replays the last one per instrument, which the cache's keys deduplicate |
+
+Each becomes `{t, ex, side, price, qty, usd}` on the Binance symbol's scale (OKX lists `PEPE-USDT-SWAP` where Binance has `1000PEPEUSDT`, so its price and size are rescaled). A bar is marked when its longs or shorts reach the coin's own top 10 / 5 / 2% of bars that had any, the same idea as big orders being ranked against their own coin.
+
+**Estimated** (`renderer/liquidation-map.js`). No exchange publishes liquidation prices, so the map is reasoned from Binance's 5-minute bars and open interest over the last 30 days:
+
+1. **OI up by Δ**: Δ new longs and Δ new shorts at the bar's VWAP. The side that crossed the spread counts in full; the resting side, often a hedged market maker and rarely liquidated, counts at half. With *b* the taker-buy share: longs = Δ(*b* + ½(1 − *b*)), shorts = Δ(1 − *b* + ½*b*).
+2. **Leverage** is assumed: 5% at 100×, 10% at 50×, 20% at 25×, 15% at 20×, 30% at 10×, 20% at 5×. A long's liquidation price is entry · (1 − 1/L + 0.5%), a short's entry · (1 + 1/L − 0.5%): isolated margin, at Binance's lowest maintenance rate.
+3. **OI down by Δ** closes Δ of each side, weighted the other way round (taker sells close longs), **newest positions first**.
+4. A level that any later bar reached is gone: liquidated, or it would have been. Live, the forming bar keeps clearing what it reaches.
+
+Newest-first was measured. Taken pro rata from everything open, a month of five-minute OI churn wore every old position down: on BTC it left $0.3B of liquidatable longs. Most of the OI that comes and goes inside a month is short-term trading opened and closed within hours, and what stays is what was not closed. Even so the map holds only about $1B of BTC's $7.4B open interest. The rest was opened before the window, is the resting side counted at half, or sat at levels price has since passed. That is why the amounts are drawn as relative sizes and labelled *≈* and *Est.*
+
+Thirty days of 5m is 8,640 bars and builds in under 10ms. The map names, on each side, the nearest pool holding at least 60% of the largest within ±12%. Naming the single largest made two pools of nearly equal size swap the label back and forth as data arrived.

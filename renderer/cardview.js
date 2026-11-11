@@ -21,6 +21,7 @@ import { intervalToMs } from './datafeed/provider.js';
 import { lsPeriodFor, bucketLongShort, mergeSamples, crowdContext, bucketContext, LS_LIVE_PERIOD, LS_LIVE_SEC } from './long-short.js';
 import { oiPoints, bucketOI, historyRecords, onHistoryGrid, OI_MAX_GAP_SEC, OI_HISTORY_STEP_SEC } from './open-interest.js';
 import { WINDOWS as POSITION_WINDOWS } from './position.js';
+import { buildLiquidationMap } from './liquidation-map.js';
 import { periodStart, periodLevels, updateCurrentExtremes, barsIntervalFor } from './sessions.js';
 import {
   el,
@@ -116,6 +117,11 @@ const FOOTPRINT_BARS = 30;
 const FOOTPRINT_MAX_SEC = 6 * 3600;
 /** Big orders are read back this far at most: two weeks of 5m is ~4,000 bars. */
 const FLOW_MAX_SEC = 14 * 24 * 3600;
+/** Liquidations are read back this far at most. */
+const LIQ_MAX_SEC = 45 * 24 * 3600;
+/** The estimated map: how much history it folds in, and how often it is rebuilt. */
+const LIQ_MAP_HISTORY_MS = 30 * 24 * 3600 * 1000;
+const LIQ_MAP_REFRESH_MS = 5 * 60 * 1000;
 /** Below this bar spacing the rows have no room; turning it on zooms in. */
 const FOOTPRINT_MIN_SPACING = 8;
 
@@ -183,6 +189,11 @@ export class CardView {
     this.fpSeq = 0;
     this.flowSeq = 0;
     this.wallsSeq = 0;
+    this.liqSeq = 0;
+    this.liqMapSeq = 0;
+    /** {symbol, bars, oi} behind the estimated map, topped up on each rebuild. */
+    this.liqMapData = null;
+    this.liqMapTimer = null;
     /** {key, promise} -- the other market's name for this symbol, being looked up. */
     this.counterpartJob = null;
     this.status = this.feed.getStatus();
@@ -597,6 +608,14 @@ export class CardView {
       if (value.startsWith('top:')) this.onPatch({ flowTop: value.slice(4), flow: this.sweepsOn() ? this.card.flow : this.card.flow === 'read' ? 'both' : 'sweeps' });
       else if (value.startsWith('sens:')) this.onPatch({ flowSens: value.slice(5), flow: this.card.flow === 'sweeps' ? 'both' : this.card.flow === 'off' ? 'read' : this.card.flow });
       else this.onPatch({ flow: value });
+      return;
+    }
+    if (id === 'liq') {
+      // A threshold is about the recorded marks: it turns them on if they were off.
+      if (value.startsWith('top:')) {
+        const liq = this.liqReal() ? this.card.liq : 'both';
+        this.onPatch({ liqTop: value.slice(4), liq });
+      } else this.onPatch({ liq: value });
       return;
     }
     if (id === 'walls') {
@@ -1273,6 +1292,118 @@ export class CardView {
     this.chart.addSweep(payload.sweep, payload.cutoffs);
   }
 
+  /* --------------------------------------------------------- liquidations */
+
+  liqOn() {
+    return ['both', 'real', 'map'].includes(this.card.liq);
+  }
+
+  liqReal() {
+    return this.card.liq === 'both' || this.card.liq === 'real';
+  }
+
+  liqMapOn() {
+    return this.card.liq === 'both' || this.card.liq === 'map';
+  }
+
+  applyLiqOptions() {
+    if (!this.chart) return;
+    this.chart.setLiqOptions(
+      this.liqOn() ? { real: this.liqReal(), map: this.liqMapOn(), top: Number(this.card.liqTop || '5') / 100 } : null
+    );
+  }
+
+  /**
+   * Recorded liquidations from the hub: what it kept from the first bar on,
+   * then each second's new ones through onLiq. The hub records every
+   * perpetual on screen whether or not this is on, so switching it on shows
+   * history rather than starting from nothing.
+   */
+  async loadLiquidations() {
+    const seq = ++this.liqSeq;
+    if (!this.chart) return;
+    if (!this.liqReal()) {
+      this.chart.setLiquidations([], null, '');
+      this.feed.setLiquidations(this.card.id, false).catch(() => {});
+      return;
+    }
+    const bars = this.chart.bars;
+    if (!bars.length) return;
+    const from = Math.max(bars[0].time, Math.floor(Date.now() / 1000) - LIQ_MAX_SEC);
+    try {
+      const { symbol, events, since } = await this.feed.setLiquidations(this.card.id, true, from);
+      if (seq !== this.liqSeq || this.destroyed || !this.chart) return;
+      this.chart.setLiquidations(events, since, symbol);
+    } catch (err) {
+      console.error('[card] liquidations failed', err);
+    }
+  }
+
+  applyLiquidations(events) {
+    if (this.destroyed || !this.chart || !this.liqReal() || !Array.isArray(events)) return;
+    this.chart.addLiquidations(events);
+  }
+
+  /**
+   * The estimated map, from the perpetual's last 30 days of 5m bars and open
+   * interest (a spot card uses its counterpart's). Rebuilt every five
+   * minutes from the history held, topped up with what is new.
+   */
+  async loadLiqMap() {
+    const seq = ++this.liqMapSeq;
+    clearTimeout(this.liqMapTimer);
+    this.liqMapTimer = null;
+    if (!this.chart) return;
+    if (!this.liqMapOn()) {
+      this.liqMapData = null;
+      this.chart.setLiqMap(null, 'none');
+      return;
+    }
+    const { market, symbol } = this.card;
+    try {
+      const perpSymbol = market === 'perp' ? symbol : await this.feed.counterpart(symbol, 'perp');
+      if (seq !== this.liqMapSeq || this.destroyed) return;
+      if (!perpSymbol) {
+        this.chart.setLiqMap(null, 'none');
+        return;
+      }
+      const perp = this.feedFor('perp');
+      const now = Date.now();
+      let data = this.liqMapData && this.liqMapData.symbol === perpSymbol ? this.liqMapData : null;
+      if (!data) this.chart.setLiqMap(null, 'loading');
+      // From the newest closed bar held, or the whole month the first time.
+      const from = data && data.bars.length ? data.bars[data.bars.length - 1].time * 1000 : now - LIQ_MAP_HISTORY_MS;
+      const [bars, oi] = await Promise.all([
+        perp.getRange(perpSymbol, '5m', from, now),
+        perp.getOpenInterestHist(perpSymbol, '5m', from - 300_000, now),
+      ]);
+      if (seq !== this.liqMapSeq || this.destroyed || !this.chart) return;
+      const cutoff = (now - LIQ_MAP_HISTORY_MS) / 1000;
+      const keepBars = new Map((data ? data.bars : []).map((b) => [b.time, b]));
+      for (const b of bars) if (b.closed) keepBars.set(b.time, b);
+      const keepOi = new Map((data ? data.oi : []).map((r) => [r.time, r]));
+      for (const r of oi) keepOi.set(r.time, r);
+      data = {
+        symbol: perpSymbol,
+        bars: [...keepBars.values()].filter((b) => b.time >= cutoff).sort((a, b) => a.time - b.time),
+        oi: [...keepOi.values()].filter((r) => r.time >= cutoff * 1000).sort((a, b) => a.time - b.time),
+      };
+      this.liqMapData = data;
+      const map = buildLiquidationMap(data.bars, data.oi, 300);
+      // The forming bar has moved price since the last close: let it clear too.
+      const live = this.chart.bars[this.chart.bars.length - 1];
+      if (map && live) map.touch(live.high, live.low);
+      this.chart.setLiqMap(map, map ? 'ready' : 'failed');
+    } catch (err) {
+      if (seq !== this.liqMapSeq || this.destroyed) return;
+      console.error('[card] liquidation map failed', err);
+      if (!this.liqMapData) this.chart.setLiqMap(null, 'failed');
+    }
+    if (seq === this.liqMapSeq && !this.destroyed && this.liqMapOn()) {
+      this.liqMapTimer = setTimeout(() => this.loadLiqMap(), LIQ_MAP_REFRESH_MS);
+    }
+  }
+
   /* ---------------------------------------------------------------- walls */
 
   wallsOn() {
@@ -1330,6 +1461,8 @@ export class CardView {
     this.toolbar.setMenuValue('flow', this.card.flow || 'off');
     this.toolbar.setMenuValue('flow', `top:${this.card.flowTop || '0.1'}`, 'top');
     this.toolbar.setMenuValue('flow', `sens:${this.card.flowSens || '3'}`, 'sens');
+    this.toolbar.setMenuValue('liq', this.card.liq || 'off');
+    this.toolbar.setMenuValue('liq', `top:${this.card.liqTop || '5'}`, 'top');
     this.toolbar.setMenuValue('walls', this.card.walls || 'off');
     this.toolbar.setMenuValue('walls', `sens:${this.card.wallsSens || '10'}`, 'sens');
     this.toolbar.setMenuValue('htf', this.card.showHtf ? this.htfInterval() : 'off');
@@ -2924,6 +3057,7 @@ export class CardView {
   destroy() {
     this.destroyed = true;
     this.loadSeq += 1; // invalidate any in-flight load
+    clearTimeout(this.liqMapTimer);
     if (this.offStatus) this.offStatus.forEach((off) => off());
     clearInterval(this.fundingTimer);
     clearTimeout(this.clockTimer);
@@ -3057,6 +3191,9 @@ export class CardView {
       if (this.card.footprint) this.loadFootprint();
       this.loadFlow();
       this.loadWalls();
+      this.applyLiqOptions();
+      this.loadLiquidations();
+      this.loadLiqMap();
 
       feed
         .getTicker(symbol)
@@ -3114,6 +3251,7 @@ export class CardView {
       onFootprint: (records) => this.applyFootprint(records),
       onSweep: (payload) => this.applySweep(payload),
       onWalls: (msg) => this.applyWalls(msg),
+      onLiq: (events) => this.applyLiquidations(events),
     });
   }
 
@@ -3488,6 +3626,14 @@ export class CardView {
       // A symbol or market change loads them with the bars.
       if (next.walls !== prev.walls && !symbolChanged && !marketChanged) this.loadWalls();
       if (next.wallsSens !== prev.wallsSens) this.chart.setWallsSens(next.wallsSens);
+      if (next.liq !== prev.liq || next.liqTop !== prev.liqTop) {
+        this.applyLiqOptions();
+        // A symbol or market change loads them with the bars.
+        if (next.liq !== prev.liq && !symbolChanged && !marketChanged) {
+          this.loadLiquidations();
+          this.loadLiqMap();
+        }
+      }
       if (
         next.showRsi !== prev.showRsi ||
         next.rsiPeriod !== prev.rsiPeriod ||

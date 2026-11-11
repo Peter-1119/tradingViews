@@ -102,6 +102,7 @@ const api = {
     onFootprint: (cb) => on('datafeed:footprint', cb),
     onSweep: (cb) => on('datafeed:sweep', cb),
     onWalls: (cb) => on('datafeed:walls', cb),
+    onLiq: (cb) => on('datafeed:liq', cb),
     onStatus: (cb) => on('datafeed:status', cb),
     onReset: (cb) => on('datafeed:reset', cb),
   },

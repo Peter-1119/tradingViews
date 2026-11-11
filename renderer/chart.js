@@ -34,6 +34,7 @@ import { VolumePane, SqueezeBandsPrimitive, OVERLAY_SHARE } from './volume-pane.
 import { RsiPane, MacdPane, CvdPane } from './oscillator-pane.js';
 import { FlowPrimitive } from './flow-primitive.js';
 import { WallsPrimitive } from './walls-primitive.js';
+import { LiquidationPrimitive } from './liq-primitive.js';
 import { readPositions, readBar, mark } from './flow-read.js';
 import { locale as uiLocale, isEnglish, t } from './i18n.js';
 
@@ -347,6 +348,10 @@ export class CardChart {
     // The flow legend describes the bar under the crosshair.
     this.chart.subscribeCrosshairMove((param) => {
       const time = param && param.point && param.time != null ? Number(param.time) : null;
+      if (this.liqs.opts && time !== this.liqs.hoverTime) {
+        this.liqs.hoverTime = time;
+        this.liqs.update();
+      }
       if (time === this.flow.hoverTime) return;
       this.flow.hoverTime = time;
       if (this.flow.top !== null || this.flow.reads) this.flow.update();
@@ -421,6 +426,8 @@ export class CardChart {
     this.flowScale = 0;
     /** Order-book walls (walls-primitive.js). */
     this.walls = new WallsPrimitive(this);
+    /** Liquidations, recorded and estimated (liq-primitive.js). */
+    this.liqs = new LiquidationPrimitive(this);
     this.tradeLayer = new TradePrimitive(this);
     // Price alerts reuse the trade layer's line-and-axis-tag drawing.
     this.alertLayer = new TradePrimitive(this);
@@ -539,6 +546,7 @@ export class CardChart {
     this.priceSeries.attachPrimitive(this.periodLevels);
     this.priceSeries.attachPrimitive(this.extremes);
     this.priceSeries.attachPrimitive(this.walls);
+    this.priceSeries.attachPrimitive(this.liqs);
     this.priceSeries.attachPrimitive(this.flow);
     this.priceSeries.attachPrimitive(this.tradeLayer);
     this.priceSeries.attachPrimitive(this.alertLayer);
@@ -759,6 +767,10 @@ export class CardChart {
     if (this.macd) this.macd.update(bar, isNew);
     if (this.cvd) this.cvd.update(bar, isNew);
     this.rereadLastFlow();
+    if (this.liqs.opts) {
+      this.liqs.touch(bar);
+      if (isNew) this.liqs.rebucket();
+    }
   }
 
   /**
@@ -806,6 +818,28 @@ export class CardChart {
     if (this.macd) this.macd.render();
     if (this.cvd) this.cvd.render();
     this.rereadFlow();
+    if (this.liqs.opts) this.liqs.rebucket();
+  }
+
+  /* --------------------------------------------------------- liquidations */
+
+  /** {real, map, top} or null for off. */
+  setLiqOptions(opts) {
+    this.liqs.setOptions(opts);
+  }
+
+  /** Recorded liquidations from the hub, and when recording began (ms). */
+  setLiquidations(events, since, symbol) {
+    this.liqs.setEvents(events, since, symbol);
+  }
+
+  addLiquidations(events) {
+    this.liqs.addEvents(events);
+  }
+
+  /** The estimate (liquidation-map.js) and its state: 'loading', 'ready', 'failed', 'none'. */
+  setLiqMap(map, state) {
+    this.liqs.setMap(map, state);
   }
 
   /* ---------------------------------------------------------------- walls */

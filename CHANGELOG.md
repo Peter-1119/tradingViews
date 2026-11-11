@@ -8,6 +8,7 @@ What changed, newest first, grouped by when it landed. The app has not been vers
 
 - Documentation reorganised: a short README, a user guide and design notes under `docs/`, every page in English and Traditional Chinese, CONTRIBUTING and this changelog.
 - `npm run shots` remakes every documentation screenshot from a throwaway profile on the paper account.
+- **Liquidations**: liquidations on Binance, Bybit and OKX marked on the bars that had the coin's largest (▼ longs forced out, ▲ shorts), recorded for every perpetual on screen; and on the right, an estimate of where the leverage opened in the last 30 days would be liquidated, with the nearest big pool each side named.
 - **Long / short pane in context**: the share long instead of the raw ratio by default, the crowd's 7-day baseline and band, and bars for how much more (amber) or less (blue) long the crowd is than the 24h price change explains. The raw ratio stays as a unit in the menu.
 
 ## 2026-11-06

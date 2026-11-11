@@ -58,6 +58,10 @@ const ICONS = {
   // Two resting walls, a thick one and a thinner one, against the price.
   walls: '<path d="M1.5 4h7" stroke-width="2.6"/><path d="M5.5 10h7" stroke-width="2.6"/>'
     + '<path d="M1.5 7h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>',
+  // A down and an up triangle: positions forced out, longs pushing down, shorts up.
+  liq: '<path d="M2 3.5h4.6L4.3 7.6z" fill="currentColor" stroke-width="1"/>'
+    + '<path d="M7.4 10.5H12L9.7 6.4z" fill="currentColor" stroke-width="1"/>'
+    + '<path d="M1.5 12.5h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>',
   // Bubbles of two sizes: big orders.
   flow: '<circle cx="4.6" cy="9.2" r="2.6"/><circle cx="9.6" cy="5" r="3.4"/>',
   // A line between its two bounds, 70 and 30.
@@ -255,6 +259,22 @@ export const TOOLS = [
       { value: 'sens:2', group: 'sens', label: t('2 倍') },
       { value: 'sens:3', group: 'sens', label: t('3 倍') },
       { value: 'sens:5', group: 'sens', label: t('5 倍') },
+    ],
+  },
+  {
+    id: 'liq',
+    label: t('清算'),
+    hint: t('清算：▼ 多單被強平（被迫賣出）、▲ 空單被強平（被迫買進），Binance、Bybit、OKX 一起記錄。右側是估計的清算區：還沒被清掉的槓桿大概會在哪裡爆，標出上下最大的一塊'),
+    toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: 'both', label: t('實際清算＋估計清算區') },
+      { value: 'real', label: t('只看實際清算') },
+      { value: 'map', label: t('只看估計清算區') },
+      { heading: t('標出哪些 K 棒（該幣種清算最多的）') },
+      { value: 'top:10', group: 'top', label: t('前 10%') },
+      { value: 'top:5', group: 'top', label: t('前 5%') },
+      { value: 'top:2', group: 'top', label: t('前 2%') },
     ],
   },
   {

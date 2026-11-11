@@ -17,6 +17,7 @@
 import { BinanceProvider, MARKETS, counterpartSymbol } from './datafeed/binance.js';
 import { AlertMonitor } from './alert-monitor.js';
 import { PriceAlertMonitor } from './price-alert-monitor.js';
+import { LiquidationFeed } from './datafeed/liquidation-feed.js';
 
 const hub = window.stockcardHub;
 
@@ -49,6 +50,43 @@ for (const [market, provider] of providers) {
 
 /** subId -> {ownerId, market}. */
 const owners = new Map();
+
+/* -------------------------------------------------------- liquidations */
+
+/**
+ * Forced liquidations on three exchanges (liquidation-feed.js), kept under
+ * the perpetual as series `liqs`. Every perpetual a card is open on is
+ * recorded (key `rec:`), so the history is there when the layer is switched
+ * on; a card's layer (key `layer:`) adds its own symbol, the perpetual
+ * counterpart on a spot card.
+ */
+const liqs = new LiquidationFeed({
+  store: {
+    read: (symbol, from, to) => hub.readBars('perp', symbol, 'liqs', from, to),
+    write: (symbol, records) => hub.writeBars('perp', symbol, 'liqs', records),
+  },
+});
+
+/**
+ * A card's liquidations on or off. On, resolves with {symbol, events, since}
+ * from `fromSec`, and the card hears new ones as `datafeed:liq`.
+ */
+async function setLiquidations(subId, enabled, fromSec) {
+  liqs.unwant(`layer:${subId}`);
+  const entry = owners.get(subId);
+  if (!enabled || !entry) return { symbol: null, events: [], since: null };
+  const sub = feed(entry.market).subs.get(subId);
+  if (!sub) return { symbol: null, events: [], since: null };
+  const symbol = entry.market === 'perp' ? sub.symbol : await counterpart(sub.symbol, entry.market, 'perp').catch(() => null);
+  if (!symbol) return { symbol: null, events: [], since: null };
+  const { ownerId, market } = entry;
+  return liqs.watch(`layer:${subId}`, symbol, (events) => hub.emit(ownerId, 'datafeed:liq', { subId, market, events }), fromSec);
+}
+
+function releaseLiquidations(subId) {
+  liqs.unwant(`layer:${subId}`);
+  liqs.unwant(`rec:${subId}`);
+}
 
 /* ------------------------------------------------------ counterpart */
 
@@ -106,6 +144,8 @@ hub.onRequest(async ({ reqId, market, method, args = [] }) => {
       data = await counterpart(...args);
     } else if (method === 'setWalls') {
       data = await setWalls(...args);
+    } else if (method === 'setLiquidations') {
+      data = await setLiquidations(...args);
     } else {
       const provider = feed(market);
       if (typeof provider[method] !== 'function') {
@@ -142,6 +182,10 @@ hub.onSubscribe(({ subId, market, symbol, interval, ownerId }) => {
   });
   // A symbol change: the card asks for the new book's walls once its bars are in.
   if (previous && previous.symbol !== symbol) releaseWalls(subId);
+  // Liquidations too; and every perpetual on screen is recorded.
+  if (previous && (previous.symbol !== String(symbol).toUpperCase() || previous.market !== market)) liqs.unwant(`layer:${subId}`);
+  if (market === 'perp') liqs.want(`rec:${subId}`, symbol);
+  else liqs.unwant(`rec:${subId}`);
 
   // A card that mounts mid-session needs the current link state right away.
   hub.emit(ownerId, 'datafeed:status', { market, status: provider.getStatus() });
@@ -155,6 +199,7 @@ hub.onUnsubscribe(({ subId, market }) => {
   if (market && market !== entry.market) return;
   feed(entry.market).unsubscribe(subId);
   releaseWalls(subId);
+  releaseLiquidations(subId);
   owners.delete(subId);
 });
 
@@ -166,6 +211,7 @@ hub.onReleaseOwner(({ ownerId, cardId }) => {
     if (matchesOwner || matchesCard) {
       feed(entry.market).unsubscribe(subId);
       releaseWalls(subId);
+      releaseLiquidations(subId);
       owners.delete(subId);
     }
   }
@@ -203,6 +249,7 @@ for (const [market, provider] of providers) {
 window.addEventListener('unload', () => {
   monitor.destroy();
   priceAlerts.destroy();
+  liqs.destroy();
   for (const provider of providers.values()) provider.destroy();
 });
 

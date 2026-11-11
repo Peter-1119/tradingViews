@@ -51,6 +51,10 @@ Binance has no OI WebSocket: only REST snapshots (updated every 2–5 seconds) a
 
 Orders in the top 0.5% of their coin's recent orders are stored as series `sweeps` in the bar cache's layout, monthly files of 64-byte records: time to the millisecond, rank, price range, VWAP, quantity, the taker-buy part and USDT. That is about 75 an hour on ETH. The card picks its threshold from these, so changing it needs no new data. They exist only for the time the app was collecting. How orders are ranked: [Analytics](analytics.md#big-orders-and-the-position-read).
 
+## Liquidations
+
+Liquidations on Binance, Bybit and OKX are stored under the perpetual as series `liqs`: `bars2/_perp/{SYMBOL}/liqs/{YYYY-MM}.bin`, 64-byte records (time to the millisecond, exchange, side, price, quantity, USDT). The cache keys records by time, so each exchange and side gets its own few microseconds after the millisecond and same-millisecond events never overwrite each other. Every perpetual a card is open on is recorded, whether or not the layer is on; nothing exists for the time the app was closed. The estimated levels are not stored: they are rebuilt from the exchange's 30 days of 5m bars and OI.
+
 ## Footprint
 
 Only closed, complete minutes are stored, one file per pair per hour, keeping the last 12 hours. Prices are stored as ticks from the previous level and quantities as integers in the smallest unit, both as varints, then gzipped: lossless. A minute of BTCUSDT perp has about 1,300 price levels, about 25 KB as float64 and about 2 KB this way. If the app is killed mid-write, reading the file recovers the minutes before the break and rewrites it. Full design: [Footprint](footprint.md).

@@ -2,7 +2,7 @@
 
 # Order flow
 
-Who is trading, and how hard: volume split into taker buys and sells, CVD, open interest, the long / short ratios, big taker orders, the position read, order-book walls and the footprint. Everything here comes from Binance's public data, free and with no API key.
+Who is trading, and how hard: volume split into taker buys and sells, CVD, open interest, the long / short ratios, big taker orders, the position read, order-book walls, liquidations and the footprint. Everything here comes from public data, free and with no API key: Binance's, and for liquidations Bybit's and OKX's too.
 
 | Tool | Spot | Perp | Toolbar icon |
 | --- | :---: | :---: | --- |
@@ -13,6 +13,7 @@ Who is trading, and how hard: volume split into taker buys and sells, CVD, open 
 | [Big orders](#big-orders) | ✓ | ✓ | Two bubbles |
 | [Position read](#position-read) | | ✓ | Two bubbles |
 | [Order walls](#order-walls) | ✓ | ✓ | Two bars |
+| [Liquidations](#liquidations) | ✓ | ✓ | Two triangles |
 | [Footprint](#footprint) | ✓ | ✓ | A line with bars on both sides |
 
 ![CVD, open interest and the long / short ratios under an ETH perpetual](../images/order-flow/cvd-oi.png)
@@ -102,6 +103,29 @@ When a wall goes it leaves a faint line ending in:
 - a **dot**: price **traded into** it.
 
 A perpetual's book takes about a minute and a half to fill out; the legend says so meanwhile. Walls that lived under ten seconds are not recorded, because near the price market makers re-quote every few seconds. How walls are found: [Analytics](../design/analytics.md#order-walls).
+
+## Liquidations
+
+The **two-triangle** icon: Off / Recorded + estimated levels / Recorded only / Estimated only, and which bars to mark: the coin's top 10%, 5% or 2% of bars by liquidations.
+
+Two layers, for two questions.
+
+**What was forced out.** Liquidations on Binance, Bybit and OKX, summed per bar:
+
+- **▼ under the low**: longs liquidated, a forced sell, in red;
+- **▲ over the high**: shorts liquidated, a forced buy, in green.
+
+Only bars among the coin's largest are marked, sized by the amount, and the largest carry it. Hover any bar for the longs and shorts liquidated in it and each exchange's share.
+
+- **Recording starts by itself.** Every perpetual a card is open on is recorded, whether or not the layer is on, so the history is there when you want it. A spot card shows its perpetual's liquidations.
+- **Only while the app runs.** No exchange gives liquidation history away, so before the first recording the legend says *recorded from …*. No triangles there means no record, not a calm market.
+- **Binance undercounts in a cascade.** It sends at most one liquidation per symbol per second; Bybit and OKX send every one.
+
+**Where the fuel is.** Against the right edge, behind the candles, an estimate of where the leverage opened in the last 30 days would be liquidated: longs below the price in red, shorts above in green. The nearest large pool on each side is named with its size and distance, for example *Est. short liquidations ≈$42M · 77,141 · +4.5%*, and pinned to the top or bottom edge when it is off screen. Price reaching a level clears it, live, and the whole estimate is rebuilt every five minutes.
+
+It is an estimate from open interest, the taker split and assumed leverage, not exchange data: no exchange publishes where positions would be liquidated, and the paid heatmaps estimate the same way. Positions opened before the 30 days and cross-margin accounts are not in it, so read the amounts as sizes relative to each other. How it is built: [Analytics](../design/analytics.md#liquidations).
+
+**Reading the two together.** A pool says how far a move can run once it starts, not which way it starts. A move that reaches a pool and comes back (a burst of triangles, OI falling, price closing back inside) has used the fuel up: that is where reversals come from. A move through a pool with OI not falling has more fuel, as far as the next one.
 
 ## Footprint
 

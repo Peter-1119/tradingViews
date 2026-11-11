@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | 現貨 | `api.binance.com/api/v3` | `stream.binance.com:9443/stream` |
 | U 本位永續 | `fapi.binance.com/fapi/v1` | `fstream.binance.com/market/stream`；掛單簿在 `fstream.binance.com/public/stream` |
+| 其他交易所的清算 | `www.okx.com/api/v5/public/instruments`（合約大小） | `stream.bybit.com/v5/public/linear`、`ws.okx.com:443/ws/v5/public` |
 
 兩個市場的 REST 路徑和 stream 名稱相同，所以是同一個 `BinanceProvider` 帶不同的市場設定，重連、回補和合併全部沿用。
 
@@ -28,6 +29,7 @@
 | 多空比 | `/futures/data/globalLongShortAccountRatio`（帳戶）與 `/topLongShortPositionRatio`（大戶持倉）：5m 樣本，30 天 |
 | 足跡圖、大單 | 即時用已訂閱的 `@aggTrade`；缺的分鐘用 `GET /aggTrades`（用 `startTime` / `endTime` 取一分鐘，超過 1,000 筆再用 `fromId` 往後翻），每秒最多一次 |
 | 掛單牆 | `GET /depth` 快照（現貨每邊 5,000 檔、永續 1,000 檔）加上 `@depth` 變動串流 |
+| 清算 | Binance `!forceOrder@arr`、Bybit `allLiquidation.{symbol}`、OKX `liquidation-orders`（[分析指標](analytics.zh-TW.md#清算)）；估計清算區用上面的 5 分 K 和 OI 歷史 |
 
 ## 更新頻率
 

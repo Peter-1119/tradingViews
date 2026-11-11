@@ -37,6 +37,7 @@ export class RemoteProvider extends DataProvider {
     this.bridge.onFootprint(route('onFootprint', 'footprint'));
     this.bridge.onSweep(route('onSweep', 'sweep'));
     this.bridge.onWalls(route('onWalls', 'walls'));
+    this.bridge.onLiq(route('onLiq', 'events'));
 
     this.bridge.onStatus(({ market, status }) => {
       if (market !== this.market || this.status === status) return;
@@ -109,6 +110,16 @@ export class RemoteProvider extends DataProvider {
    */
   setWalls(subId, enabled, both = false, fromMs = 0) {
     return this.call('setWalls', [subId, enabled, both, fromMs]);
+  }
+
+  /**
+   * Liquidations on Binance, Bybit and OKX for a subscription, on or off: the
+   * perpetual's own, or a spot card's perpetual counterpart. On, resolves
+   * with {symbol, events, since} from `fromSec`; the subscription's onLiq
+   * then hears new events each second.
+   */
+  setLiquidations(subId, enabled, fromSec = 0) {
+    return this.call('setLiquidations', [subId, enabled, fromSec]);
   }
 
   searchSymbols(query) {

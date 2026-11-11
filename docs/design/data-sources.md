@@ -2,7 +2,7 @@
 
 # Data sources
 
-Everything on the chart comes from Binance's public endpoints: no sign-up and no API key. Only trading uses your key ([Trading internals](trading.md)).
+Everything on the chart comes from public endpoints, with no sign-up and no API key: Binance's, and for liquidations Bybit's and OKX's as well. Only trading uses your key ([Trading internals](trading.md)).
 
 ## Hosts
 
@@ -10,6 +10,7 @@ Everything on the chart comes from Binance's public endpoints: no sign-up and no
 | --- | --- | --- |
 | Spot | `api.binance.com/api/v3` | `stream.binance.com:9443/stream` |
 | USDⓈ-M perpetuals | `fapi.binance.com/fapi/v1` | `fstream.binance.com/market/stream`; order books on `fstream.binance.com/public/stream` |
+| Liquidations, other exchanges | `www.okx.com/api/v5/public/instruments` (contract sizes) | `stream.bybit.com/v5/public/linear`, `ws.okx.com:443/ws/v5/public` |
 
 REST paths and stream names are the same on both markets, so both are one `BinanceProvider` with a different market config, and reconnects, backfill and coalescing carry over.
 
@@ -28,6 +29,7 @@ REST paths and stream names are the same on both markets, so both are one `Binan
 | Long / short ratio | `/futures/data/globalLongShortAccountRatio` (accounts) and `/topLongShortPositionRatio` (top traders' positions): 5m samples, 30 days |
 | Footprint, big orders | Live from the subscribed `@aggTrade`; missing minutes from `GET /aggTrades` (one minute by `startTime` / `endTime`, paging with `fromId` past 1,000 trades), at most once a second |
 | Order walls | `GET /depth` snapshot (spot 5,000 levels a side, perps 1,000) plus the `@depth` diff stream |
+| Liquidations | Binance `!forceOrder@arr`, Bybit `allLiquidation.{symbol}`, OKX `liquidation-orders` ([Analytics](analytics.md#liquidations)); the estimated levels from the 5m klines and OI history above |
 
 ## Update rate
 
