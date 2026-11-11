@@ -18,6 +18,7 @@ import { BinanceProvider, MARKETS, counterpartSymbol } from './datafeed/binance.
 import { AlertMonitor } from './alert-monitor.js';
 import { PriceAlertMonitor } from './price-alert-monitor.js';
 import { LiquidationFeed } from './datafeed/liquidation-feed.js';
+import { CoinbaseFeed } from './datafeed/coinbase-feed.js';
 
 const hub = window.stockcardHub;
 
@@ -88,6 +89,46 @@ function releaseLiquidations(subId) {
   liqs.unwant(`rec:${subId}`);
 }
 
+/* ------------------------------------------------------------ coinbase */
+
+/**
+ * Coinbase's dollar pair for each card (coinbase-feed.js): candles on
+ * request for the premium, and trades recorded for every symbol on screen
+ * (key `cbrec:`), kept as series `cb1m` under the pair, so the CVD has a
+ * history when a card's pane (key `cbpane:`) is switched on.
+ */
+const coinbase = new CoinbaseFeed({
+  store: {
+    read: (name, from, to) => hub.readBars('spot', name, 'cb1m', from, to),
+    write: (name, records) => hub.writeBars('spot', name, 'cb1m', records),
+  },
+});
+
+/**
+ * A card's Coinbase pane on or off. On, resolves with {product, factor,
+ * quote, buckets, since, filling} -- trades in buckets of `step` seconds
+ * from `fromSec` -- and the card hears changes as `datafeed:coinbase`.
+ * {product: null} when Coinbase has no dollar pair for the symbol.
+ */
+async function setCoinbase(subId, enabled, step, fromSec) {
+  coinbase.unwant(`cbpane:${subId}`);
+  const entry = owners.get(subId);
+  if (!enabled || !entry) return { product: null };
+  const { ownerId, market, symbol } = entry;
+  return coinbase.watch(
+    `cbpane:${subId}`,
+    symbol,
+    Number(step) || 60,
+    (update) => hub.emit(ownerId, 'datafeed:coinbase', { subId, market, update }),
+    fromSec
+  );
+}
+
+function releaseCoinbase(subId) {
+  coinbase.unwant(`cbpane:${subId}`);
+  coinbase.unwant(`cbrec:${subId}`);
+}
+
 /* ------------------------------------------------------ counterpart */
 
 /** The same instrument on the other market, or null if it does not trade there. */
@@ -146,6 +187,10 @@ hub.onRequest(async ({ reqId, market, method, args = [] }) => {
       data = await setWalls(...args);
     } else if (method === 'setLiquidations') {
       data = await setLiquidations(...args);
+    } else if (method === 'setCoinbase') {
+      data = await setCoinbase(...args);
+    } else if (method === 'coinbaseCandles') {
+      data = await coinbase.getCandles(...args);
     } else {
       const provider = feed(market);
       if (typeof provider[method] !== 'function') {
@@ -186,6 +231,9 @@ hub.onSubscribe(({ subId, market, symbol, interval, ownerId }) => {
   if (previous && (previous.symbol !== String(symbol).toUpperCase() || previous.market !== market)) liqs.unwant(`layer:${subId}`);
   if (market === 'perp') liqs.want(`rec:${subId}`, symbol);
   else liqs.unwant(`rec:${subId}`);
+  // Coinbase's trades likewise, for any symbol it has a dollar pair for.
+  if (previous && previous.symbol !== String(symbol).toUpperCase()) coinbase.unwant(`cbpane:${subId}`);
+  coinbase.want(`cbrec:${subId}`, symbol);
 
   // A card that mounts mid-session needs the current link state right away.
   hub.emit(ownerId, 'datafeed:status', { market, status: provider.getStatus() });
@@ -200,6 +248,7 @@ hub.onUnsubscribe(({ subId, market }) => {
   feed(entry.market).unsubscribe(subId);
   releaseWalls(subId);
   releaseLiquidations(subId);
+  releaseCoinbase(subId);
   owners.delete(subId);
 });
 
@@ -212,6 +261,7 @@ hub.onReleaseOwner(({ ownerId, cardId }) => {
       feed(entry.market).unsubscribe(subId);
       releaseWalls(subId);
       releaseLiquidations(subId);
+      releaseCoinbase(subId);
       owners.delete(subId);
     }
   }
@@ -250,6 +300,7 @@ window.addEventListener('unload', () => {
   monitor.destroy();
   priceAlerts.destroy();
   liqs.destroy();
+  coinbase.destroy();
   for (const provider of providers.values()) provider.destroy();
 });
 

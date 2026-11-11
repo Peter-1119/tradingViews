@@ -68,6 +68,16 @@ The crowd was most long at local lows (77.5K on 31 October, 75.8K on 6 November)
 
 Cumulative volume delta is the running sum of taker buys minus taker sells (`renderer/cvd.js`). Every Binance kline carries the taker-buy volume, so the delta is `2 × takerBuy − volume` per bar, free on both markets. Each bar's delta is converted to USDT at its average price (quote volume ÷ volume), matching the volume bars and within about 1% of Binance's exact taker-buy quote volume. The daily-reset mode restarts the sum at each UTC midnight and breaks the line there.
 
+## Coinbase premium
+
+The premium (`renderer/coinbase.js`) is Coinbase's dollar price over Binance's spot price in dollars:
+
+    premium = coinbase / (binance × usdt) − 1
+
+`usdt` is Coinbase's own USDT-USD close. USDT strays a few hundredths of a percent from the dollar, as much as the premium moves on a quiet day, so leaving it out would mix the stablecoin's drift into the reading. It changes slowly, so it is read in hours or coarser, and bars between its candles carry the last reading. Each bar takes the last Coinbase candle that opened inside it, the one that closes with the bar, against the bar's Binance close: Coinbase's candles are 1m, 5m, 15m, 1h, 6h or 1d, and the largest that divides the bar is used (a 4h bar takes its last hourly candle). The forming bar on a spot card uses Coinbase's newest trade against the live price, not a candle up to a minute old. A perpetual card is compared with its spot counterpart, which keeps the funding-driven basis out; without one it falls back to the perpetual.
+
+Coinbase's CVD is summed from its trades, which name the maker's side (`sell` means a resting sell was hit, so the taker bought). The hub (`renderer/datafeed/coinbase-feed.js`) buckets them into minutes with the taker-buy volume, in the shape of a Binance kline, so the delta and its dollar conversion are those of the [CVD](#cvd) pane. At startup the hours since the last saved minute, three at most, are fetched back from the REST history, newest first; trades the socket has already counted (from its first trade id on) are skipped, so nothing counts twice. Three hours of BTC is about 160 pages, which is why it stops there.
+
 ## Big orders and the position read
 
 **One order is one millisecond.** A taker order that sweeps several prices is printed as several aggTrades with the same millisecond timestamp, so a millisecond's trades, summed, are one order (20:50:26.306 on ETHUSDT was 7,000 ETH sold at seven prices in one go).

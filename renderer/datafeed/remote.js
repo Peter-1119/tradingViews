@@ -38,6 +38,7 @@ export class RemoteProvider extends DataProvider {
     this.bridge.onSweep(route('onSweep', 'sweep'));
     this.bridge.onWalls(route('onWalls', 'walls'));
     this.bridge.onLiq(route('onLiq', 'events'));
+    this.bridge.onCoinbase(route('onCoinbase', 'update'));
 
     this.bridge.onStatus(({ market, status }) => {
       if (market !== this.market || this.status === status) return;
@@ -120,6 +121,21 @@ export class RemoteProvider extends DataProvider {
    */
   setLiquidations(subId, enabled, fromSec = 0) {
     return this.call('setLiquidations', [subId, enabled, fromSec]);
+  }
+
+  /**
+   * Coinbase's trades for a subscription, on or off, in buckets of `step`
+   * seconds from `fromSec`: resolves with {product, factor, quote, buckets,
+   * since, filling}, or {product: null} when Coinbase has no dollar pair;
+   * the subscription's onCoinbase hears the changes.
+   */
+  setCoinbase(subId, enabled, step = 60, fromSec = 0) {
+    return this.call('setCoinbase', [subId, enabled, step, fromSec]);
+  }
+
+  /** Coinbase candles ({time, close}, oldest first) for `product`, `granularity` seconds each. */
+  coinbaseCandles(product, granularity, fromSec, toSec) {
+    return this.call('coinbaseCandles', [product, granularity, fromSec, toSec]);
   }
 
   searchSymbols(query) {

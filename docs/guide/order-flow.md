@@ -2,12 +2,13 @@
 
 # Order flow
 
-Who is trading, and how hard: volume split into taker buys and sells, CVD, open interest, the long / short ratios, big taker orders, the position read, order-book walls, liquidations and the footprint. Everything here comes from public data, free and with no API key: Binance's, and for liquidations Bybit's and OKX's too.
+Who is trading, and how hard: volume split into taker buys and sells, CVD, the Coinbase premium, open interest, the long / short ratios, big taker orders, the position read, order-book walls, liquidations and the footprint. Everything here comes from public data, free and with no API key: Binance's, Coinbase's for the premium, and for liquidations Bybit's and OKX's too.
 
 | Tool | Spot | Perp | Toolbar icon |
 | --- | :---: | :---: | --- |
 | [Volume](#volume) | ✓ | ✓ | Bars |
 | [CVD](#cvd) | ✓ | ✓ | Staircase |
+| [Coinbase premium](#coinbase-premium) | ✓ | ✓ | Bars around a zero line |
 | [Open interest](#open-interest-oi) | | ✓ | OI |
 | [Long / short ratio](#long--short-ratio) | | ✓ | Two curves |
 | [Big orders](#big-orders) | ✓ | ✓ | Two bubbles |
@@ -35,6 +36,20 @@ The **staircase** icon: off / show CVD, and where the sum starts.
 - **From 0 at each UTC midnight** (08:00 in Taiwan). The level is that day's net, with a dotted zero line and the line broken at each day.
 
 Cumulative volume delta is taker buys minus taker sells, summed bar by bar. Binance sends the taker-buy volume with every kline, so it is free, on spot and perp alike. Each bar's delta is turned into USDT at its average price, like the volume bars (within about 1% of Binance's exact taker-buy quote volume). It updates tick by tick; bars from an old cache without the taker split add nothing.
+
+## Coinbase premium
+
+The **bars around a zero line** icon: Off / Premium + Coinbase CVD / Premium only / Coinbase CVD only. A pane of its own, for one question: is US spot money buying?
+
+- **Bars: the premium.** How far Coinbase's dollar price is above (green) or below (red) Binance spot, in percent. Above zero, buyers on Coinbase are paying up, so US demand is leading. Binance quotes in USDT, which itself drifts a few hundredths of a percent off the dollar, about as much as the premium moves on a quiet day; so Binance's price is first turned into dollars at Coinbase's USDT-USD price. Charts that skip this step read a little differently. A perpetual card is read against its spot counterpart, which keeps the perpetual's basis out. The scale is centred on zero, so a bar's side and height read the same from one view to the next.
+- **Blue line: Coinbase CVD.** Coinbase's taker buys minus taker sells, summed, in dollars; only its direction means anything. Coinbase's candles do not say who was the taker, so this comes from its trades. They are recorded for every symbol on screen while the app runs, whether or not the pane is on, and each time the app starts the last three hours are fetched back. Before that, the legend says *trades recorded from …*.
+- **The legend** shows the hovered (or newest) bar's premium and Coinbase taker net buying.
+
+It needs bars of a minute or longer, and a coin Coinbase trades in dollars (most large ones; the legend says when it has none).
+
+**Reading it.** A rally with the premium above zero and Coinbase CVD rising has US spot buying behind it. A rally on Binance perpetuals with the premium below zero and Coinbase CVD flat or falling is led by offshore leverage alone, and has less underneath it.
+
+**If Coinbase does not load.** Some networks, including some Taiwanese ISPs, block Coinbase's address at the DNS step, so it never answers. Tray menu → "Encrypted DNS (Cloudflare; reaches Coinbase)", on by default, makes the app look addresses up with Cloudflare or Google over HTTPS instead. Only the lookup changes: the connection still goes straight from your machine to the exchange (this is not a proxy or a VPN), nothing else on the machine is touched, and trading keeps the system's DNS. Whether to use it is your call; untick it in the same menu.
 
 ## Open interest (OI)
 

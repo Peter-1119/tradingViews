@@ -55,7 +55,7 @@ Both update tick by tick and match TradingView's built-ins. Sub-panes together t
 
 ## The toolbar
 
-Hover the card and a toolbar slides out on the left: cursor, horizontal line, trend line, price alert, measure, Fib retracement, rectangle, volume profile, fixed range volume profile, hide drawings, higher-timeframe overlay, opens, highs / lows, volume, footprint, OI, long / short ratio, RSI, big orders, order walls, MACD and CVD (OI and the long / short ratio are perpetual-only and hidden on spot cards). Click a drawing tool again to deselect it; `Esc` always returns to the cursor and cancels a half-drawn line.
+Hover the card and a toolbar slides out on the left: cursor, horizontal line, trend line, price alert, measure, Fib retracement, rectangle, volume profile, fixed range volume profile, hide drawings, higher-timeframe overlay, opens, highs / lows, volume, footprint, OI, long / short ratio, RSI, big orders, liquidations, order walls, MACD, CVD and the Coinbase premium (OI and the long / short ratio are perpetual-only and hidden on spot cards). Click a drawing tool again to deselect it; `Esc` always returns to the cursor and cancels a half-drawn line.
 
 - The toolbar follows the same rule as the title bar: it shows while the mouse is over the card and fades when it leaves. There is no separate "near the left edge" rule, because a card this small should not have two ways to summon its controls, and the outermost 20px of a translucent card is the hardest place to aim.
 - It overlays the chart and takes no width when idle. Once you pick a tool, its icon stays visible after the rest fades, so you can tell you are still in drawing mode.

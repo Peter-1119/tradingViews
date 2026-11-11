@@ -16,7 +16,7 @@
 | [幣種與市場](guide/markets.zh-TW.md) | 搜尋幣種、現貨 ↔ 永續、美股與商品永續、常用清單 |
 | [畫圖](guide/drawing.zh-TW.md) | 水平線、趨勢線、斐波那契、矩形、量測、顏色、隱藏、撤銷 |
 | [關鍵價位與成交量分布](guide/levels.zh-TW.md) | 日／週／月開盤價、高低點、成交量分布、區間成交量分布 |
-| [訂單流](guide/order-flow.zh-TW.md) | 成交量、CVD、未平倉量、多空比、大單、倉位判讀、掛單牆、清算、足跡圖 |
+| [訂單流](guide/order-flow.zh-TW.md) | 成交量、CVD、Coinbase 溢價、未平倉量、多空比、大單、倉位判讀、掛單牆、清算、足跡圖 |
 | [提醒](guide/alerts.zh-TW.md) | 價格、成交量、位置提醒，以及玩遊戲時通知怎麼送到 |
 | [下單](guide/trading.zh-TW.md) | 幣安永續：設定、下單票、止盈止損、拖曳改價、反手 |
 | [模擬交易](guide/paper-trading.zh-TW.md) | 本機練習帳戶、成交與成本怎麼算、紀錄視窗 |
@@ -31,7 +31,7 @@
 | [架構](design/architecture.zh-TW.md) | 行程、隱藏的 hub 視窗、`app://`、介面語言、原始碼檔案、測試 |
 | [資料來源](design/data-sources.zh-TW.md) | 幣安端點、更新頻率、重連、請求額度、現貨 ↔ 永續的幣種對應 |
 | [資料儲存](design/storage.zh-TW.md) | 設定、K 線快取、未平倉量記錄、大單、足跡圖、金鑰檔 |
-| [分析指標](design/analytics.zh-TW.md) | 成交量分布、位置提醒、縮量、RSI / MACD、CVD、大單、倉位判讀、掛單牆、清算 |
+| [分析指標](design/analytics.zh-TW.md) | 成交量分布、位置提醒、縮量、RSI / MACD、CVD、Coinbase 溢價、大單、倉位判讀、掛單牆、清算 |
 | [交易內部設計](design/trading.zh-TW.md) | 金鑰、取整、精確的委託編號、改價、反手、模擬交易所 |
 | [足跡圖](design/footprint.zh-TW.md) | 足跡圖從評估到實作，含實測數字 |
 | [原始規格](design/original-spec.zh-TW.md) | 專案一開始依據的規格（歷史文件） |

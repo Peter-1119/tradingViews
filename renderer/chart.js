@@ -32,6 +32,7 @@ import { TradePrimitive } from './trade/trade-primitive.js';
 import { LivePricePrimitive } from './live-price-primitive.js';
 import { VolumePane, SqueezeBandsPrimitive, OVERLAY_SHARE } from './volume-pane.js';
 import { RsiPane, MacdPane, CvdPane } from './oscillator-pane.js';
+import { CoinbasePane } from './coinbase-pane.js';
 import { FlowPrimitive } from './flow-primitive.js';
 import { WallsPrimitive } from './walls-primitive.js';
 import { LiquidationPrimitive } from './liq-primitive.js';
@@ -147,6 +148,11 @@ const HANDLE_SCROLL_OFF = {
   horzTouchDrag: false,
   vertTouchDrag: false,
 };
+
+/** The Coinbase pane before anything is known. */
+function emptyCoinbase() {
+  return { premium: new Map(), cvd: new Map(), delta: new Map(), state: 'loading', since: null, filling: false };
+}
 
 /**
  * Render times in a chosen zone.
@@ -352,6 +358,10 @@ export class CardChart {
         this.liqs.hoverTime = time;
         this.liqs.update();
       }
+      if (this.cbPane && time !== this.cbPane.hoverTime) {
+        this.cbPane.hoverTime = time;
+        this.cbPane.redrawLegend();
+      }
       if (time === this.flow.hoverTime) return;
       this.flow.hoverTime = time;
       if (this.flow.top !== null || this.flow.reads) this.flow.update();
@@ -372,6 +382,10 @@ export class CardChart {
     this.rsi = null;
     this.macd = null;
     this.cvd = null;
+    /** Coinbase pane: {premium, cvd} or null = off, and what it shows (coinbase-pane.js). */
+    this.cbOpts = null;
+    this.cbPane = null;
+    this.cbData = emptyCoinbase();
     /** OHLC records aligned to `bars`, from open-interest.js; the line plots close. */
     this.oiData = [];
     /** Long/short pane: which lines ('both' | 'accounts' | 'top'), null = off. */
@@ -616,6 +630,10 @@ export class CardChart {
       this.cvd = new CvdPane(this, pane++, this.indicatorOpts.cvd);
       this.cvd.render();
     }
+    if (!this.compact && this.cbOpts) {
+      this.cbPane = new CoinbasePane(this, pane++, this.cbOpts);
+      this.cbPane.render();
+    }
     this.layoutPanes();
   }
 
@@ -629,6 +647,8 @@ export class CardChart {
     if (this.rsi) this.rsi.destroy();
     if (this.macd) this.macd.destroy();
     if (this.cvd) this.cvd.destroy();
+    if (this.cbPane) this.cbPane.destroy();
+    this.cbPane = null;
     this.volume = null;
     this.oiSeries = null;
     this.lsSeries = null;
@@ -766,6 +786,8 @@ export class CardChart {
     if (this.rsi) this.rsi.update(bar, isNew);
     if (this.macd) this.macd.update(bar, isNew);
     if (this.cvd) this.cvd.update(bar, isNew);
+    // A new bar is a new slot; the values come from the card.
+    if (this.cbPane && isNew) this.cbPane.render();
     this.rereadLastFlow();
     if (this.liqs.opts) {
       this.liqs.touch(bar);
@@ -817,8 +839,35 @@ export class CardChart {
     if (this.rsi) this.rsi.render();
     if (this.macd) this.macd.render();
     if (this.cvd) this.cvd.render();
+    if (this.cbPane) this.cbPane.render();
     this.rereadFlow();
     if (this.liqs.opts) this.liqs.rebucket();
+  }
+
+  /* ------------------------------------------------------------- coinbase */
+
+  /** {premium, cvd} (booleans), or null for off. */
+  setCoinbaseOptions(opts) {
+    const next = opts && (opts.premium || opts.cvd) ? { premium: !!opts.premium, cvd: !!opts.cvd } : null;
+    const prev = this.cbOpts;
+    if (next === prev || (next && prev && next.premium === prev.premium && next.cvd === prev.cvd)) return;
+    this.cbOpts = next;
+    if (!next) this.cbData = emptyCoinbase();
+    this.syncSubPanes();
+  }
+
+  /**
+   * What the pane shows: {premium, cvd, delta} (Maps of bar time to value),
+   * and {state, since, filling}. Only the fields passed change.
+   */
+  setCoinbaseData(patch) {
+    this.cbData = { ...this.cbData, ...patch };
+    if (!this.cbPane) return;
+    if (this.paused) {
+      this.dirtyWhilePaused = true;
+      return;
+    }
+    this.cbPane.render();
   }
 
   /* --------------------------------------------------------- liquidations */
@@ -1848,6 +1897,7 @@ export class CardChart {
     this.rsi = null;
     this.macd = null;
     this.cvd = null;
+    this.cbPane = null;
     this.bars = [];
     this.oiData = [];
     this.lsData = [];

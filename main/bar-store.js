@@ -11,6 +11,7 @@
  *   userData/bars2/_perp/{SYMBOL}/oi_5m/{chunk}.bin         open interest, exchange history
  *   userData/bars2/[_perp/]{SYMBOL}/sweeps/{chunk}.bin      big taker orders (sweep-collector.js)
  *   userData/bars2/_perp/{SYMBOL}/liqs/{chunk}.bin          liquidations, three exchanges (liquidations.js)
+ *   userData/bars2/{PAIR}/cb1m/{chunk}.bin                  Coinbase trades per minute, BTC-USD as BTCUSD (coinbase.js)
  *
  * Perpetuals get their own tree because BTCUSDT names both, and their candles
  * differ -- by the basis, and in volume by a wide margin. Spot keeps the
@@ -63,7 +64,7 @@ const RECORD = FIELDS * 8;
  * chunk in the low megabytes -- a month of 1m bars is ~2MB, a year of 1h is
  * ~0.4MB -- so the occasional whole-chunk rewrite stays cheap.
  */
-const MONTHLY = new Set(['1m', '5m', 'sweeps', 'liqs']);
+const MONTHLY = new Set(['1m', '5m', 'sweeps', 'liqs', 'cb1m']);
 
 let rootDir = null;
 

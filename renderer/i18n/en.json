@@ -873,5 +873,18 @@
   "前 5%": "Top 5%",
   "前 2%": "Top 2%",
   "估計空單清算": "Est. short liquidations",
-  "估計多單清算": "Est. long liquidations"
+  "估計多單清算": "Est. long liquidations",
+  "加密 DNS 查詢（Cloudflare，可連 Coinbase）": "Encrypted DNS (Cloudflare; reaches Coinbase)",
+  "Coinbase 溢價": "Coinbase premium",
+  "Coinbase 副圖：美國現貨有沒有在買。柱子是 Coinbase 美元價比 Binance 現貨高（綠）或低（紅）多少，已扣掉 USDT 對美元的偏差；藍線是 Coinbase 主動買減主動賣的累加（CVD）": "Coinbase pane: is US spot buying? Bars show how far Coinbase's dollar price is above (green) or below (red) Binance spot, with USDT's drift from the dollar taken out; the blue line is Coinbase taker buys minus sells, summed (CVD)",
+  "溢價＋Coinbase CVD": "Premium + Coinbase CVD",
+  "只看溢價": "Premium only",
+  "只看 Coinbase CVD": "Coinbase CVD only",
+  "溢價": "Premium",
+  "主動淨買": "Taker net buy",
+  "需要 1 分鐘以上的 K 棒": "Needs bars of 1 minute or longer",
+  "Coinbase 沒有這個幣的美元交易對": "No USD pair for this coin on Coinbase",
+  "連不上 Coinbase（可在系統匣開啟加密 DNS）": "Cannot reach Coinbase (encrypted DNS is in the tray menu)",
+  "補抓近 3 小時的成交中…": "Fetching the last 3 hours of trades…",
+  "成交 {time} 起才有紀錄": "Trades recorded from {time}"
 }

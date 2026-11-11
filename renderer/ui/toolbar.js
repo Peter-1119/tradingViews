@@ -71,6 +71,9 @@ const ICONS = {
   macd: '<path d="M1.5 8h11" stroke-width="0.8"/><path d="M3.5 8V6M6 8V4.5M8.5 8v2M11 8v3.5" stroke-width="1.8"/>'
     + '<path d="M1.5 5.5c2.5-3 5-3 7 0s3 3 4 2" stroke-width="1"/>',
   // A staircase climbing and falling back: the running sum of buy minus sell.
+  // Bars either side of a zero line: a premium, above or below.
+  cb: '<path d="M1.5 7h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>'
+    + '<path d="M3 6.4V4.2M5.6 6.4V2.4M8.4 7.6v2.4M11 6.4V5" stroke-width="1.7"/>',
   cvd: '<path d="M1.5 8h11" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>'
     + '<path d="M1.5 10.5h2v-2h2v-3h2v-2h2v3h2v-1.5h1.5" stroke-width="1.2"/>',
   // Two lines either side of the dotted 1.0 where longs and shorts balance.
@@ -304,6 +307,18 @@ export const TOOLS = [
       { heading: t('從哪裡開始累加') },
       { value: 'anchor:none', group: 'anchor', label: t('從載入的第一根 K 棒') },
       { value: 'anchor:day', group: 'anchor', label: t('每天 0 點歸零（UTC，台灣 08:00）') },
+    ],
+  },
+  {
+    id: 'cb',
+    label: t('Coinbase 溢價'),
+    hint: t('Coinbase 副圖：美國現貨有沒有在買。柱子是 Coinbase 美元價比 Binance 現貨高（綠）或低（紅）多少，已扣掉 USDT 對美元的偏差；藍線是 Coinbase 主動買減主動賣的累加（CVD）'),
+    toggle: true,
+    menu: [
+      { value: 'off', label: t('關閉') },
+      { value: 'both', label: t('溢價＋Coinbase CVD') },
+      { value: 'premium', label: t('只看溢價') },
+      { value: 'cvd', label: t('只看 Coinbase CVD') },
     ],
   },
 ];

@@ -32,6 +32,7 @@ const footprintStore = require('./footprint-store');
 const alerts = require('./alerts');
 const trading = require('./trading/service');
 const paper = require('./trading/paper');
+const secureDns = require('./secure-dns');
 
 // A resting order filled or a TP/SL went off: say so on the desktop too.
 trading.onFill((batch) => alerts.fireFill(batch));
@@ -564,6 +565,8 @@ ipcMain.handle('datafeed:call', async (_event, { market, method, args } = {}) =>
     'setFlow',
     'setWalls',
     'setLiquidations',
+    'setCoinbase',
+    'coinbaseCandles',
     'getStatus',
     'counterpart',
   ];
@@ -716,6 +719,8 @@ app.whenReady().then(() => {
   if (!gotLock) return;
 
   protocolSetup.registerHandler();
+  // Before any window opens, so the hub's first request already uses it.
+  secureDns.apply(store.getGlobalPrefs().secureDns);
 
   // The paper exchange runs whether or not it is the selected environment:
   // its stops and limit orders must keep working, as Binance's would.

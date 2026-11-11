@@ -5,6 +5,7 @@
  * `skipTaskbar`, so if every card is hidden this menu is the way back in.
  */
 
+const secureDns = require('./secure-dns');
 const path = require('path');
 const { Tray, Menu, nativeImage, app } = require('electron');
 const store = require('./store');
@@ -186,6 +187,17 @@ function buildMenu() {
           },
         },
       ],
+    },
+    {
+      // Some networks block an exchange's address at the DNS step (see secure-dns.js).
+      label: t('加密 DNS 查詢（Cloudflare，可連 Coinbase）'),
+      type: 'checkbox',
+      checked: prefs.secureDns,
+      click: (item) => {
+        store.set('secureDns', item.checked);
+        secureDns.apply(item.checked);
+        refresh();
+      },
     },
     {
       label: t('開機自動啟動'),

@@ -22,6 +22,7 @@ import { lsPeriodFor, bucketLongShort, mergeSamples, crowdContext, bucketContext
 import { oiPoints, bucketOI, historyRecords, onHistoryGrid, OI_MAX_GAP_SEC, OI_HISTORY_STEP_SEC } from './open-interest.js';
 import { WINDOWS as POSITION_WINDOWS } from './position.js';
 import { buildLiquidationMap } from './liquidation-map.js';
+import { granularityFor, usdtGranularity, flowStepFor, premiumPerBar, cvdPerBar } from './coinbase.js';
 import { periodStart, periodLevels, updateCurrentExtremes, barsIntervalFor } from './sessions.js';
 import {
   el,
@@ -122,6 +123,8 @@ const LIQ_MAX_SEC = 45 * 24 * 3600;
 /** The estimated map: how much history it folds in, and how often it is rebuilt. */
 const LIQ_MAP_HISTORY_MS = 30 * 24 * 3600 * 1000;
 const LIQ_MAP_REFRESH_MS = 5 * 60 * 1000;
+/** Coinbase's candle is in a few seconds after its minute closes. */
+const CB_REFRESH_LAG_MS = 4000;
 /** Below this bar spacing the rows have no room; turning it on zooms in. */
 const FOOTPRINT_MIN_SPACING = 8;
 
@@ -194,6 +197,15 @@ export class CardView {
     /** {symbol, bars, oi} behind the estimated map, topped up on each rebuild. */
     this.liqMapData = null;
     this.liqMapTimer = null;
+    this.cbSeq = 0;
+    this.cbTimer = null;
+    this.cbKey = null;
+    this.cbInfo = null;
+    this.cbBuckets = new Map();
+    this.cbSpot = null;
+    this.cbCandles = { cb: [], usdt: null };
+    this.cbSince = null;
+    this.cbFilling = false;
     /** {key, promise} -- the other market's name for this symbol, being looked up. */
     this.counterpartJob = null;
     this.status = this.feed.getStatus();
@@ -469,6 +481,7 @@ export class CardView {
     this.chart.setDrawingsHidden(this.card.hideDrawings);
     this.applyVolumeOptions();
     this.applyIndicators();
+    this.applyCoinbaseOptions();
     this.applyFlowOptions();
 
     // Each market has its own connection and so its own health; the dot
@@ -608,6 +621,10 @@ export class CardView {
       if (value.startsWith('top:')) this.onPatch({ flowTop: value.slice(4), flow: this.sweepsOn() ? this.card.flow : this.card.flow === 'read' ? 'both' : 'sweeps' });
       else if (value.startsWith('sens:')) this.onPatch({ flowSens: value.slice(5), flow: this.card.flow === 'sweeps' ? 'both' : this.card.flow === 'off' ? 'read' : this.card.flow });
       else this.onPatch({ flow: value });
+      return;
+    }
+    if (id === 'cb') {
+      this.onPatch({ cb: value });
       return;
     }
     if (id === 'liq') {
@@ -1404,6 +1421,166 @@ export class CardView {
     }
   }
 
+  /* ------------------------------------------------------------- coinbase */
+
+  cbOn() {
+    return ['both', 'premium', 'cvd'].includes(this.card.cb);
+  }
+
+  applyCoinbaseOptions() {
+    if (!this.chart) return;
+    const cb = this.card.cb;
+    this.chart.setCoinbaseOptions(this.cbOn() ? { premium: cb !== 'cvd', cvd: cb !== 'premium' } : null);
+  }
+
+  /**
+   * The Coinbase pane: its trades from the hub (recorded for every symbol on
+   * screen, so there is history), then the premium from Coinbase's candles
+   * against Binance's spot closes, refreshed each minute. A perpetual card
+   * reads the premium against its spot counterpart: against the perpetual
+   * it would carry the basis as well.
+   */
+  async loadCoinbase() {
+    const seq = ++this.cbSeq;
+    clearTimeout(this.cbTimer);
+    this.cbTimer = null;
+    if (!this.chart) return;
+    if (!this.cbOn()) {
+      this.feed.setCoinbase(this.card.id, false).catch(() => {});
+      return;
+    }
+    const bars = this.chart.bars;
+    if (!bars.length) return;
+    const step = intervalToMs(this.card.interval) / 1000;
+    const g = granularityFor(step);
+    if (!g) {
+      this.feed.setCoinbase(this.card.id, false).catch(() => {});
+      this.chart.setCoinbaseData({ state: 'short' });
+      return;
+    }
+    const key = `${this.dataKey()}:${this.card.interval}`;
+    if (this.cbKey !== key) {
+      this.cbKey = key;
+      this.cbInfo = null;
+      this.cbBuckets = new Map();
+      this.cbSpot = null;
+      this.cbCandles = { cb: [], usdt: null };
+      this.chart.setCoinbaseData({ state: 'loading', premium: new Map(), cvd: new Map(), delta: new Map() });
+    }
+    try {
+      if (!this.cbInfo) {
+        const res = await this.feed.setCoinbase(this.card.id, true, flowStepFor(step), bars[0].time);
+        if (seq !== this.cbSeq || this.destroyed || !this.chart) return;
+        if (!res || !res.product) {
+          this.chart.setCoinbaseData({ state: 'none' });
+          return;
+        }
+        this.cbInfo = { product: res.product, factor: res.factor, quote: res.quote };
+        this.cbBuckets = new Map(res.buckets.map((b) => [b.time, b]));
+        this.cbSince = res.since;
+        this.cbFilling = res.filling;
+      }
+      if (this.card.cb !== 'cvd') await this.loadPremium(seq, g);
+      if (seq !== this.cbSeq || this.destroyed || !this.chart) return;
+      this.renderCoinbase('ready');
+    } catch (err) {
+      if (seq !== this.cbSeq || this.destroyed) return;
+      console.error('[card] coinbase failed', err);
+      if (!this.cbInfo || !this.cbCandles.cb.length) this.chart.setCoinbaseData({ state: 'failed' });
+    }
+    if (seq === this.cbSeq && !this.destroyed && this.cbOn()) {
+      // A little after each minute, when Coinbase has closed its candle.
+      const wait = 60_000 - (Date.now() % 60_000) + CB_REFRESH_LAG_MS;
+      this.cbTimer = setTimeout(() => this.loadCoinbase(), wait);
+    }
+  }
+
+  /** Coinbase's candles, USDT-USD's, and Binance's spot closes when the card is a perpetual. */
+  async loadPremium(seq, g) {
+    const { product, quote } = this.cbInfo;
+    const bars = this.chart.bars;
+    const from = bars[0].time;
+    const now = Math.floor(Date.now() / 1000);
+    const held = this.cbCandles;
+    // The newest held candle on: the feed keeps the rest.
+    const asks = [
+      this.feed.coinbaseCandles(product, g, from, now),
+      quote === 'USDT' ? this.feed.coinbaseCandles('USDT-USD', usdtGranularity(g, now - from), from, now) : Promise.resolve(null),
+    ];
+    let spot = Promise.resolve(null);
+    if (this.card.market === 'perp') {
+      spot = (async () => {
+        const symbol = this.cbSpot ? this.cbSpot.symbol : await this.feed.counterpart(this.card.symbol, 'spot');
+        if (!symbol) return { symbol: null, closes: new Map() };
+        const closes = this.cbSpot && this.cbSpot.symbol === symbol ? this.cbSpot.closes : new Map();
+        let start = from;
+        for (const t of closes.keys()) if (t > start) start = t;
+        const rows = await this.feedFor('spot').getRange(symbol, this.card.interval, start * 1000, Date.now());
+        for (const b of rows) closes.set(b.time, b.close);
+        return { symbol, closes };
+      })();
+    }
+    const [cb, usdt, spotRes] = await Promise.all([...asks, spot]);
+    if (seq !== this.cbSeq || this.destroyed) return;
+    held.cb = cb || [];
+    held.usdt = usdt;
+    if (spotRes) this.cbSpot = spotRes;
+  }
+
+  /** Hub news: changed trade buckets, or all of them after the hours fetched back. */
+  applyCoinbase(update) {
+    if (this.destroyed || !this.chart || !this.cbOn() || !this.cbInfo || !update) return;
+    if (update.full) this.cbBuckets = new Map();
+    for (const b of update.buckets || []) this.cbBuckets.set(b.time, b);
+    this.cbSince = update.since;
+    this.cbFilling = update.filling;
+    this.renderCoinbase();
+  }
+
+  renderCoinbase(state) {
+    if (!this.chart || !this.cbInfo) return;
+    const bars = this.chart.bars;
+    const times = bars.map((b) => b.time);
+    const step = intervalToMs(this.card.interval) / 1000;
+    const patch = { since: this.cbSince, filling: !!this.cbFilling };
+    if (state) patch.state = state;
+    const buckets = [...this.cbBuckets.values()].sort((a, b) => a.time - b.time);
+    if (this.card.cb !== 'cvd') {
+      const { factor, quote } = this.cbInfo;
+      const perp = this.card.market === 'perp';
+      // Without a spot counterpart a perpetual is read against itself.
+      const own = !perp || !this.cbSpot || !this.cbSpot.symbol;
+      const binance = own ? new Map(bars.map((b) => [b.time, b.close])) : this.cbSpot.closes;
+      const usdt = quote === 'USDT' ? this.cbCandles.usdt : null;
+      const premium = premiumPerBar(times, step, binance, this.cbCandles.cb, usdt, factor);
+      // A spot card's forming bar: Coinbase's newest trade against the live
+      // close, rather than a candle up to a minute old.
+      const last = bars[bars.length - 1];
+      const live = buckets.length ? buckets[buckets.length - 1] : null;
+      if (own && last && live && live.time >= last.time && premium.has(last.time)) {
+        const u = usdt && usdt.length ? usdt[usdt.length - 1].close : 1;
+        premium.set(last.time, ((live.close * factor) / (last.close * u) - 1) * 100);
+      }
+      patch.premium = premium;
+    }
+    if (this.card.cb !== 'premium') {
+      const values = cvdPerBar(buckets, times, step);
+      const cvd = new Map();
+      const delta = new Map();
+      let prev = NaN;
+      for (let i = 0; i < times.length; i++) {
+        const v = values[i];
+        if (!Number.isFinite(v)) continue;
+        cvd.set(times[i], v);
+        delta.set(times[i], Number.isFinite(prev) ? v - prev : v);
+        prev = v;
+      }
+      patch.cvd = cvd;
+      patch.delta = delta;
+    }
+    this.chart.setCoinbaseData(patch);
+  }
+
   /* ---------------------------------------------------------------- walls */
 
   wallsOn() {
@@ -1461,6 +1638,7 @@ export class CardView {
     this.toolbar.setMenuValue('flow', this.card.flow || 'off');
     this.toolbar.setMenuValue('flow', `top:${this.card.flowTop || '0.1'}`, 'top');
     this.toolbar.setMenuValue('flow', `sens:${this.card.flowSens || '3'}`, 'sens');
+    this.toolbar.setMenuValue('cb', this.card.cb || 'off');
     this.toolbar.setMenuValue('liq', this.card.liq || 'off');
     this.toolbar.setMenuValue('liq', `top:${this.card.liqTop || '5'}`, 'top');
     this.toolbar.setMenuValue('walls', this.card.walls || 'off');
@@ -3058,6 +3236,7 @@ export class CardView {
     this.destroyed = true;
     this.loadSeq += 1; // invalidate any in-flight load
     clearTimeout(this.liqMapTimer);
+    clearTimeout(this.cbTimer);
     if (this.offStatus) this.offStatus.forEach((off) => off());
     clearInterval(this.fundingTimer);
     clearTimeout(this.clockTimer);
@@ -3194,6 +3373,7 @@ export class CardView {
       this.applyLiqOptions();
       this.loadLiquidations();
       this.loadLiqMap();
+      this.loadCoinbase();
 
       feed
         .getTicker(symbol)
@@ -3252,6 +3432,7 @@ export class CardView {
       onSweep: (payload) => this.applySweep(payload),
       onWalls: (msg) => this.applyWalls(msg),
       onLiq: (events) => this.applyLiquidations(events),
+      onCoinbase: (update) => this.applyCoinbase(update),
     });
   }
 
@@ -3632,6 +3813,15 @@ export class CardView {
         if (next.liq !== prev.liq && !symbolChanged && !marketChanged) {
           this.loadLiquidations();
           this.loadLiqMap();
+        }
+      }
+      if (next.cb !== prev.cb) {
+        this.applyCoinbaseOptions();
+        // A symbol, market or interval change loads it with the bars.
+        if (!symbolChanged && !marketChanged) {
+          // Another mode needs other data: ask again, keeping the trades held.
+          this.cbInfo = null;
+          this.loadCoinbase();
         }
       }
       if (

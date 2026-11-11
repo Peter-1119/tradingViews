@@ -64,6 +64,7 @@ Press **`F1`** on a card (or **?** in its title bar, or tray menu → "Shortcuts
 - **The background can't blur the desktop.** CSS `backdrop-filter` only blurs what is in the same page, and behind a transparent window is the desktop. Real frosted glass needs Windows' DWM acrylic API (native code). The translucency is the card background's alpha, which is what the opacity slider changes.
 - **Transparent windows can't be maximized** on Windows, so there is no maximize.
 - **"Launch at startup"** only works in the installed build; in development it would point at `electron.exe`.
+- **"Encrypted DNS"** in the tray menu (on by default) looks up the market-data hosts with Cloudflare or Google over HTTPS, for networks that block Coinbase at the DNS step. See [Coinbase premium](order-flow.md#coinbase-premium).
 - The TradingView logo at the bottom left of the chart is Lightweight Charts' attribution and is kept.
 
 A card disappeared? [Vanishing cards](../troubleshooting/vanishing-cards.md) lists every case met so far, how to tell which one it is and how to fix it.

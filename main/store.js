@@ -259,6 +259,7 @@ function sanitizeCard(raw, index = 0) {
     // flowSens: mark bars whose |ΔOI| is this many times the median.
     flow: pick(card.flow, ['off', 'sweeps', 'read', 'both'], 'off'),
     liq: pick(card.liq, ['off', 'both', 'real', 'map'], 'off'),
+    cb: pick(card.cb, ['off', 'both', 'premium', 'cvd'], 'off'),
     liqTop: pick(card.liqTop, ['10', '5', '2'], '5'),
     flowTop: pick(card.flowTop, ['0.5', '0.2', '0.1', '0.05', '0.02', '0.01'], '0.1'),
     flowSens: pick(card.flowSens, ['2', '3', '5'], '3'),
@@ -429,6 +430,7 @@ function getGlobalPrefs() {
     mode: getMode(),
     clickThrough: store.get('clickThrough') === true,
     launchAtStartup: store.get('launchAtStartup') === true,
+    secureDns: store.get('secureDns') !== false,
     shortcuts: getShortcuts(),
     boardColumns: getBoard().columns,
     watchlist: getWatchlist(),

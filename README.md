@@ -2,7 +2,7 @@
 
 # TapeCard
 
-*Formerly StockCard.* Translucent desktop chart cards for short-term crypto trading, run from the keyboard. Each card is a frameless, always-on-top window with a live Binance chart, spot or USDⓈ-M perpetual, and the order-flow tools to read it: CVD, open interest, big orders, order-book walls, liquidations and a footprint. You can trade from the card too, on a local paper account, Binance's testnet or your own account.
+*Formerly StockCard.* Translucent desktop chart cards for short-term crypto trading, run from the keyboard. Each card is a frameless, always-on-top window with a live Binance chart, spot or USDⓈ-M perpetual, and the order-flow tools to read it: CVD, the Coinbase premium, open interest, big orders, order-book walls, liquidations and a footprint. You can trade from the card too, on a local paper account, Binance's testnet or your own account.
 
 **Electron 43 · TradingView Lightweight Charts v5 · Binance public market data** (no sign-up and no API key needed to chart)
 

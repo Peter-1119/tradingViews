@@ -2,7 +2,7 @@
 
 # Data sources
 
-Everything on the chart comes from public endpoints, with no sign-up and no API key: Binance's, and for liquidations Bybit's and OKX's as well. Only trading uses your key ([Trading internals](trading.md)).
+Everything on the chart comes from public endpoints, with no sign-up and no API key: Binance's, Coinbase's for the premium, and for liquidations Bybit's and OKX's as well. Only trading uses your key ([Trading internals](trading.md)).
 
 ## Hosts
 
@@ -11,6 +11,7 @@ Everything on the chart comes from public endpoints, with no sign-up and no API 
 | Spot | `api.binance.com/api/v3` | `stream.binance.com:9443/stream` |
 | USDⓈ-M perpetuals | `fapi.binance.com/fapi/v1` | `fstream.binance.com/market/stream`; order books on `fstream.binance.com/public/stream` |
 | Liquidations, other exchanges | `www.okx.com/api/v5/public/instruments` (contract sizes) | `stream.bybit.com/v5/public/linear`, `ws.okx.com:443/ws/v5/public` |
+| Coinbase | `api.exchange.coinbase.com` | `ws-feed.exchange.coinbase.com` |
 
 REST paths and stream names are the same on both markets, so both are one `BinanceProvider` with a different market config, and reconnects, backfill and coalescing carry over.
 
@@ -29,6 +30,7 @@ REST paths and stream names are the same on both markets, so both are one `Binan
 | Long / short ratio | `/futures/data/globalLongShortAccountRatio` (accounts) and `/topLongShortPositionRatio` (top traders' positions): 5m samples, 30 days |
 | Footprint, big orders | Live from the subscribed `@aggTrade`; missing minutes from `GET /aggTrades` (one minute by `startTime` / `endTime`, paging with `fromId` past 1,000 trades), at most once a second |
 | Order walls | `GET /depth` snapshot (spot 5,000 levels a side, perps 1,000) plus the `@depth` diff stream |
+| Coinbase premium and CVD | `GET /products` (dollar pairs, cached 6 hours), `GET /products/{id}/candles` (300 a page, for the premium and USDT-USD), `GET /products/{id}/trades` (1,000 a page, the last three hours at startup) and the `matches` channel live ([Analytics](analytics.md#coinbase-premium)) |
 | Liquidations | Binance `!forceOrder@arr`, Bybit `allLiquidation.{symbol}`, OKX `liquidation-orders` ([Analytics](analytics.md#liquidations)); the estimated levels from the 5m klines and OI history above |
 
 ## Update rate
@@ -54,6 +56,12 @@ Binance limits REST by weight per IP, and **public data shares the quota with or
 - Footprint backfill: `/aggTrades` costs 20 weight against 2,400 a minute, so it runs at most once a second (half the quota at most), waits for the next minute when the used weight in the response headers passes 1,500, and pauses per `Retry-After` on 429 / 418.
 - OI and long / short history have their own quota (1,000 requests per 5 minutes) and don't touch the one orders use.
 - The OI history endpoint always returns the **newest** 500 rows of any range however early `startTime` is, so history is paged from newest to oldest (asking for 10 days in one call returned only the last 41 hours).
+
+- Coinbase allows ten public requests a second per IP. Candles are started at most five a second and trades three, side by side, and each gives up after 15 seconds.
+
+## DNS
+
+Some networks answer the system's DNS query for Coinbase's hosts with an address that never answers (from some Taiwanese ISPs, a block page at `182.173.0.181`). The app's windows therefore resolve hosts with DNS over HTTPS (`main/secure-dns.js`, Electron's `app.configureHostResolver` in secure mode, Cloudflare then Google), set before the first window opens. Only name lookups change; connections still go directly to the exchanges. It covers what Chromium fetches, the hub and the cards; the trading client uses Node's `fetch` and keeps the system resolver, so orders never depend on it. The tray menu turns it off at once.
 
 ## Symbol mapping
 

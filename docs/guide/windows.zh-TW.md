@@ -63,7 +63,7 @@
 
 - **背景模糊不到桌面。** CSS 的 `backdrop-filter` 只能模糊同一個網頁裡的東西，而透明視窗背後是桌面。真正的毛玻璃要呼叫 Windows DWM 的 acrylic API（原生程式）。目前的半透明效果來自卡片背景的透明度，也就是透明度滑桿實際在調的東西。
 - **透明視窗不能最大化**，這是 Windows 的限制，所以沒有提供最大化。
-- **「開機自動啟動」** 只在安裝版有效；開發模式下會指向 `electron.exe`。
+- 系統匣的 **「加密 DNS 查詢」**（預設開啟）會用 HTTPS 向 Cloudflare 或 Google 查詢行情主機的網址，給在 DNS 這一步擋掉 Coinbase 的網路用。見 [Coinbase 溢價](order-flow.zh-TW.md#coinbase-溢價)。
 - 圖表左下角的 TradingView 標誌是 Lightweight Charts 的署名，保留著。
 
 卡片不見了？[卡片消失排查](../troubleshooting/vanishing-cards.zh-TW.md)列出目前遇過的每一種情況、怎麼判斷是哪一種、怎麼修。

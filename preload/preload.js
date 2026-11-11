@@ -103,6 +103,7 @@ const api = {
     onSweep: (cb) => on('datafeed:sweep', cb),
     onWalls: (cb) => on('datafeed:walls', cb),
     onLiq: (cb) => on('datafeed:liq', cb),
+    onCoinbase: (cb) => on('datafeed:coinbase', cb),
     onStatus: (cb) => on('datafeed:status', cb),
     onReset: (cb) => on('datafeed:reset', cb),
   },
