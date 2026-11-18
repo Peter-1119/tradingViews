@@ -132,8 +132,13 @@ const DEFAULTS = {
 /** One per digit key, in keyboard order: Alt+1..9, then Alt+0 for the tenth. */
 const WATCHLIST_MAX = 10;
 
-/** Enough for any real chart; a guard against a stuck drag writing thousands. */
-const MAX_LEVELS_PER_SYMBOL = 60;
+/**
+ * Per symbol and per kind (levels, trend lines, rectangles, fibs, ranges).
+ * Only a guard against something runaway: past it a new drawing is dropped
+ * without a word, so it sits far above any chart drawn by hand. 60 came
+ * close in real use, and past it a line simply failed to appear.
+ */
+const MAX_LEVELS_PER_SYMBOL = 1000;
 /** Plenty for manual use; a guard against something runaway. */
 const MAX_PRICE_ALERTS = 200;
 

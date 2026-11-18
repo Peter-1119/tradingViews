@@ -6,6 +6,7 @@ What changed, newest first, grouped by when it landed. The app has not been vers
 
 ## Unreleased
 
+- Up to 1,000 drawings of each kind per symbol, up from 60. Past 60, a new line was dropped without a word and seemed not to draw.
 - **Coinbase premium**: a pane with Coinbase's dollar price over Binance spot (corrected for USDT's drift from the dollar) and Coinbase's own CVD from its trades, recorded for every symbol on screen and three hours fetched back at startup. The app now resolves hosts with encrypted DNS (Cloudflare, Google), for networks that block Coinbase at the DNS step; the tray menu turns it off.
 - Documentation reorganised: a short README, a user guide and design notes under `docs/`, every page in English and Traditional Chinese, CONTRIBUTING and this changelog.
 - `npm run shots` remakes every documentation screenshot from a throwaway profile on the paper account.
